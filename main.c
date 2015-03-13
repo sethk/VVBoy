@@ -1,7 +1,18 @@
 #include "main.h"
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <sys/fcntl.h>
+#include <unistd.h>
+#include <math.h>
+#include <stdlib.h>
+#include <strings.h>
 #include <stdio.h>
+#include <signal.h>
 #include <sysexits.h>
 #include <stdbool.h>
+#include <assert.h>
+#include <err.h>
+#include <histedit.h>
 
 static bool
 validate_seg_size(size_t size)
@@ -11,6 +22,9 @@ validate_seg_size(size_t size)
 }
 
 /* MEM */
+
+struct mem_seg_desc mem_segs[MEM_NSEGS];
+
 static const char *mem_seg_names[MEM_NSEGS] =
 {
 	[MEM_SEG_VIP] = "VIP",
@@ -61,6 +75,19 @@ mem_seg_free(enum mem_segment seg)
 	mem_segs[seg].ms_ptr = NULL;
 }
 
+static u_int32_t
+ceil_seg_size(u_int32_t size)
+{
+	// http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2Float
+	--size;
+	size|= size >> 1;
+	size|= size >> 2;
+	size|= size >> 4;
+	size|= size >> 8;
+	size|= size >> 16;
+	return ++size;
+}
+
 #define MEM_ADDR2SEG(a) (((a) & 0x07000000) >> 24)
 #define MEM_ADDR2OFF(a) ((a) & 0x00ffffff)
 
@@ -71,9 +98,15 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
 	if (mem_segs[seg].ms_size)
 	{
-		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
-			mem_seg_realloc(MEM_SEG_SRAM, ceil_seg_size(offset + size));
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
+
+		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
+		{
+			if (!mem_seg_realloc(MEM_SEG_SRAM, ceil_seg_size(offset + size)))
+				return false;
+			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
+		}
+
 		const void *src = mem_segs[seg].ms_ptr + offset;
 		switch (size)
 		{
@@ -102,12 +135,18 @@ static bool
 mem_write(u_int32_t addr, const void *src, size_t size)
 {
 	assert(size > 0);
-	enum mem_segment seg = ADDR2SEG(addr);
+	enum mem_segment seg = MEM_ADDR2SEG(addr);
 	if (mem_segs[seg].ms_size)
 	{
-		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
-			mem_seg_realloc(MEM_SEG_SRAM, ceil_seg_size(offset + size));
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
+
+		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
+		{
+			if (!mem_seg_realloc(MEM_SEG_SRAM, ceil_seg_size(offset + size)))
+				return false;
+			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
+		}
+
 		void *dest = mem_segs[seg].ms_ptr + offset;
 		switch (size)
 		{
@@ -133,7 +172,9 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 }
 
 /* ROM */
-#define ROM_MIN_SIZE 1024
+#define ROM_MIN_SIZE 1024lu
+
+#define IS_POWER_OF_2(n) (((n) & ((n) - 1)) == 0)
 
 static bool
 rom_read(const char *fn, int fd)
@@ -147,18 +188,18 @@ rom_read(const char *fn, int fd)
 
 	if (st.st_size < ROM_MIN_SIZE)
 	{
-		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", ROM_MIN_SIZE);
+		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", fn, ROM_MIN_SIZE);
 		return false;
 	}
 
-	if (!is_power_of_2(st.st_size))
+	if (!IS_POWER_OF_2(st.st_size))
 	{
-		warnx("Size of ROM file ‘%s’, 0x%lx, is not a power of 2", st.st_size, fn);
+		warnx("Size of ROM file ‘%s’, 0x%llx, is not a power of 2", fn, st.st_size);
 		return false;
 	}
 
 	mem_segs[MEM_SEG_ROM].ms_size = st.st_size;
-	mem_segs[MEM_SEG_ROM].ms_ptr = mmap(NULL, st.st_size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd);
+	mem_segs[MEM_SEG_ROM].ms_ptr = mmap(NULL, st.st_size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
 	if (!mem_segs[MEM_SEG_ROM].ms_ptr)
 	{
 		warn("mmap() ROM");
@@ -219,11 +260,168 @@ rom_load(const char *fn)
 	return status;
 }
 
-static bool
+static void
 rom_unload(void)
 {
 	if (munmap(mem_segs[MEM_SEG_ROM].ms_ptr, mem_segs[MEM_SEG_ROM].ms_size) == -1)
 		warn("munmap(mem_segs[MEM_SEG_ROM], ...) failed");
+}
+
+/* CPU */
+static struct cpu_state
+{
+	u_int32_t cs_r[32];
+	u_int32_t cs_pc;
+	u_int32_t cs_psw;
+	u_int32_t cs_ecr;
+} cpu_state;
+
+bool
+cpu_init(void)
+{
+	cpu_state.cs_r[0] = 0; // Read-only
+
+	return true;
+}
+
+void
+cpu_fini(void)
+{
+	// TODO
+}
+
+void
+cpu_reset(void)
+{
+	cpu_state.cs_pc = 0xfffffff0;
+	cpu_state.cs_psw = 0x00008000;
+	cpu_state.cs_ecr = 0x0000fff0;
+}
+
+void
+cpu_step(void)
+{
+	// TODO read instruction
+	// TODO execute instruction
+	// TODO increment PC unless jumped
+}
+
+/* VIP */
+bool
+vip_init(void)
+{
+	// TODO
+	return true;
+}
+
+void
+vip_reset(void)
+{
+	// TODO
+}
+
+void
+vip_step(void)
+{
+	// TODO
+}
+
+void
+vip_fini(void)
+{
+	// TODO
+}
+
+/* VSU */
+bool
+vsu_init(void)
+{
+	// TODO
+	return true;
+}
+
+void
+vsu_reset(void)
+{
+	// TODO
+}
+
+void
+vsu_step(void)
+{
+	// TODO
+}
+
+void
+vsu_fini(void)
+{
+	// TODO
+}
+
+/* DEBUG */
+static EditLine *s_editline;
+static Tokenizer *s_token;
+
+bool
+debug_init(void)
+{
+	s_editline = el_init("vvboy", stdin, stdout, stderr);
+	if (!s_editline)
+	{
+		warnx("Could not initialize editline");
+		return false;
+	}
+	s_token = tok_init(NULL);
+	if (!s_token)
+	{
+		warnx("Could not initialize tokenizer");
+		return false;
+	}
+
+	return true;
+}
+
+void
+debug_fini(void)
+{
+	el_end(s_editline);
+}
+
+void
+debug_intr(void)
+{
+	while (1)
+	{
+		tok_reset(s_token);
+		int count;
+		const char *line = el_gets(s_editline, &count);
+		if (line)
+		{
+			int argc;
+			const char **argv;
+			if (tok_str(s_token, line, &argc, &argv) == 0 && argc > 0)
+			{
+				if (!strcmp(argv[0], "?") || !strcmp(argv[0], "help"))
+				{
+					puts("Debugger commands:");
+					puts("? or help\tDisplay this help");
+					puts("q or quit\tQuit the emulator");
+					puts("c or cont\tContinue execution");
+				}
+				else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
+				{
+					main_exit();
+					break;
+				}
+				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
+					break;
+				else
+					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
+			}
+		}
+		else
+			putchar('\n');
+	}
 }
 
 /* MAIN */
@@ -252,32 +450,69 @@ main_exit(void)
 }
 
 int
-main(int ac, const char *av)
+main_usage(void)
 {
-	if (ac != 2)
-	{
-		fprintf(stderr, "usage: %s <file.vb>\n", getprogname());
-		return EX_USAGE;
-	}
+	fprintf(stderr, "usage: %s [-t] <file.vb>\n", getprogname());
+	return EX_USAGE;
+}
 
-	if (!rom_load(av[1]))
+void
+main_noop(int sig)
+{
+}
+
+int
+main(int ac, char * const *av)
+{
+	int ch;
+	extern int optind;
+	while ((ch = getopt(ac, av, "")) != -1)
+		switch (ch)
+		{
+			case '?':
+				return main_usage();
+		}
+	ac-= optind;
+	av+= optind;
+
+	if (ac != 1)
+		return main_usage();
+
+	if (!rom_load(av[0]))
 		return EX_NOINPUT;
 
-	if (!sram_init() || !wram_init() || !cpu_init() || !vip_init() || !vsu_init())
+	if (!sram_init() || !wram_init() || !cpu_init() || !vip_init() || !vsu_init() || !debug_init())
 		return EX_OSERR;
 
 	main_reset();
 
-	g_running = true;
-	while (g_running)
+	sigset_t sigset;
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGINT);
+	signal(SIGINT, main_noop);
+
+	sigprocmask(SIG_BLOCK, &sigset, NULL);
+	s_running = true;
+	while (s_running)
 	{
-		// TODO: block SIGINT
 		main_step();
-		// TODO: unblock SIGINT
 
-		// TODO: if ^C pending: debug_intr()
+		sigset_t sigpend;
+		sigpending(&sigpend);
+		if (sigismember(&sigpend, SIGINT))
+		{
+			sigprocmask(SIG_UNBLOCK, &sigpend, NULL);
+			signal(SIGINT, SIG_DFL);
+
+			putchar('\n');
+			debug_intr();
+			signal(SIGINT, main_noop);
+			sigprocmask(SIG_BLOCK, &sigpend, NULL);
+		}
 	}
+	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
+	debug_fini();
 	vsu_fini();
 	vip_fini();
 	cpu_fini();

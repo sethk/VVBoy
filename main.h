@@ -19,7 +19,7 @@ enum mem_segment
 	MEM_NSEGS = 8
 };
 
-extern struct mem_segment
+extern struct mem_seg_desc
 {
 	size_t ms_size;
 	u_int8_t *ms_ptr;
