@@ -2,6 +2,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/fcntl.h>
+#include <sys/errno.h>
+#include <sys/param.h>
 #include <unistd.h>
 #include <math.h>
 #include <stdlib.h>
@@ -9,7 +11,6 @@
 #include <stdio.h>
 #include <signal.h>
 #include <sysexits.h>
-#include <stdbool.h>
 #include <assert.h>
 #include <err.h>
 #include <histedit.h>
@@ -54,8 +55,24 @@ mem_seg_alloc(enum mem_segment seg, size_t size)
 }
 
 static bool
+mem_seg_mmap(enum mem_segment seg, size_t size, int fd)
+{
+	mem_segs[seg].ms_size = size;
+	mem_segs[seg].ms_ptr = mmap(NULL, size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
+	if (!mem_segs[seg].ms_ptr)
+	{
+		warn("mmap() %s", mem_seg_names[seg]);
+		return false;
+	}
+	mem_segs[seg].ms_addrmask = size - 1;
+	mem_segs[seg].ms_is_mmap = true;
+	return true;
+}
+
+static bool
 mem_seg_realloc(enum mem_segment seg, size_t size)
 {
+	assert(!mem_segs[seg].ms_is_mmap);
 	assert(validate_seg_size(size));
 	mem_segs[seg].ms_ptr = realloc(mem_segs[seg].ms_ptr, size);
 	if (!mem_segs[seg].ms_ptr)
@@ -71,7 +88,14 @@ mem_seg_realloc(enum mem_segment seg, size_t size)
 static void
 mem_seg_free(enum mem_segment seg)
 {
-	free(mem_segs[seg].ms_ptr);
+	if (!mem_segs[seg].ms_is_mmap)
+		free(mem_segs[seg].ms_ptr);
+	else
+	{
+		if (munmap(mem_segs[seg].ms_ptr, mem_segs[seg].ms_size) == -1)
+			warn("munmap(mem_segs[%s], ...) failed", mem_seg_names[seg]);
+		mem_segs[seg].ms_is_mmap = false;
+	}
 	mem_segs[seg].ms_ptr = NULL;
 }
 
@@ -172,42 +196,215 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 }
 
 /* ROM */
+#define ROM_BASE_ADDR 0x07000000
 #define ROM_MIN_SIZE 1024lu
+#define ROM_MAX_SIZE 0x01000000
 
 #define IS_POWER_OF_2(n) (((n) & ((n) - 1)) == 0)
 
-static bool
-rom_read(const char *fn, int fd)
+struct rom_file
 {
+	int rf_fdesc;
+	off_t rf_size;
+	char *rf_path;
+};
+
+static void
+rom_close(struct rom_file *file)
+{
+	close(file->rf_fdesc);
+	if (file->rf_path)
+		free(file->rf_path);
+}
+
+static bool
+rom_open(const char *fn, struct rom_file *file)
+{
+	bzero(file, sizeof(file));
+
+	file->rf_fdesc = open(fn, O_RDONLY);
+	if (file->rf_fdesc == -1)
+	{
+		warn("Could not open ‘%s’", fn);
+		return false;
+	}
+
 	struct stat st;
-	if (fstat(fd, &st) == -1)
+	if (fstat(file->rf_fdesc, &st) == -1)
 	{
-		warn("stat()");
+		warn("stat() ‘%s’", fn);
+		rom_close(file);
+		return false;
+	}
+	file->rf_size = st.st_size;
+
+	file->rf_path = strdup(fn);
+	if (!file->rf_path)
+		err(EX_OSERR, "Alloc path");
+
+	return true;
+}
+
+static bool
+rom_read(struct rom_file *file)
+{
+	if (file->rf_size < ROM_MIN_SIZE)
+	{
+		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", file->rf_path, ROM_MIN_SIZE);
 		return false;
 	}
 
-	if (st.st_size < ROM_MIN_SIZE)
+	if (!IS_POWER_OF_2(file->rf_size))
 	{
-		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", fn, ROM_MIN_SIZE);
+		warnx("Size of ROM file ‘%s’, 0x%llx, is not a power of 2", file->rf_path, file->rf_size);
 		return false;
 	}
 
-	if (!IS_POWER_OF_2(st.st_size))
-	{
-		warnx("Size of ROM file ‘%s’, 0x%llx, is not a power of 2", fn, st.st_size);
+	if (!mem_seg_mmap(MEM_SEG_ROM, file->rf_size, file->rf_fdesc))
 		return false;
-	}
-
-	mem_segs[MEM_SEG_ROM].ms_size = st.st_size;
-	mem_segs[MEM_SEG_ROM].ms_ptr = mmap(NULL, st.st_size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
-	if (!mem_segs[MEM_SEG_ROM].ms_ptr)
-	{
-		warn("mmap() ROM");
-		return false;
-	}
-	mem_segs[MEM_SEG_ROM].ms_addrmask = st.st_size - 1;
 
 	// TODO: check ROM info
+
+	return true;
+}
+
+static bool
+rom_read_buffer(struct rom_file *file, void *buf, size_t size, const char *desc)
+{
+	ssize_t nread = read(file->rf_fdesc, buf, size);
+	if (nread == size)
+		return true;
+	else
+	{
+		warnx("Read %s from ‘%s’: %s", desc, file->rf_path, (nread == -1) ? strerror(errno) : "Unexpected EOF");
+		return false;
+	}
+}
+
+static bool
+rom_seek(struct rom_file *file, off_t off, int whence)
+{
+	if (lseek(file->rf_fdesc, off, whence) != -1)
+		return true;
+	else
+	{
+		warn("Seek ‘%s’", file->rf_path);
+		return false;
+	}
+}
+
+enum isx_tag
+{
+	ISX_TAG_LOAD = 0x11,
+	ISX_TAG_DEBUG1 = 0x14,
+	ISX_TAG_DEBUG2 = 0x13,
+	ISX_TAG_DEBUG3 = 0x20
+};
+
+struct isx_chunk_header
+{
+	u_char ich_tag;
+	int32_t ich_addr;
+	u_int32_t ich_size;
+} __attribute__((packed));
+
+static bool
+isx_is_eof(struct rom_file *file)
+{
+	return (lseek(file->rf_fdesc, 0, SEEK_CUR) == file->rf_size);
+}
+
+static bool
+isx_read_chunk_header(struct rom_file *file, struct isx_chunk_header *header)
+{
+	if (!rom_read_buffer(file, &(header->ich_tag), sizeof(header->ich_tag), "ISX chunk header tag"))
+		return false;
+
+	if (header->ich_tag == ISX_TAG_LOAD)
+		return rom_read_buffer(file,
+				(char *)header + sizeof(header->ich_tag),
+				sizeof(*header) - sizeof(header->ich_tag),
+				"ISX chunk header");
+	else
+		return true;
+}
+
+static bool
+rom_read_isx(struct rom_file *file)
+{
+	static const char ISX_MAGIC[] = {'I', 'S', 'X'};
+	char magic[sizeof(ISX_MAGIC)];
+	if (!rom_read_buffer(file, magic, sizeof(ISX_MAGIC), "ISX magic"))
+		return false;
+	if (bcmp(magic, ISX_MAGIC, sizeof(ISX_MAGIC)))
+	{
+		warnx("Invalid ISX magic in ‘%s’", file->rf_path);
+		return false;
+	}
+
+	// Seek over rest of header:
+	if (!rom_seek(file, 32, SEEK_SET))
+		return false;
+
+	u_int32_t rom_size = 0;
+	while (!isx_is_eof(file))
+	{
+		struct isx_chunk_header header;
+		if (!isx_read_chunk_header(file, &header))
+			return false;
+
+		if (header.ich_tag == ISX_TAG_LOAD)
+		{
+			if (header.ich_addr < 0)
+				rom_size+= -header.ich_addr;
+			else if (MEM_ADDR2SEG(header.ich_addr) == MEM_SEG_ROM)
+			{
+				size_t loaded_size = MEM_ADDR2OFF(header.ich_addr) + header.ich_size;
+				rom_size = MAX(rom_size, loaded_size);
+			}
+			else
+			{
+				warnx("Invalid chunk load addr 0x%08x in ISX file ‘%s’", (u_int32_t)header.ich_addr, file->rf_path);
+				return false;
+			}
+
+			if (!rom_seek(file, header.ich_size, SEEK_CUR))
+				return false;
+		}
+		else if (header.ich_tag == ISX_TAG_DEBUG1 || header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
+			break;
+	}
+
+	rom_size = ceil_seg_size(rom_size);
+	rom_size = MAX(rom_size, ROM_MIN_SIZE);
+	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size))
+		return false;
+
+	memset(mem_segs[MEM_SEG_ROM].ms_ptr, 0xff, rom_size);
+
+	if (!rom_seek(file, 32, SEEK_SET))
+		return false;
+
+	while (!isx_is_eof(file))
+	{
+		struct isx_chunk_header header;
+		if (!isx_read_chunk_header(file, &header))
+			return false;
+
+		if (header.ich_tag == ISX_TAG_LOAD)
+		{
+			size_t offset;
+			if (header.ich_addr < 0)
+				offset = rom_size + header.ich_addr;
+			else
+				offset = MEM_ADDR2OFF(header.ich_addr);
+
+			if (!rom_read_buffer(file, mem_segs[MEM_SEG_ROM].ms_ptr + offset, header.ich_size, "ISX chunk"))
+				return false;
+		}
+		else if (header.ich_tag == ISX_TAG_DEBUG1 || header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
+			break;
+	}
 
 	return true;
 }
@@ -246,16 +443,24 @@ wram_fini(void)
 static bool
 rom_load(const char *fn)
 {
-	int fd = open(fn, O_RDONLY);
-	if (fd == -1)
-	{
-		warn("Could not open ‘%s’", fn);
+	char *ext = strrchr(fn, '.');
+	bool is_isx = false;
+	if (ext && !strcasecmp(ext, ".ISX"))
+		is_isx = true;
+	else if (!ext || strcasecmp(ext, ".VB"))
+		warnx("Can‘t determine file type from ‘%s’, assuming ROM file", fn);
+
+	struct rom_file file;
+	if (!rom_open(fn, &file))
 		return false;
-	}
 
-	int status = rom_read(fn, fd);
+	int status;
+	if (is_isx)
+		status = rom_read_isx(&file);
+	else
+		status = rom_read(&file);
 
-	close(fd);
+	rom_close(&file);
 
 	return status;
 }
@@ -263,8 +468,7 @@ rom_load(const char *fn)
 static void
 rom_unload(void)
 {
-	if (munmap(mem_segs[MEM_SEG_ROM].ms_ptr, mem_segs[MEM_SEG_ROM].ms_size) == -1)
-		warn("munmap(mem_segs[MEM_SEG_ROM], ...) failed");
+	mem_seg_free(MEM_SEG_ROM);
 }
 
 /* CPU */
