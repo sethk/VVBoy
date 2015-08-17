@@ -4,6 +4,7 @@
 #include <sys/fcntl.h>
 #include <sys/errno.h>
 #include <sys/param.h>
+#include <libkern/OSByteOrder.h>
 #include <unistd.h>
 #include <math.h>
 #include <stdlib.h>
@@ -155,7 +156,7 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 	}
 }
 
-static bool
+static bool __unused
 mem_write(u_int32_t addr, const void *src, size_t size)
 {
 	assert(size > 0);
@@ -489,6 +490,71 @@ union cpu_inst
 		u_int i_reg2 : 5;
 		u_int i_opcode : 6;
 	} ci_i;
+	struct
+	{
+		u_int v_reg1 : 5;
+		u_int v_reg2 : 5;
+		u_int v_opcode : 6;
+		u_int16_t v_imm16;
+	} ci_v;
+};
+
+enum cpu_opcode
+{
+	OP_MOV   = 0b000000,
+	OP_ADD   = 0b000001,
+	OP_SUB   = 0b000010,
+	OP_CMP   = 0b000011,
+	OP_SHL   = 0b000100,
+	OP_SHR   = 0b000101,
+	OP_JMP   = 0b000110,
+	OP_SAR   = 0b000111,
+	OP_MUL   = 0b001000,
+	OP_DIV   = 0b001001,
+	OP_MULU  = 0b001010,
+	OP_DIVU  = 0b001011,
+	OP_OR    = 0b001100,
+	OP_AND   = 0b001101,
+	OP_XOR   = 0b001110,
+	OP_NOT   = 0b001111,
+	OP_MOV2  = 0b010000,
+	OP_ADD2  = 0b010001,
+	OP_SETF  = 0b010010,
+	OP_CMP2  = 0b010011,
+	OP_SHL2  = 0b010100,
+	OP_SHR2  = 0b010101,
+	OP_CLI   = 0b010110,
+	OP_SAR2  = 0b010111,
+	OP_TRAP  = 0b011000,
+	OP_RETI  = 0b011001,
+	OP_HALT  = 0b011010,
+	OP_LDSR  = 0b011100,
+	OP_STSR  = 0b011101,
+	OP_SEI   = 0b011110,
+	OP_BSTR  = 0b011111,
+	// BCOND
+	OP_MOVEA = 0b101000,
+	OP_ADDI  = 0b101001,
+	OP_JR    = 0b101010,
+	OP_JAL   = 0b101011,
+	OP_ORI   = 0b101100,
+	OP_ANDI  = 0b101101,
+	OP_XORI  = 0b101110,
+	OP_MOVHI = 0b101111,
+	OP_LD_B  = 0b110000,
+	OP_LD_H  = 0b110001,
+	OP_LD_W  = 0b110011,
+	OP_ST_B  = 0b110100,
+	OP_ST_H  = 0b110101,
+	OP_ST_W  = 0b110111,
+	OP_IN_B  = 0b111000,
+	OP_IN_H  = 0b111001,
+	OP_CAXI  = 0b111010,
+	OP_IN_W  = 0b111011,
+	OP_OUT_B = 0b111100,
+	OP_OUT_H = 0b111101,
+	OP_FLOAT = 0b111110,
+	OP_OUT_W = 0b111111
 };
 
 bool
@@ -519,21 +585,53 @@ cpu_inst_size(union cpu_inst *inst)
 	return (inst->ci_i.i_opcode < 0x28) ? 2 : 4;
 }
 
-void
+static bool
 cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 {
-	mem_read(addr, &(inst->ci_hwords[0]), 2);
+	if (!mem_read(addr, &(inst->ci_hwords[0]), 2))
+		return false;
+	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
 	if (cpu_inst_size(inst) == 4)
-		mem_read(addr + 2, &(inst->ci_hwords[1]), 2);
+	{
+		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2))
+			return false;
+		inst->ci_hwords[1] = OSSwapLittleToHostInt16(inst->ci_hwords[1]);
+	}
+	return true;
 }
 
 void
 cpu_step(void)
 {
 	union cpu_inst inst;
-	cpu_fetch(cpu_state.cs_pc, &inst);
-	// TODO execute instruction
-	// TODO increment PC unless jumped
+	if (!cpu_fetch(cpu_state.cs_pc, &inst))
+	{
+		fprintf(stderr, "TODO: bus error\n");
+		return;
+	}
+	u_int32_t old_pc = cpu_state.cs_pc;
+	switch (inst.ci_i.i_opcode)
+	{
+		case OP_JMP:
+			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_v.v_reg1];
+			break;
+		case OP_MOVEA:
+		{
+			u_int32_t imm = inst.ci_v.v_imm16;
+			if ((imm & 0x8000) == 0x8000)
+				imm|= 0xffff0000;
+			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
+			break;
+		}
+		case OP_MOVHI:
+			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] | (inst.ci_v.v_imm16 << 16);
+			break;
+		default:
+			fprintf(stderr, "TODO: execute instruction\n");
+			return;
+	}
+	if (cpu_state.cs_pc == old_pc)
+		cpu_state.cs_pc+= cpu_inst_size(&inst);
 }
 
 /* VIP */
@@ -629,23 +727,127 @@ static char *
 debug_format_binary(u_int n, u_int nbits)
 {
 	static char bin[33];
-	char *end = bin;
 	assert(nbits < sizeof(bin) - 1);
+	char *end = bin + nbits;
+	*end-- = '\0';
 	while (nbits--)
 	{
-		*end++ = (n & 1) ? '1' : '0';
+		*end-- = (n & 1) ? '1' : '0';
 		n>>= 1;
 	}
-	*end = '\0';
 	return bin;
 }
 
 static char *
-debug_disasm(union cpu_inst *inst)
+debug_disasm(const union cpu_inst *inst)
 {
 	static char dis[32];
-	snprintf(dis, sizeof(dis), "%s", debug_format_binary(inst->ci_i.i_opcode, 6));
+	//snprintf(dis, sizeof(dis), "%s", debug_format_binary(inst->ci_hwords[0], 16));
+	const char *mnemonic;
+	switch (inst->ci_i.i_opcode)
+	{
+		case OP_JMP: mnemonic = "JMP"; break;
+		case OP_MOVHI: mnemonic = "MOVHI"; break;
+		case OP_MOVEA: mnemonic = "MOVEA"; break;
+		case OP_ADDI: mnemonic = "ADDI"; break;
+		default:
+		{
+			static char unknown[32];
+			snprintf(unknown, sizeof(unknown), "??? (%s)", debug_format_binary(inst->ci_i.i_opcode, 6));
+			mnemonic = unknown;
+		}
+	}
+	switch (inst->ci_i.i_opcode)
+	{
+		case OP_MOV:
+		case OP_ADD:
+		case OP_SUB:
+		case OP_CMP:
+		case OP_SHL:
+		case OP_SHR:
+		case OP_SAR:
+		case OP_MUL:
+		case OP_DIV:
+		case OP_MULU:
+		case OP_DIVU:
+		case OP_OR:
+		case OP_AND:
+		case OP_XOR:
+		case OP_NOT:
+			snprintf(dis, sizeof(dis), "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			break;
+		case OP_JMP:
+			snprintf(dis, sizeof(dis), "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
+			break;
+		case OP_MOVEA:
+		case OP_MOVHI:
+		case OP_ADDI:
+			snprintf(dis, sizeof(dis), "%s %hXh, r%d, r%d",
+					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+			break;
+		default:
+			snprintf(dis, sizeof(dis), "TODO: %s", mnemonic);
+	}
 	return dis;
+}
+
+static const struct debug_help
+{
+	char dh_char;
+	const char *dh_usage;
+	const char *dh_desc;
+} debug_help[] =
+{
+	{'?', "", "Display this help (aliases: help)"},
+	{'q', "", "Quit the emulator (aliases: quit, exit)"},
+	{'c', "", "Continue execution (aliases: cont)"},
+	{'s', "", "Step into the next instruction (aliases: step)"},
+	{'i', "", "Show CPU info (aliases: info)"},
+	{'x', "<addr> [<format>] [<count>]", "Examine memory at <addr>\n"
+		"\t\tFormats: h (hex), i (instructions)"},
+	{'r', "", "Reset the CPU (aliases: reset)"}
+};
+
+static void
+debug_print_help(const struct debug_help *help)
+{
+	printf("%c %s\t%s\n", help->dh_char, help->dh_usage, help->dh_desc);
+}
+
+static void
+debug_usage(char ch)
+{
+	u_int helpIndex;
+	for (helpIndex = 0; helpIndex < sizeof(debug_help) / sizeof(debug_help[0]); ++helpIndex)
+	{
+		if (debug_help[helpIndex].dh_char == ch)
+		{
+			debug_print_help(&(debug_help[helpIndex]));
+			break;
+		}
+	}
+	assert(helpIndex < sizeof(debug_help) / sizeof(debug_help[0]));
+}
+
+static bool
+debug_mem_read(u_int32_t addr, void *dest, size_t size)
+{
+	if (mem_read(addr, dest, size))
+		return true;
+	else
+	{
+		printf("Could not read %lu bytes from 0x%08x: Invalid address\n", size, addr);
+		return false;
+	}
+}
+
+static u_int32_t
+debug_parse_addr(const char *s)
+{
+	if (!strcmp(s, "pc"))
+		return cpu_state.cs_pc;
+	else
+		return strtol(s, NULL, 0);
 }
 
 void
@@ -654,12 +856,14 @@ debug_intr(void)
 	while (1)
 	{
 		union cpu_inst inst;
-		cpu_fetch(cpu_state.cs_pc, &inst);
-		printf("frame 0: 0x%08x: %s\n", cpu_state.cs_pc, debug_disasm(&inst));
+		if (cpu_fetch(cpu_state.cs_pc, &inst))
+			printf("frame 0: 0x%08x: %s\n", cpu_state.cs_pc, debug_disasm(&inst));
+		else
+			printf("Could not read instruction at 0x%08x\n", cpu_state.cs_pc);
 
 		tok_reset(s_token);
-		int count;
-		const char *line = el_gets(s_editline, &count);
+		int length;
+		const char *line = el_gets(s_editline, &length);
 		if (line)
 		{
 			int argc;
@@ -669,10 +873,8 @@ debug_intr(void)
 				if (!strcmp(argv[0], "?") || !strcmp(argv[0], "help"))
 				{
 					puts("Debugger commands:");
-					puts("? or help\tDisplay this help");
-					puts("q or quit\tQuit the emulator");
-					puts("c or cont\tContinue execution");
-					puts("x [<format>] <addr>\tExamine memory at <addr>");
+					for (u_int helpIndex = 0; helpIndex < sizeof(debug_help) / sizeof(debug_help[0]); ++helpIndex)
+						debug_print_help(&(debug_help[helpIndex]));
 				}
 				else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
 				{
@@ -681,12 +883,68 @@ debug_intr(void)
 				}
 				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
 					break;
+				else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
+					main_step();
+				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
+				{
+					static const char *fmt = "\t%3s: 0x%08x";
+					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
+					{
+						char rname[5];
+						snprintf(rname, sizeof(rname), "r%d", regIndex);
+						printf(fmt, rname, cpu_state.cs_r[regIndex]);
+						if (regIndex % 2 == 1)
+							putchar('\n');
+					}
+					printf(fmt, "pc", cpu_state.cs_pc);
+					printf(fmt, "psw", cpu_state.cs_psw);
+					putchar('\n');
+					printf(fmt, "ecr", cpu_state.cs_ecr);
+					putchar('\n');
+				}
 				else if (!strcmp(argv[0], "x"))
 				{
-					u_int32_t addr;
 					if (argc >= 2)
-						addr = strtol(argv[1], NULL, 0);
+					{
+						u_int32_t addr = debug_parse_addr(argv[1]);
+						const char *format = "h";
+						u_int count = 1;
+						if (argc >= 3)
+							format = argv[2];
+						if (argc >= 4)
+							count = strtoul(argv[3], NULL, 0);
+
+						for (u_int objIndex = 0; objIndex < count; ++objIndex)
+						{
+							printf("0x%08x:", addr);
+							if (!strcmp(format, "h"))
+							{
+								u_int32_t dword;
+								if (debug_mem_read(addr, &dword, sizeof(dword)))
+									printf(" %08x\n", dword);
+								addr+= sizeof(dword);
+							}
+							else if (!strcmp(format, "i"))
+							{
+								union cpu_inst inst;
+								if (cpu_fetch(addr, &inst))
+									printf(" %s\n", debug_disasm(&inst));
+								else
+									fputs("Could not fetch instruction\n", stderr);
+								addr+= cpu_inst_size(&inst);
+							}
+							else
+							{
+								debug_usage('x');
+								break;
+							}
+						}
+					}
+					else
+						debug_usage('x');
 				}
+				else if (!strcmp(argv[0], "r") || !strcmp(argv[0], "reset"))
+					cpu_reset();
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
 			}
