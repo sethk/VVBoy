@@ -480,6 +480,17 @@ static struct cpu_state
 	u_int32_t cs_ecr;
 } cpu_state;
 
+union cpu_inst
+{
+	u_int16_t ci_hwords[2];
+	struct
+	{
+		u_int i_reg1 : 5;
+		u_int i_reg2 : 5;
+		u_int i_opcode : 6;
+	} ci_i;
+};
+
 bool
 cpu_init(void)
 {
@@ -502,10 +513,25 @@ cpu_reset(void)
 	cpu_state.cs_ecr = 0x0000fff0;
 }
 
+static size_t
+cpu_inst_size(union cpu_inst *inst)
+{
+	return (inst->ci_i.i_opcode < 0x28) ? 2 : 4;
+}
+
+void
+cpu_fetch(u_int32_t addr, union cpu_inst *inst)
+{
+	mem_read(addr, &(inst->ci_hwords[0]), 2);
+	if (cpu_inst_size(inst) == 4)
+		mem_read(addr + 2, &(inst->ci_hwords[1]), 2);
+}
+
 void
 cpu_step(void)
 {
-	// TODO read instruction
+	union cpu_inst inst;
+	cpu_fetch(cpu_state.cs_pc, &inst);
 	// TODO execute instruction
 	// TODO increment PC unless jumped
 }
@@ -566,6 +592,12 @@ vsu_fini(void)
 static EditLine *s_editline;
 static Tokenizer *s_token;
 
+static char *
+debug_prompt(EditLine *editline)
+{
+	return "vvboy> ";
+}
+
 bool
 debug_init(void)
 {
@@ -575,6 +607,8 @@ debug_init(void)
 		warnx("Could not initialize editline");
 		return false;
 	}
+	el_set(s_editline, EL_PROMPT, debug_prompt);
+
 	s_token = tok_init(NULL);
 	if (!s_token)
 	{
@@ -591,11 +625,38 @@ debug_fini(void)
 	el_end(s_editline);
 }
 
+static char *
+debug_format_binary(u_int n, u_int nbits)
+{
+	static char bin[33];
+	char *end = bin;
+	assert(nbits < sizeof(bin) - 1);
+	while (nbits--)
+	{
+		*end++ = (n & 1) ? '1' : '0';
+		n>>= 1;
+	}
+	*end = '\0';
+	return bin;
+}
+
+static char *
+debug_disasm(union cpu_inst *inst)
+{
+	static char dis[32];
+	snprintf(dis, sizeof(dis), "%s", debug_format_binary(inst->ci_i.i_opcode, 6));
+	return dis;
+}
+
 void
 debug_intr(void)
 {
 	while (1)
 	{
+		union cpu_inst inst;
+		cpu_fetch(cpu_state.cs_pc, &inst);
+		printf("frame 0: 0x%08x: %s\n", cpu_state.cs_pc, debug_disasm(&inst));
+
 		tok_reset(s_token);
 		int count;
 		const char *line = el_gets(s_editline, &count);
@@ -611,6 +672,7 @@ debug_intr(void)
 					puts("? or help\tDisplay this help");
 					puts("q or quit\tQuit the emulator");
 					puts("c or cont\tContinue execution");
+					puts("x [<format>] <addr>\tExamine memory at <addr>");
 				}
 				else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
 				{
@@ -619,6 +681,12 @@ debug_intr(void)
 				}
 				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
 					break;
+				else if (!strcmp(argv[0], "x"))
+				{
+					u_int32_t addr;
+					if (argc >= 2)
+						addr = strtol(argv[1], NULL, 0);
+				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
 			}
@@ -656,7 +724,7 @@ main_exit(void)
 int
 main_usage(void)
 {
-	fprintf(stderr, "usage: %s [-t] <file.vb>\n", getprogname());
+	fprintf(stderr, "usage: %s [-d] { <file.vb> | <file.isx> }\n", getprogname());
 	return EX_USAGE;
 }
 
@@ -670,11 +738,15 @@ main(int ac, char * const *av)
 {
 	int ch;
 	extern int optind;
-	while ((ch = getopt(ac, av, "")) != -1)
+	bool debug_boot = false;
+	while ((ch = getopt(ac, av, "d")) != -1)
 		switch (ch)
 		{
 			case '?':
 				return main_usage();
+			case 'd':
+				debug_boot = true;
+				break;
 		}
 	ac-= optind;
 	av+= optind;
@@ -690,13 +762,17 @@ main(int ac, char * const *av)
 
 	main_reset();
 
+	s_running = true;
+
+	if (debug_boot)
+		debug_intr();
+
 	sigset_t sigset;
 	sigemptyset(&sigset);
 	sigaddset(&sigset, SIGINT);
 	signal(SIGINT, main_noop);
 
 	sigprocmask(SIG_BLOCK, &sigset, NULL);
-	s_running = true;
 	while (s_running)
 	{
 		main_step();
