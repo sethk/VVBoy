@@ -861,7 +861,7 @@ debug_mem_read(u_int32_t addr, void *dest, size_t size)
 		return true;
 	else
 	{
-		printf("Could not read %lu bytes from 0x%08x: Invalid address\n", size, addr);
+		warnx("Could not read %lu bytes from 0x%08x: Invalid address\n", size, addr);
 		return false;
 	}
 }
