@@ -847,7 +847,13 @@ debug_parse_addr(const char *s)
 	if (!strcmp(s, "pc"))
 		return cpu_state.cs_pc;
 	else
-		return strtol(s, NULL, 0);
+	{
+		char *endp;
+		u_int32_t addr = strtol(s, &endp, 0);
+		if (*endp != '\0')
+			warnx("Invalid address “%s”\n", s);
+		return addr;
+	}
 }
 
 void
