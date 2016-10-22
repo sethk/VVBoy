@@ -653,6 +653,7 @@ cpu_step(void)
 			break;
 		default:
 			fprintf(stderr, "TODO: execute instruction\n");
+			raise(SIGINT);
 			return;
 	}
 	if (cpu_state.cs_pc == old_pc)
