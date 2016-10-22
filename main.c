@@ -492,6 +492,12 @@ union cpu_inst
 	} ci_i;
 	struct
 	{
+		u_int ii_imm5 : 5;
+		u_int ii_reg2 : 5;
+		u_int ii_opcode : 6;
+	} ci_ii;
+	struct
+	{
 		u_int v_reg1 : 5;
 		u_int v_reg2 : 5;
 		u_int v_opcode : 6;
@@ -571,6 +577,14 @@ cpu_fini(void)
 	// TODO
 }
 
+enum cpu_psw_flags
+{
+	CPU_PSW_Z  = 1 << 0,
+	CPU_PSW_S  = 1 << 1,
+	CPU_PSW_OV = 1 << 2,
+	CPU_PSW_CY = 1 << 3
+};
+
 void
 cpu_reset(void)
 {
@@ -612,9 +626,20 @@ cpu_step(void)
 	u_int32_t old_pc = cpu_state.cs_pc;
 	switch (inst.ci_i.i_opcode)
 	{
-		case OP_JMP:
-			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_v.v_reg1];
+		case OP_MOV:
+			cpu_state.cs_r[inst.ci_i.i_reg2] = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
+		case OP_JMP:
+			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1];
+			break;
+		case OP_MOV2:
+		{
+			u_int32_t imm = inst.ci_ii.ii_imm5;
+			if ((imm & 0b10000) == 0b10000)
+				imm|= 0xffffffe0;
+			cpu_state.cs_r[inst.ci_ii.ii_reg2] = imm;
+			break;
+		}
 		case OP_MOVEA:
 		{
 			u_int32_t imm = inst.ci_v.v_imm16;
