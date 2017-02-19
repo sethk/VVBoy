@@ -503,6 +503,13 @@ union cpu_inst
 		u_int v_opcode : 6;
 		u_int16_t v_imm16;
 	} ci_v;
+	struct
+	{
+		u_int vi_reg1 : 5;
+		u_int vi_reg2 : 5;
+		u_int vi_opcode : 6;
+		int16_t vi_disp16;
+	} ci_vi;
 };
 
 enum cpu_opcode
@@ -629,9 +636,27 @@ cpu_step(void)
 		case OP_MOV:
 			cpu_state.cs_r[inst.ci_i.i_reg2] = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
+			/*
+	OP_ADD   = 0b000001,
+	OP_SUB   = 0b000010,
+	OP_CMP   = 0b000011,
+	OP_SHL   = 0b000100,
+	OP_SHR   = 0b000101,
+	*/
 		case OP_JMP:
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
+			/*
+	OP_SAR   = 0b000111,
+	OP_MUL   = 0b001000,
+	OP_DIV   = 0b001001,
+	OP_MULU  = 0b001010,
+	OP_DIVU  = 0b001011,
+	OP_OR    = 0b001100,
+	OP_AND   = 0b001101,
+	OP_XOR   = 0b001110,
+	OP_NOT   = 0b001111,
+	*/
 		case OP_MOV2:
 		{
 			u_int32_t imm = inst.ci_ii.ii_imm5;
@@ -640,6 +665,23 @@ cpu_step(void)
 			cpu_state.cs_r[inst.ci_ii.ii_reg2] = imm;
 			break;
 		}
+		/*
+	OP_ADD2  = 0b010001,
+	OP_SETF  = 0b010010,
+	OP_CMP2  = 0b010011,
+	OP_SHL2  = 0b010100,
+	OP_SHR2  = 0b010101,
+	OP_CLI   = 0b010110,
+	OP_SAR2  = 0b010111,
+	OP_TRAP  = 0b011000,
+	OP_RETI  = 0b011001,
+	OP_HALT  = 0b011010,
+	OP_LDSR  = 0b011100,
+	OP_STSR  = 0b011101,
+	OP_SEI   = 0b011110,
+	OP_BSTR  = 0b011111,
+	// BCOND
+	*/
 		case OP_MOVEA:
 		{
 			u_int32_t imm = inst.ci_v.v_imm16;
@@ -648,9 +690,67 @@ cpu_step(void)
 			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
 			break;
 		}
+		case OP_ADDI:
+		{
+			u_int32_t imm = inst.ci_v.v_imm16;
+			if ((imm & 0x8000) == 0x8000)
+				imm|= 0xffff0000;
+			u_int64_t result = cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
+			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			if (result == 0)
+				cpu_state.cs_psw|= CPU_PSW_Z;
+			else if ((result & 0x80000000) == 0x80000000)
+				cpu_state.cs_psw|= CPU_PSW_S;
+			// TODO: Overflow && Carry
+			//if ((result 
+			break;
+		}
+		/*
+	OP_JR    = 0b101010,
+	OP_JAL   = 0b101011,
+	OP_ORI   = 0b101100,
+	OP_ANDI  = 0b101101,
+	OP_XORI  = 0b101110,
+	*/
 		case OP_MOVHI:
 			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] | (inst.ci_v.v_imm16 << 16);
 			break;
+			/*
+	OP_LD_B  = 0b110000,
+	OP_LD_H  = 0b110001,
+	*/
+		case OP_LD_W:
+		{
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r));
+			break;
+		}
+			 /*
+	OP_ST_B  = 0b110100,
+	*/
+		case OP_ST_H:
+		{
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xffff;
+			mem_write(addr, &value, sizeof(value));
+		}
+		case OP_ST_W:
+		{
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2];
+			mem_write(addr, &value, sizeof(value));
+			break;
+		}
+			 /*
+	OP_IN_B  = 0b111000,
+	OP_IN_H  = 0b111001,
+	OP_CAXI  = 0b111010,
+	OP_IN_W  = 0b111011,
+	OP_OUT_B = 0b111100,
+	OP_OUT_H = 0b111101,
+	OP_FLOAT = 0b111110,
+	OP_OUT_W = 0b111111
+	*/
 		default:
 			fprintf(stderr, "TODO: execute instruction\n");
 			raise(SIGINT);
