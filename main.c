@@ -631,7 +631,31 @@ cpu_exec(const union cpu_inst inst)
 	OP_ADD2  = 0b010001,
 	OP_SETF  = 0b010010,
 	OP_CMP2  = 0b010011,
-	OP_SHL2  = 0b010100,
+	*/
+		case OP_SHL2:
+			if (inst.ci_ii.ii_imm5)
+			{
+				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+				u_int32_t shift = inst.ci_ii.ii_imm5;
+				u_int32_t result = start << shift;
+				if (((start >> (31 - shift)) & 1) == 1)
+					cpu_state.cs_psw|= CPU_PSW_CY;
+				else
+					cpu_state.cs_psw&= ~CPU_PSW_CY;
+				cpu_state.cs_psw&= ~CPU_PSW_OV;
+				if ((result & 0x80000000) == 0x80000000)
+					cpu_state.cs_psw|= CPU_PSW_S;
+				else
+					cpu_state.cs_psw&= ~CPU_PSW_S;
+				if (result == 0)
+					cpu_state.cs_psw|= CPU_PSW_Z;
+				else
+					cpu_state.cs_psw&= ~CPU_PSW_Z;
+				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
+				break;
+			}
+
+			/*
 	OP_SHR2  = 0b010101,
 	OP_CLI   = 0b010110,
 	OP_SAR2  = 0b010111,
@@ -689,8 +713,18 @@ cpu_exec(const union cpu_inst inst)
 			break;
 			/*
 	OP_LD_B  = 0b110000,
-	OP_LD_H  = 0b110001,
 	*/
+		case OP_LD_H:
+		{
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int16_t value;
+			mem_read(addr, &value, sizeof(value));
+			if ((value & 0x8000) == 0x8000)
+				cpu_state.cs_r[inst.ci_vi.vi_reg2] = 0xffff0000 | value;
+			else
+				cpu_state.cs_r[inst.ci_vi.vi_reg2] = value;
+			break;
+		}
 		case OP_LD_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
@@ -902,10 +936,28 @@ debug_disasm(const union cpu_inst *inst)
 	const char *mnemonic;
 	switch (inst->ci_i.i_opcode)
 	{
+		case OP_MOV:
+		case OP_MOV2:
+			mnemonic = "MOV";
+			break;
 		case OP_JMP: mnemonic = "JMP"; break;
+		case OP_SHL2: mnemonic = "SHL"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
+		case OP_CAXI: mnemonic = "CAXI"; break;
+		case OP_IN_B: mnemonic = "IN.B"; break;
+		case OP_IN_H: mnemonic = "IN.H"; break;
+		case OP_IN_W: mnemonic = "IN.W"; break;
+		case OP_LD_B: mnemonic = "LD.B"; break;
+		case OP_LD_H: mnemonic = "LD.H"; break;
+		case OP_LD_W: mnemonic = "LD.W"; break;
+		case OP_OUT_B: mnemonic = "OUT.B"; break;
+		case OP_OUT_H: mnemonic = "OUT.H"; break;
+		case OP_OUT_W: mnemonic = "OUT.W"; break;
+		case OP_ST_B: mnemonic = "ST.B"; break;
+		case OP_ST_H: mnemonic = "ST.H"; break;
+		case OP_ST_W: mnemonic = "ST.W"; break;
 		default:
 		{
 			static char unknown[32];
@@ -935,11 +987,41 @@ debug_disasm(const union cpu_inst *inst)
 		case OP_JMP:
 			snprintf(dis, sizeof(dis), "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			break;
+		case OP_MOV2:
+		{
+			u_int16_t imm = inst->ci_ii.ii_imm5;
+			if ((imm & 0b10000) == 0b10000)
+				imm|= 0xffffffe0;
+			snprintf(dis, sizeof(dis), "%s %d, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			break;
+		}
+		case OP_SHL2:
+			snprintf(dis, sizeof(dis), "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
+			break;
 		case OP_MOVEA:
 		case OP_MOVHI:
-		case OP_ADDI:
 			snprintf(dis, sizeof(dis), "%s %hXh, r%d, r%d",
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+			break;
+		case OP_ADDI:
+			snprintf(dis, sizeof(dis), "%s %hd, r%d, r%d",
+					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+			break;
+		case OP_CAXI:
+		case OP_IN_B:
+		case OP_IN_H:
+		case OP_IN_W:
+		case OP_LD_B:
+		case OP_LD_H:
+		case OP_LD_W:
+		case OP_OUT_B:
+		case OP_OUT_H:
+		case OP_OUT_W:
+		case OP_ST_B:
+		case OP_ST_H:
+		case OP_ST_W:
+			snprintf(dis, sizeof(dis), "%s %hd[r%u], r%u",
+					mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
 			break;
 		default:
 			snprintf(dis, sizeof(dis), "TODO: %s", mnemonic);
