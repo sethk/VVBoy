@@ -481,37 +481,6 @@ static struct cpu_state
 	u_int32_t cs_ecr;
 } cpu_state;
 
-union cpu_inst
-{
-	u_int16_t ci_hwords[2];
-	struct
-	{
-		u_int i_reg1 : 5;
-		u_int i_reg2 : 5;
-		u_int i_opcode : 6;
-	} ci_i;
-	struct
-	{
-		u_int ii_imm5 : 5;
-		u_int ii_reg2 : 5;
-		u_int ii_opcode : 6;
-	} ci_ii;
-	struct
-	{
-		u_int v_reg1 : 5;
-		u_int v_reg2 : 5;
-		u_int v_opcode : 6;
-		u_int16_t v_imm16;
-	} ci_v;
-	struct
-	{
-		u_int vi_reg1 : 5;
-		u_int vi_reg2 : 5;
-		u_int vi_opcode : 6;
-		int16_t vi_disp16;
-	} ci_vi;
-};
-
 enum cpu_opcode
 {
 	OP_MOV   = 0b000000,
@@ -621,16 +590,9 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	return true;
 }
 
-void
-cpu_step(void)
+static bool
+cpu_exec(const union cpu_inst inst)
 {
-	union cpu_inst inst;
-	if (!cpu_fetch(cpu_state.cs_pc, &inst))
-	{
-		fprintf(stderr, "TODO: bus error\n");
-		return;
-	}
-	u_int32_t old_pc = cpu_state.cs_pc;
 	switch (inst.ci_i.i_opcode)
 	{
 		case OP_MOV:
@@ -695,14 +657,24 @@ cpu_step(void)
 			u_int32_t imm = inst.ci_v.v_imm16;
 			if ((imm & 0x8000) == 0x8000)
 				imm|= 0xffff0000;
-			u_int64_t result = cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
-			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			u_int64_t result = (u_int64_t)cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
 			if (result == 0)
 				cpu_state.cs_psw|= CPU_PSW_Z;
-			else if ((result & 0x80000000) == 0x80000000)
+			else
+				cpu_state.cs_psw&= ~CPU_PSW_Z;
+			if ((result & 0x80000000) == 0x80000000)
 				cpu_state.cs_psw|= CPU_PSW_S;
-			// TODO: Overflow && Carry
-			//if ((result 
+			else
+				cpu_state.cs_psw&= ~CPU_PSW_S;
+			if ((result & 0x80000000) != (cpu_state.cs_r[inst.ci_v.v_reg1] & 0x80000000))
+				cpu_state.cs_psw|= CPU_PSW_OV;
+			else
+				cpu_state.cs_psw&= ~CPU_PSW_OV;
+			if ((result & 0x100000000) == 0x100000000)
+				cpu_state.cs_psw|= CPU_PSW_CY;
+			else
+				cpu_state.cs_psw&= ~CPU_PSW_CY;
+			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
 		/*
@@ -752,10 +724,68 @@ cpu_step(void)
 	OP_OUT_W = 0b111111
 	*/
 		default:
-			fprintf(stderr, "TODO: execute instruction\n");
+			fputs("TODO: execute instruction\n", stderr);
 			raise(SIGINT);
-			return;
+			return false;
 	}
+	return true;
+}
+
+static void
+cpu_test_addi(int32_t left, int16_t right, int32_t result, bool overflow, bool carry)
+{
+	union cpu_inst inst;
+
+	inst.ci_v.v_opcode = OP_ADDI;
+	cpu_state.cs_r[1] = left;
+	inst.ci_v.v_reg1 = 1;
+	inst.ci_v.v_imm16 = right;
+	cpu_state.cs_r[2] = 0xdeadc0de;
+	inst.ci_v.v_reg2 = 2;
+	cpu_exec(inst);
+	bool ov = (cpu_state.cs_psw & CPU_PSW_OV) == CPU_PSW_OV;
+	bool cy = (cpu_state.cs_psw & CPU_PSW_CY) == CPU_PSW_CY;
+	if (cpu_state.cs_r[2] != result || ov != overflow || cy != carry)
+		fprintf(stderr, "*** Test failure: r1 = 0x%08x; %s\n"
+				"\tresult (0x%08x) should be 0x%08x\n"
+				"\toverflow flag (%d) should be %s\n"
+				"\tcarry flag (%d) should be %s\n",
+				left, debug_disasm(&inst),
+				cpu_state.cs_r[2], result,
+				ov, (overflow) ? "set" : "reset",
+				cy, (carry) ? "set" : "reset");
+}
+
+static void
+cpu_test(void)
+{
+	fputs("Running CPU self-test\n", stderr);
+
+	cpu_test_addi(1, 1, 2, false, false);
+	cpu_test_addi(2147483647, 1, -2147483648, true, false);
+	cpu_test_addi(2147483646, 1, 2147483647, false, false);
+	cpu_test_addi(2147450881, 32767, -2147483648, true, false);
+	cpu_test_addi(2147450880, 32767, 2147483647, false, false);
+	cpu_test_addi(-1, -1, -2, false, true);
+	cpu_test_addi(-2147483648, -1, 2147483647, true, true);
+
+	cpu_reset();
+}
+
+void
+cpu_step(void)
+{
+	union cpu_inst inst;
+	if (!cpu_fetch(cpu_state.cs_pc, &inst))
+	{
+		fprintf(stderr, "TODO: bus error fetching inst from PC 0x%08x\n", cpu_state.cs_pc);
+		return;
+	}
+	u_int32_t old_pc = cpu_state.cs_pc;
+
+	if (!cpu_exec(inst))
+		return;
+
 	if (cpu_state.cs_pc == old_pc)
 		cpu_state.cs_pc+= cpu_inst_size(&inst);
 }
@@ -864,7 +894,7 @@ debug_format_binary(u_int n, u_int nbits)
 	return bin;
 }
 
-static char *
+char *
 debug_disasm(const union cpu_inst *inst)
 {
 	static char dis[32];
@@ -1025,6 +1055,7 @@ debug_intr(void)
 						char rname[5];
 						snprintf(rname, sizeof(rname), "r%d", regIndex);
 						printf(fmt, rname, cpu_state.cs_r[regIndex]);
+						printf(" (%11i)", cpu_state.cs_r[regIndex]);
 						if (regIndex % 2 == 1)
 							putchar('\n');
 					}
@@ -1129,13 +1160,17 @@ main(int ac, char * const *av)
 	int ch;
 	extern int optind;
 	bool debug_boot = false;
-	while ((ch = getopt(ac, av, "d")) != -1)
+	bool self_test = false;
+	while ((ch = getopt(ac, av, "dt")) != -1)
 		switch (ch)
 		{
 			case '?':
 				return main_usage();
 			case 'd':
 				debug_boot = true;
+				break;
+			case 't':
+				self_test = true;
 				break;
 		}
 	ac-= optind;
@@ -1153,6 +1188,9 @@ main(int ac, char * const *av)
 	main_reset();
 
 	s_running = true;
+
+	if (self_test)
+		cpu_test();
 
 	if (debug_boot)
 		debug_intr();
