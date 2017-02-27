@@ -62,6 +62,14 @@ union cpu_inst
 };
 
 /* DEBUG */
+struct debug_symbol
+{
+	char *ds_name;
+	u_int32_t ds_addr;
+	struct debug_symbol *ds_next;
+};
+
+void debug_add_symbol(struct debug_symbol *debug_sym);
 char *debug_disasm(const union cpu_inst *inst);
 
 #endif /* MAIN_H */

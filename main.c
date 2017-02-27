@@ -330,6 +330,7 @@ isx_read_chunk_header(struct rom_file *file, struct isx_chunk_header *header)
 		return true;
 }
 
+// TODO: memory leaks
 static bool
 rom_read_isx(struct rom_file *file)
 {
@@ -403,8 +404,59 @@ rom_read_isx(struct rom_file *file)
 			if (!rom_read_buffer(file, mem_segs[MEM_SEG_ROM].ms_ptr + offset, header.ich_size, "ISX chunk"))
 				return false;
 		}
-		else if (header.ich_tag == ISX_TAG_DEBUG1 || header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
+		else if (header.ich_tag == ISX_TAG_DEBUG1)
+		{
+			u_int16_t num_syms;
+			if (!rom_read_buffer(file, &num_syms, sizeof(num_syms), "ISX debug num syms"))
+				return false;
+
+			while (num_syms)
+			{
+				u_int8_t symlen;
+				if (!rom_read_buffer(file, &symlen, sizeof(symlen), "ISX debug sym length"))
+					return false;
+
+				struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
+				if (!debug_sym)
+				{
+					warn("Could not alloc ISX debug sym");
+					return false;
+				}
+				debug_sym->ds_name = malloc(symlen + 1);
+				if (!debug_sym->ds_name)
+				{
+					warn("Could not alloc ISX debug sym name");
+					return false;
+				}
+
+				if (!rom_read_buffer(file, debug_sym->ds_name, symlen + 1, "ISX debug sym name"))
+					return false;
+
+				u_int8_t unk;
+				if (!rom_read_buffer(file, &unk, sizeof(unk), "ISX unknown data"))
+					return false;
+
+				if (!rom_read_buffer(file, &(debug_sym->ds_addr), sizeof(debug_sym->ds_addr),
+							"ISX debug symbol address"))
+					return false;
+
+				fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhd\n", debug_sym->ds_name, debug_sym->ds_addr, unk);
+
+				debug_add_symbol(debug_sym);
+
+				num_syms--;
+			}
+
 			break;
+		}
+		else if (header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
+		{
+			char *debug_info = malloc(2048);
+			if (!rom_read_buffer(file, debug_info, 2048, "ISX debug info"))
+				return false;
+			raise(SIGTRAP);
+			free(debug_info);
+		}
 	}
 
 	return true;
@@ -880,6 +932,8 @@ vsu_fini(void)
 static EditLine *s_editline;
 static Tokenizer *s_token;
 
+static struct debug_symbol *debug_syms = NULL;
+
 static char *
 debug_prompt(EditLine *editline)
 {
@@ -916,9 +970,9 @@ debug_fini(void)
 static char *
 debug_format_binary(u_int n, u_int nbits)
 {
-	static char bin[33];
-	assert(nbits < sizeof(bin) - 1);
-	char *end = bin + nbits;
+	static char bin[35] = "0b";
+	assert(nbits <= sizeof(bin) - 3);
+	char *end = bin + 2 + nbits;
 	*end-- = '\0';
 	while (nbits--)
 	{
@@ -926,6 +980,13 @@ debug_format_binary(u_int n, u_int nbits)
 		n>>= 1;
 	}
 	return bin;
+}
+
+void
+debug_add_symbol(struct debug_symbol *debug_sym)
+{
+	debug_sym->ds_next = debug_syms;
+	debug_syms = debug_sym;
 }
 
 char *
@@ -1094,6 +1155,39 @@ debug_parse_addr(const char *s)
 	}
 }
 
+static char *
+debug_format_addr(u_int32_t addr)
+{
+	static char s[64];
+	static char human[32];
+	struct debug_symbol *sym = debug_syms, *match = NULL;
+	u_int32_t match_offset;
+
+	while (sym)
+	{
+		if (sym->ds_addr <= addr)
+		{
+			u_int32_t offset = addr - sym->ds_addr;
+			if (offset <= 8192 && (!match || match_offset > offset))
+			{
+				match = sym;
+				match_offset = offset;
+			}
+		}
+
+		sym = sym->ds_next;
+	}
+
+	if (match)
+		snprintf(human, sizeof(human), "<%s+%u>", match->ds_name, match_offset);
+	else
+		*human = '\0';
+
+	snprintf(s, sizeof(s), "0x%08x %-15s", addr, human);
+
+	return s;
+}
+
 void
 debug_intr(void)
 {
@@ -1101,7 +1195,7 @@ debug_intr(void)
 	{
 		union cpu_inst inst;
 		if (cpu_fetch(cpu_state.cs_pc, &inst))
-			printf("frame 0: 0x%08x: %s\n", cpu_state.cs_pc, debug_disasm(&inst));
+			printf("frame 0: %s: %s\n", debug_format_addr(cpu_state.cs_pc), debug_disasm(&inst));
 		else
 			printf("Could not read instruction at 0x%08x\n", cpu_state.cs_pc);
 
@@ -1131,20 +1225,20 @@ debug_intr(void)
 					main_step();
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
-					static const char *fmt = "\t%3s: 0x%08x";
+					static const char *fmt = "\t%3s: %s";
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
 						char rname[5];
 						snprintf(rname, sizeof(rname), "r%d", regIndex);
-						printf(fmt, rname, cpu_state.cs_r[regIndex]);
+						printf(fmt, rname, debug_format_addr(cpu_state.cs_r[regIndex]));
 						printf(" (%11i)", cpu_state.cs_r[regIndex]);
 						if (regIndex % 2 == 1)
 							putchar('\n');
 					}
-					printf(fmt, "pc", cpu_state.cs_pc);
-					printf(fmt, "psw", cpu_state.cs_psw);
+					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc));
+					printf(fmt, "psw", debug_format_binary(cpu_state.cs_psw, 32));
 					putchar('\n');
-					printf(fmt, "ecr", cpu_state.cs_ecr);
+					printf(fmt, "ecr", debug_format_addr(cpu_state.cs_ecr));
 					putchar('\n');
 				}
 				else if (!strcmp(argv[0], "x"))
