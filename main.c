@@ -451,6 +451,7 @@ rom_read_isx(struct rom_file *file)
 		}
 		else if (header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
 		{
+			fprintf(stderr, "Debug info type 0x%hhx @ 0x%08llx\n", header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
 			char *debug_info = malloc(2048);
 			if (!rom_read_buffer(file, debug_info, 2048, "ISX debug info"))
 				return false;
