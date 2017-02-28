@@ -47,6 +47,18 @@ union cpu_inst
 	} ci_ii;
 	struct
 	{
+		u_int iii_disp9 : 9;
+		u_int iii_cond : 4;
+		u_int iii_opcode : 3;
+	} ci_iii;
+	struct
+	{
+		u_int iv_disp10 : 10;
+		u_int iv_opcode : 6;
+		u_int iv_disp16 : 16;
+	} ci_iv;
+	struct
+	{
 		u_int v_reg1 : 5;
 		u_int v_reg2 : 5;
 		u_int v_opcode : 6;

@@ -567,7 +567,23 @@ enum cpu_opcode
 	OP_STSR  = 0b011101,
 	OP_SEI   = 0b011110,
 	OP_BSTR  = 0b011111,
-	// BCOND
+	OP_BCOND = 0b100,
+	  BCOND_BV  = 0b0000,
+	  BCOND_BL  = 0b0001,
+	  BCOND_BZ  = 0b0010,
+	  BCOND_BNH = 0b0011,
+	  BCOND_BN  = 0b0100,
+	  BCOND_BR  = 0b0101,
+	  BCOND_BLT = 0b0110,
+	  BCOND_BLE = 0b0111,
+	  BCOND_BNV = 0b1000,
+	  BCOND_BNC = 0b1001,
+	  BCOND_BNZ = 0b1010,
+	  BCOND_BH  = 0b1011,
+	  BCOND_BP  = 0b1100,
+	  BCOND_NOP = 0b1101,
+	  BCOND_BGE = 0b1110,
+	  BCOND_BGT = 0b1111,
 	OP_MOVEA = 0b101000,
 	OP_ADDI  = 0b101001,
 	OP_JR    = 0b101010,
@@ -623,7 +639,7 @@ cpu_reset(void)
 }
 
 static size_t
-cpu_inst_size(union cpu_inst *inst)
+cpu_inst_size(const union cpu_inst *inst)
 {
 	return (inst->ci_i.i_opcode < 0x28) ? 2 : 4;
 }
@@ -641,6 +657,43 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 		inst->ci_hwords[1] = OSSwapLittleToHostInt16(inst->ci_hwords[1]);
 	}
 	return true;
+}
+
+static void
+cpu_setfl(u_int64_t result)
+{
+	if (result == 0)
+		cpu_state.cs_psw|= CPU_PSW_Z;
+	else
+		cpu_state.cs_psw&= ~CPU_PSW_Z;
+	if ((result & 0x80000000) == 0x80000000)
+		cpu_state.cs_psw|= CPU_PSW_S;
+	else
+		cpu_state.cs_psw&= ~CPU_PSW_S;
+	if ((result & 0x100000000) == 0x100000000)
+		cpu_state.cs_psw|= CPU_PSW_CY;
+	else
+		cpu_state.cs_psw&= ~CPU_PSW_CY;
+}
+
+static u_int32_t
+cpu_add(u_int32_t left, u_int32_t right)
+{
+	u_int64_t result = (u_int64_t)left + right;
+	if ((result & 0x80000000) != (left & 0x80000000))
+		cpu_state.cs_psw|= CPU_PSW_OV;
+	else
+		cpu_state.cs_psw&= ~CPU_PSW_OV;
+	cpu_setfl(result);
+	return result;
+}
+
+static u_int32_t
+cpu_sub(u_int32_t left, u_int32_t right)
+{
+	u_int64_t result = (u_int64_t)left - right;
+	cpu_setfl(result);
+	return result;
 }
 
 static bool
@@ -680,11 +733,25 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_ii.ii_reg2] = imm;
 			break;
 		}
+		case OP_ADD2:
+		{
+			u_int32_t imm = inst.ci_ii.ii_imm5;
+			if ((imm & 0b10000) == 0b10000)
+				imm|= 0xffffffe0;
+			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_add(cpu_state.cs_r[inst.ci_ii.ii_reg2], imm);
+			break;
+		}
 		/*
-	OP_ADD2  = 0b010001,
 	OP_SETF  = 0b010010,
-	OP_CMP2  = 0b010011,
 	*/
+		case OP_CMP2:
+		{
+			u_int32_t imm = inst.ci_ii.ii_imm5;
+			if ((imm & 0b10000) == 0b10000)
+				imm|= 0xffffffe0;
+			cpu_sub(cpu_state.cs_r[inst.ci_ii.ii_reg2], imm);
+			break;
+		}
 		case OP_SHL2:
 			if (inst.ci_ii.ii_imm5)
 			{
@@ -705,13 +772,40 @@ cpu_exec(const union cpu_inst inst)
 				else
 					cpu_state.cs_psw&= ~CPU_PSW_Z;
 				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
-				break;
 			}
+			break;
 
 			/*
 	OP_SHR2  = 0b010101,
 	OP_CLI   = 0b010110,
-	OP_SAR2  = 0b010111,
+	*/
+		case OP_SAR2:
+			if (inst.ci_ii.ii_imm5)
+			{
+				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+				u_int32_t shift = inst.ci_ii.ii_imm5;
+				u_int32_t result = start >> shift;
+				if (((start >> (shift - 1)) & 1) == 1)
+					cpu_state.cs_psw|= CPU_PSW_CY;
+				else
+					cpu_state.cs_psw&= ~CPU_PSW_CY;
+				cpu_state.cs_psw&= ~CPU_PSW_OV;
+				if ((start & 0x80000000) == 0x80000000)
+				{
+					result|= (0xffffffff << (32 - shift));
+					cpu_state.cs_psw|= CPU_PSW_S;
+				}
+				else
+					cpu_state.cs_psw&= ~CPU_PSW_S;
+				if (result == 0)
+					cpu_state.cs_psw|= CPU_PSW_Z;
+				else
+					cpu_state.cs_psw&= ~CPU_PSW_Z;
+				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
+			}
+			break;
+
+			 /*
 	OP_TRAP  = 0b011000,
 	OP_RETI  = 0b011001,
 	OP_HALT  = 0b011010,
@@ -719,7 +813,6 @@ cpu_exec(const union cpu_inst inst)
 	OP_STSR  = 0b011101,
 	OP_SEI   = 0b011110,
 	OP_BSTR  = 0b011111,
-	// BCOND
 	*/
 		case OP_MOVEA:
 		{
@@ -734,7 +827,26 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t imm = inst.ci_v.v_imm16;
 			if ((imm & 0x8000) == 0x8000)
 				imm|= 0xffff0000;
-			u_int64_t result = (u_int64_t)cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
+			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_add(cpu_state.cs_r[inst.ci_v.v_reg1], imm);
+			break;
+		}
+		/*
+	OP_JR    = 0b101010,
+	OP_JAL   = 0b101011,
+	*/
+		case OP_JAL:
+		{
+			u_int32_t disp = (inst.ci_iv.iv_disp10 << 16) | inst.ci_iv.iv_disp16;
+			if ((disp & 0x2000000) == 0x2000000)
+				disp|= 0xfd000000;
+			cpu_state.cs_r[31] = cpu_state.cs_pc + 4;
+			cpu_state.cs_pc+= disp;
+			break;
+		}
+		case OP_ORI:
+		{
+			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] | inst.ci_v.v_imm16;
+			cpu_state.cs_psw&= ~CPU_PSW_OV;
 			if (result == 0)
 				cpu_state.cs_psw|= CPU_PSW_Z;
 			else
@@ -743,22 +855,25 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_psw|= CPU_PSW_S;
 			else
 				cpu_state.cs_psw&= ~CPU_PSW_S;
-			if ((result & 0x80000000) != (cpu_state.cs_r[inst.ci_v.v_reg1] & 0x80000000))
-				cpu_state.cs_psw|= CPU_PSW_OV;
-			else
-				cpu_state.cs_psw&= ~CPU_PSW_OV;
-			if ((result & 0x100000000) == 0x100000000)
-				cpu_state.cs_psw|= CPU_PSW_CY;
-			else
-				cpu_state.cs_psw&= ~CPU_PSW_CY;
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
-		/*
-	OP_JR    = 0b101010,
-	OP_JAL   = 0b101011,
-	OP_ORI   = 0b101100,
-	OP_ANDI  = 0b101101,
+		case OP_ANDI:
+		{
+			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] & inst.ci_v.v_imm16;
+			cpu_state.cs_psw&= CPU_PSW_OV;
+			if ((result & 0x80000000) == 0x80000000)
+				cpu_state.cs_psw|= CPU_PSW_S;
+			else
+				cpu_state.cs_psw&= ~CPU_PSW_S;
+			if (result == 0)
+				cpu_state.cs_psw|= CPU_PSW_Z;
+			else
+				cpu_state.cs_psw&= CPU_PSW_Z;
+			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			break;
+		}
+			 /*
 	OP_XORI  = 0b101110,
 	*/
 		case OP_MOVHI:
@@ -792,6 +907,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xffff;
 			mem_write(addr, &value, sizeof(value));
+			break;
 		}
 		case OP_ST_W:
 		{
@@ -811,6 +927,24 @@ cpu_exec(const union cpu_inst inst)
 	OP_OUT_W = 0b111111
 	*/
 		default:
+			if (inst.ci_iii.iii_opcode == OP_BCOND)
+			{
+				bool branch;
+				switch (inst.ci_iii.iii_cond)
+				{
+					case BCOND_BL:
+						branch = ((cpu_state.cs_psw & CPU_PSW_CY) == CPU_PSW_CY);
+						break;
+				}
+				if (branch)
+				{
+					u_int32_t disp = inst.ci_iii.iii_disp9;
+					if ((disp & 0x100) == 0x100)
+						disp|= 0xfffff100;
+					cpu_state.cs_pc+= disp;
+				}
+				break;
+			}
 			fputs("TODO: execute instruction\n", stderr);
 			raise(SIGINT);
 			return false;
@@ -998,15 +1132,30 @@ debug_disasm(const union cpu_inst *inst)
 	const char *mnemonic;
 	switch (inst->ci_i.i_opcode)
 	{
+		case OP_ADD:
+		case OP_ADD2:
+			mnemonic = "ADD";
+			break;
 		case OP_MOV:
 		case OP_MOV2:
 			mnemonic = "MOV";
 			break;
+		case OP_CMP:
+		case OP_CMP2:
+			mnemonic = "CMP";
+			break;
 		case OP_JMP: mnemonic = "JMP"; break;
 		case OP_SHL2: mnemonic = "SHL"; break;
+		case OP_SAR:
+		case OP_SAR2:
+			mnemonic = "SAR";
+			break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
+		case OP_JAL: mnemonic = "JAL"; break;
+		case OP_ORI: mnemonic = "ORI"; break;
+		case OP_ANDI: mnemonic = "ANDI"; break;
 		case OP_CAXI: mnemonic = "CAXI"; break;
 		case OP_IN_B: mnemonic = "IN.B"; break;
 		case OP_IN_H: mnemonic = "IN.H"; break;
@@ -1022,6 +1171,28 @@ debug_disasm(const union cpu_inst *inst)
 		case OP_ST_W: mnemonic = "ST.W"; break;
 		default:
 		{
+			if (inst->ci_iii.iii_opcode == OP_BCOND)
+			{
+				switch (inst->ci_iii.iii_cond)
+				{
+					case BCOND_BV: mnemonic = "BV"; break;
+					case BCOND_BL: mnemonic = "BL"; break;
+					case BCOND_BZ: mnemonic = "BZ"; break;
+					case BCOND_BNH: mnemonic = "BNH"; break;
+					case BCOND_BN: mnemonic = "BN"; break;
+					case BCOND_BR: mnemonic = "BR"; break;
+					case BCOND_BLT: mnemonic = "BLT"; break;
+					case BCOND_BLE: mnemonic = "BLE"; break;
+					case BCOND_BNV: mnemonic = "BNV"; break;
+					case BCOND_BNZ: mnemonic = "BNZ"; break;
+					case BCOND_BH: mnemonic = "BH"; break;
+					case BCOND_BP: mnemonic = "BP"; break;
+					case BCOND_NOP: mnemonic = "NOP"; break;
+					case BCOND_BGE: mnemonic = "BGE"; break;
+					case BCOND_BGT: mnemonic = "BGT"; break;
+				}
+				break;
+			}
 			static char unknown[32];
 			snprintf(unknown, sizeof(unknown), "??? (%s)", debug_format_binary(inst->ci_i.i_opcode, 6));
 			mnemonic = unknown;
@@ -1049,19 +1220,32 @@ debug_disasm(const union cpu_inst *inst)
 		case OP_JMP:
 			snprintf(dis, sizeof(dis), "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			break;
+		case OP_ADD2:
 		case OP_MOV2:
+		case OP_CMP2:
 		{
 			u_int16_t imm = inst->ci_ii.ii_imm5;
 			if ((imm & 0b10000) == 0b10000)
-				imm|= 0xffffffe0;
-			snprintf(dis, sizeof(dis), "%s %d, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+				imm|= 0xffe0;
+			snprintf(dis, sizeof(dis), "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			break;
 		}
 		case OP_SHL2:
+		case OP_SAR2:
 			snprintf(dis, sizeof(dis), "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
 			break;
+		case OP_JAL:
+		{
+			u_int32_t disp = (inst->ci_iv.iv_disp10 << 16) | inst->ci_iv.iv_disp16;
+			if ((disp & 0x2000000) == 0x2000000)
+				disp|= 0xfd000000;
+			snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
+			break;
+		}
 		case OP_MOVEA:
 		case OP_MOVHI:
+		case OP_ORI:
+		case OP_ANDI:
 			snprintf(dis, sizeof(dis), "%s %hXh, r%d, r%d",
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
 			break;
@@ -1086,6 +1270,14 @@ debug_disasm(const union cpu_inst *inst)
 					mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
 			break;
 		default:
+			if (inst->ci_iii.iii_opcode == OP_BCOND)
+			{
+				u_int16_t disp = inst->ci_iii.iii_disp9;
+				if ((disp & 0x100) == 0x100)
+					disp|= 0xfe00;
+				snprintf(dis, sizeof(dis), "%s %hi", mnemonic, disp);
+				break;
+			}
 			snprintf(dis, sizeof(dis), "TODO: %s", mnemonic);
 	}
 	return dis;
@@ -1104,7 +1296,7 @@ static const struct debug_help
 	{'s', "", "Step into the next instruction (aliases: step)"},
 	{'i', "", "Show CPU info (aliases: info)"},
 	{'x', "<addr> [<format>] [<count>]", "Examine memory at <addr>\n"
-		"\t\tFormats: h (hex), i (instructions)"},
+		"\t\tFormats: h (hex), i (instructions), b (binary)"},
 	{'r', "", "Reset the CPU (aliases: reset)"}
 };
 
@@ -1136,7 +1328,7 @@ debug_mem_read(u_int32_t addr, void *dest, size_t size)
 		return true;
 	else
 	{
-		warnx("Could not read %lu bytes from 0x%08x: Invalid address\n", size, addr);
+		warnx("Could not read %lu bytes from 0x%08x: Invalid address", size, addr);
 		return false;
 	}
 }
@@ -1151,7 +1343,7 @@ debug_parse_addr(const char *s)
 		char *endp;
 		u_int32_t addr = strtol(s, &endp, 0);
 		if (*endp != '\0')
-			warnx("Invalid address “%s”\n", s);
+			warnx("Invalid address format “%s”", s);
 		return addr;
 	}
 }
@@ -1272,6 +1464,13 @@ debug_intr(void)
 								else
 									fputs("Could not fetch instruction\n", stderr);
 								addr+= cpu_inst_size(&inst);
+							}
+							else if (!strcmp(format, "b"))
+							{
+								u_int8_t byte;
+								if (debug_mem_read(addr, &byte, sizeof(byte)))
+									printf(" %s\n", debug_format_binary(byte, sizeof(byte) << 3));
+								addr+= sizeof(byte);
 							}
 							else
 							{
