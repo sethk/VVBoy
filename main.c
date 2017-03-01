@@ -1296,7 +1296,8 @@ static const struct debug_help
 	{'s', "", "Step into the next instruction (aliases: step)"},
 	{'i', "", "Show CPU info (aliases: info)"},
 	{'x', "<addr> [<format>] [<count>]", "Examine memory at <addr>\n"
-		"\t\tFormats: h (hex), i (instructions), b (binary)"},
+		"\t\tFormats: h (hex), i (instructions), b (binary)\n"
+		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 	{'r', "", "Reset the CPU (aliases: reset)"}
 };
 
@@ -1334,18 +1335,49 @@ debug_mem_read(u_int32_t addr, void *dest, size_t size)
 }
 
 static u_int32_t
-debug_parse_addr(const char *s)
+debug_locate_symbol(const char *s)
 {
-	if (!strcmp(s, "pc"))
-		return cpu_state.cs_pc;
+	for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
+		if (!strcmp(sym->ds_name, s))
+			return sym->ds_addr;
+	warnx("Symbol not found: %s", s);
+	return 0;
+}
+
+static bool
+debug_parse_addr(const char *s, u_int32_t *addrp)
+{
+	size_t len = strlen(s);
+	int base, disp = 0;
+	int reg_num;
+	int nparsed;
+
+	if ((sscanf(s, "%i[pc]%n", &disp, &nparsed) == 1 && nparsed == len) ||
+			(sscanf(s, "[pc]%n", &nparsed) == 0 && nparsed == len))
+		base = cpu_state.cs_pc;
+	else if ((sscanf(s, "%i[r%2d]%n", &disp, &reg_num, &nparsed) == 2 && nparsed == len) ||
+			(sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
+		base = cpu_state.cs_r[reg_num & 0x1f];
 	else
 	{
-		char *endp;
-		u_int32_t addr = strtol(s, &endp, 0);
-		if (*endp != '\0')
+		char sym_name[64 + 1], sign[2];
+		int num_parsed;
+		num_parsed = sscanf(s, "%64[^+-]%n%1[+-]%i%n", sym_name, &nparsed, sign, &disp, &nparsed);
+		if (num_parsed >= 1 && nparsed == len)
+		{
+			if (!(base = debug_locate_symbol(sym_name)))
+				return false;
+			if (num_parsed >= 2 && *sign == '-')
+				disp = -disp;
+		}
+		else
+		{
 			warnx("Invalid address format “%s”", s);
-		return addr;
+			return false;
+		}
 	}
+	*addrp = base + disp;
+	return true;
 }
 
 static char *
@@ -1438,7 +1470,9 @@ debug_intr(void)
 				{
 					if (argc >= 2)
 					{
-						u_int32_t addr = debug_parse_addr(argv[1]);
+						u_int32_t addr;
+						if (!debug_parse_addr(argv[1], &addr))
+							continue;
 						const char *format = "h";
 						u_int count = 1;
 						if (argc >= 3)
