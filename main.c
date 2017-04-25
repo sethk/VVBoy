@@ -1431,7 +1431,8 @@ debug_format_addr(u_int32_t addr)
 {
 	static char s[64];
 	static char human[32];
-	struct debug_symbol *sym = debug_syms, *match = NULL;
+	struct debug_symbol *sym = debug_syms;
+	const char *match_name;
 	u_int32_t match_offset;
 
 	while (sym)
@@ -1439,9 +1440,9 @@ debug_format_addr(u_int32_t addr)
 		if (sym->ds_addr <= addr)
 		{
 			u_int32_t offset = addr - sym->ds_addr;
-			if (offset <= 8192 && (!match || match_offset > offset))
+			if (offset <= 8192 && (!match_name || match_offset > offset))
 			{
-				match = sym;
+				match_name = sym->ds_name;
 				match_offset = offset;
 			}
 		}
@@ -1449,8 +1450,18 @@ debug_format_addr(u_int32_t addr)
 		sym = sym->ds_next;
 	}
 
-	if (match)
-		snprintf(human, sizeof(human), "<%s+%u>", match->ds_name, match_offset);
+	if (!match_name)
+	{
+		enum mem_segment seg = MEM_ADDR2SEG(addr);
+		if (mem_seg_names[seg] && mem_segs[seg].ms_size)
+		{
+			match_name = mem_seg_names[seg];
+			match_offset = addr & mem_segs[seg].ms_addrmask;
+		}
+	}
+
+	if (match_name)
+		snprintf(human, sizeof(human), "<%s+%u>", match_name, match_offset);
 	else
 		*human = '\0';
 
