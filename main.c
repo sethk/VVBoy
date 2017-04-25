@@ -532,6 +532,7 @@ static struct cpu_state
 	u_int32_t cs_pc;
 	u_int32_t cs_psw;
 	u_int32_t cs_ecr;
+	u_int32_t cs_chcw;
 } cpu_state;
 
 enum cpu_opcode
@@ -608,6 +609,17 @@ enum cpu_opcode
 	OP_OUT_W = 0b111111
 };
 
+enum cpu_regid
+{
+	REGID_PSW = 5,
+	REGID_CHCW = 24
+};
+
+enum cpu_chcw_flags
+{
+	CPU_CHCW_ICE = (1 << 1)
+};
+
 bool
 cpu_init(void)
 {
@@ -636,6 +648,7 @@ cpu_reset(void)
 	cpu_state.cs_pc = 0xfffffff0;
 	cpu_state.cs_psw = 0x00008000;
 	cpu_state.cs_ecr = 0x0000fff0;
+	cpu_state.cs_chcw = CPU_CHCW_ICE;
 }
 
 static size_t
@@ -809,7 +822,32 @@ cpu_exec(const union cpu_inst inst)
 	OP_TRAP  = 0b011000,
 	OP_RETI  = 0b011001,
 	OP_HALT  = 0b011010,
-	OP_LDSR  = 0b011100,
+	*/
+		case OP_LDSR:
+			switch (inst.ci_ii.ii_imm5)
+			{
+				case REGID_PSW:
+					cpu_state.cs_psw = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					break;
+				case REGID_CHCW:
+				{
+					u_int32_t chcw = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					if (chcw & ~CPU_CHCW_ICE)
+					{
+						warnx("Unsupported CHCW commands");
+						raise(SIGINT);
+						return false;
+					}
+					cpu_state.cs_chcw = chcw;
+					break;
+				}
+				default:
+					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
+					raise(SIGINT);
+					return false;
+			}
+			break;
+			 /*
 	OP_STSR  = 0b011101,
 	OP_SEI   = 0b011110,
 	OP_BSTR  = 0b011111,
@@ -1150,6 +1188,7 @@ debug_disasm(const union cpu_inst *inst)
 		case OP_SAR2:
 			mnemonic = "SAR";
 			break;
+		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
@@ -1232,6 +1271,7 @@ debug_disasm(const union cpu_inst *inst)
 		}
 		case OP_SHL2:
 		case OP_SAR2:
+		case OP_LDSR:
 			snprintf(dis, sizeof(dis), "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
 			break;
 		case OP_JAL:
