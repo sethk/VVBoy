@@ -24,7 +24,6 @@ validate_seg_size(size_t size)
 }
 
 /* MEM */
-
 struct mem_seg_desc mem_segs[MEM_NSEGS];
 
 static const char *mem_seg_names[MEM_NSEGS] =
@@ -151,7 +150,8 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 	}
 	else
 	{
-		// TODO: SEGV
+		warnx("Bus error at 0x%08x", addr);
+		raise(SIGINT);
 		return false;
 	}
 }
@@ -924,7 +924,8 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int16_t value;
-			mem_read(addr, &value, sizeof(value));
+			if (!mem_read(addr, &value, sizeof(value)))
+				return false;
 			if ((value & 0x8000) == 0x8000)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2] = 0xffff0000 | value;
 			else
@@ -934,7 +935,8 @@ cpu_exec(const union cpu_inst inst)
 		case OP_LD_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
-			mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r));
+			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r)))
+				return false;
 			break;
 		}
 			 /*
