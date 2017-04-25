@@ -720,7 +720,11 @@ cpu_exec(const union cpu_inst inst)
 			/*
 	OP_ADD   = 0b000001,
 	OP_SUB   = 0b000010,
-	OP_CMP   = 0b000011,
+	*/
+		case OP_CMP:
+			cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
+			break;
+			/*
 	OP_SHL   = 0b000100,
 	OP_SHR   = 0b000101,
 	*/
