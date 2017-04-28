@@ -73,6 +73,10 @@ union cpu_inst
 	} ci_vi;
 };
 
+/* VIP */
+bool vip_mem_read(u_int32_t addr, void *dest, size_t size);
+bool vip_mem_write(u_int32_t addr, const void *src, size_t size);
+
 /* DEBUG */
 struct debug_symbol
 {

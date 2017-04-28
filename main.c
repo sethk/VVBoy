@@ -131,6 +131,9 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
 
+		if (seg == MEM_SEG_VIP)
+			return vip_mem_read(addr, dest, size);
+
 		const void *src = mem_segs[seg].ms_ptr + offset;
 		switch (size)
 		{
@@ -171,6 +174,9 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 				return false;
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
+
+		if (seg == MEM_SEG_VIP)
+			return vip_mem_write(addr, src, size);
 
 		void *dest = mem_segs[seg].ms_ptr + offset;
 		switch (size)
@@ -950,14 +956,16 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xffff;
-			mem_write(addr, &value, sizeof(value));
+			if (!mem_write(addr, &value, sizeof(value)))
+				return false;
 			break;
 		}
 		case OP_ST_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2];
-			mem_write(addr, &value, sizeof(value));
+			if (!mem_write(addr, &value, sizeof(value)))
+				return false;
 			break;
 		}
 			 /*
@@ -1056,10 +1064,61 @@ cpu_step(void)
 }
 
 /* VIP */
+static struct
+{
+	u_int8_t vs_left0[0x8000];
+	u_int8_t vs_chr0[0x2000];
+	u_int8_t vs_left1[0x8000];
+	u_int8_t vs_chr1[0x2000];
+	u_int8_t vs_right0[0x8000];
+	u_int8_t vs_chr2[0x2000];
+	u_int8_t vs_right1[0x8000];
+	u_int8_t vs_chr3[0x2000];
+} vip_vrm;
+
+static struct
+{
+	u_int8_t vd_bgseg[0x1d800];
+	u_int8_t vd_winattr[0x400];
+	u_int8_t vd_coltbl[0x1400];
+	u_int8_t vd_oam[0x1000];
+} vip_dram;
+
+static struct
+{
+	u_int16_t vr_intpnd;
+	u_int16_t vr_intenb;
+	u_int16_t vr_intclr;
+	u_int16_t vr_undef1[13];
+	u_int16_t vr_dpstts;
+	u_int16_t vr_dpctrl;
+	u_int16_t vr_brta;
+	u_int16_t vr_brtb;
+	u_int16_t vr_brtc;
+	u_int16_t vr_rest;
+	u_int16_t vr_frmcyc;
+	u_int16_t vr_undef2;
+	u_int16_t vr_cta;
+	u_int16_t vr_undef3[7];
+	u_int16_t vr_xpstts;
+	u_int16_t vr_xpctrl;
+	u_int16_t vr_ver;
+	u_int16_t vr_undef4;
+	u_int16_t vr_spt[4];
+	u_int16_t vr_undef5[8];
+	u_int16_t vr_gplt[4];
+	u_int16_t vr_jplt[4];
+	u_int16_t vr_bkcol;
+} vip_reg;
+
 bool
 vip_init(void)
 {
-	// TODO
+	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
+	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
+	//assert(sizeof(vip_vrm) == 0x20000);
+	//assert(sizeof(vip_dram) == 0x20000);
+	assert(sizeof(vip_reg) == 0x72);
 	return true;
 }
 
@@ -1079,6 +1138,55 @@ void
 vip_fini(void)
 {
 	// TODO
+}
+
+bool
+vip_mem_read(u_int32_t addr, void *dest, size_t size)
+{
+	if (size != 2)
+	{
+		fprintf(stderr, "Invalid VIP load size %lu\n", size);
+		return false;
+	}
+	if (addr & 1)
+	{
+		fprintf(stderr, "VIP address alignment error at 0x%08x\n", addr);
+		return false;
+	}
+	if ((addr & 0xfff00) == 0x5f800)
+	{
+		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_reg + (addr & 0x7e));
+		return true;
+	}
+	else
+	{
+		// TODO: read VIP seg
+		fprintf(stderr, "VIP bus error at 0x%08x\n", addr);
+		raise(SIGINT);
+		return false;
+	}
+}
+
+bool
+vip_mem_write(u_int32_t addr, const void *src, size_t size)
+{
+	if (size != 2)
+	{
+		fprintf(stderr, "Invalid VIP store size %lu\n", size);
+		return false;
+	}
+	if ((addr & 0xfff00) == 0x5f800)
+	{
+		*(u_int16_t *)((u_int8_t *)&vip_reg + (addr & 0x7e)) = *(u_int16_t *)src;
+		return true;
+	}
+	else
+	{
+		// TODO: Write VIP seg
+		fprintf(stderr, "VIP bus error at 0x%08x\n", addr);
+		raise(SIGINT);
+		return false;
+	}
 }
 
 /* VSU */
@@ -1344,7 +1452,8 @@ static const struct debug_help
 	{'x', "<addr> [<format>] [<count>]", "Examine memory at <addr>\n"
 		"\t\tFormats: h (hex), i (instructions), b (binary)\n"
 		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
-	{'r', "", "Reset the CPU (aliases: reset)"}
+	{'r', "", "Reset the CPU (aliases: reset)"},
+	{'v', "", "Show VIP info (aliases: vip)"}
 };
 
 static void
@@ -1575,6 +1684,11 @@ debug_intr(void)
 				}
 				else if (!strcmp(argv[0], "r") || !strcmp(argv[0], "reset"))
 					cpu_reset();
+				else if (!strcmp(argv[0], "v") || !strcmp(argv[0], "vip"))
+				{
+					printf("INTPND: 0x%04hx, INTENB: 0x%04hx, INTCLR: 0x%04hx\n",
+							vip_reg.vr_intpnd, vip_reg.vr_intenb, vip_reg.vr_intclr);
+				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
 			}
