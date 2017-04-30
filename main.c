@@ -536,7 +536,7 @@ rom_unload(void)
 /* CPU */
 static struct cpu_state
 {
-	u_int32_t cs_r[32];
+	cpu_regs_t cs_r;
 	u_int32_t cs_pc;
 	u_int32_t cs_psw;
 	u_int32_t cs_ecr;
@@ -1041,7 +1041,7 @@ cpu_test_addi(int32_t left, int16_t right, int32_t result, bool overflow, bool c
 				"\tresult (0x%08x) should be 0x%08x\n"
 				"\toverflow flag (%d) should be %s\n"
 				"\tcarry flag (%d) should be %s\n",
-				left, debug_disasm(&inst, 0),
+				left, debug_disasm(&inst, 0, NULL),
 				cpu_state.cs_r[2], result,
 				ov, (overflow) ? "set" : "reset",
 				cy, (carry) ? "set" : "reset");
@@ -1073,6 +1073,9 @@ cpu_step(void)
 		return;
 	}
 	u_int32_t old_pc = cpu_state.cs_pc;
+
+	if (debug_tracing)
+		debug_trace(&inst);
 
 	if (!cpu_exec(inst))
 		return;
@@ -1137,13 +1140,39 @@ vip_init(void)
 	//assert(sizeof(vip_vrm) == 0x20000);
 	//assert(sizeof(vip_dram) == 0x20000);
 	assert(sizeof(vip_reg) == 0x72);
+	debug_create_symbol("INTPND", 0x5f800);
+	debug_create_symbol("INTENB", 0x5f802);
+	debug_create_symbol("INTCLR", 0x5f804);
+	debug_create_symbol("DPSTTS", 0x5f820);
+	debug_create_symbol("DPCTRL", 0x5f822);
+	debug_create_symbol("BRTA", 0x5f824);
+	debug_create_symbol("BRTB", 0x5f826);
+	debug_create_symbol("BRTC", 0x5f828);
+	debug_create_symbol("REST", 0x5f82a);
+	debug_create_symbol("FRMCYC", 0x5f82e);
+	debug_create_symbol("CTA", 0x5f830);
+	debug_create_symbol("XPSTTS", 0x5f840);
+	debug_create_symbol("XPCTRL", 0x5f842);
+	debug_create_symbol("VER", 0x5f844);
+	debug_create_symbol("SPT0", 0x5f848);
+	debug_create_symbol("SPT1", 0x5f84a);
+	debug_create_symbol("SPT2", 0x5f84c);
+	debug_create_symbol("SPT3", 0x5f84e);
+	debug_create_symbol("GPLT0", 0x5f860);
+	debug_create_symbol("GPLT1", 0x5f862);
+	debug_create_symbol("GPLT2", 0x5f864);
+	debug_create_symbol("GPLT3", 0x5f866);
+	debug_create_symbol("JPLT0", 0x5f86a);
+	debug_create_symbol("JPLT2", 0x5f86c);
+	debug_create_symbol("JPLT3", 0x5f86e);
+	debug_create_symbol("BKCOL", 0x5f870);
 	return true;
 }
 
 void
 vip_reset(void)
 {
-	// TODO
+	// TODO: set initial reg states
 }
 
 void
@@ -1288,13 +1317,12 @@ debug_format_binary(u_int n, u_int nbits)
 }
 
 static const size_t debug_str_len = 64;
-typedef char debug_addr_str_t[debug_str_len];
+typedef char debug_str_t[debug_str_len];
 
 static const char *
-debug_format_addr(u_int32_t addr, debug_addr_str_t s)
+debug_format_addr(u_int32_t addr, debug_str_t s)
 {
-	//static char s[64];
-	/*static*/ char human[32];
+	char human[32];
 	struct debug_symbol *sym = debug_syms;
 	const char *match_name = NULL;
 	u_int32_t match_offset;
@@ -1359,11 +1387,54 @@ debug_create_symbol(const char *name, u_int32_t addr)
 	debug_add_symbol(debug_sym);
 }
 
-char *
-debug_disasm(const union cpu_inst *inst, u_int32_t pc)
+static void
+debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemonic, const cpu_regs_t regs)
 {
-	static char dis[48];
-	//snprintf(dis, sizeof(dis), "%s", debug_format_binary(inst->ci_hwords[0], 16));
+	snprintf(dis, debug_str_len, "%s %hd[r%u], r%u",
+			mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
+	if (regs)
+	{
+		u_int32_t addr = regs[inst->ci_vi.vi_reg1] + inst->ci_vi.vi_disp16;
+		size_t dislen = strlen(dis);
+		debug_str_t addr_s;
+		debug_format_addr(addr, addr_s);
+		switch (inst->ci_vi.vi_opcode)
+		{
+			case OP_CAXI:
+				snprintf(dis + dislen, debug_str_len - dislen,
+						"\t; [%s] <- r30 if oldval = r%u", addr_s, inst->ci_vi.vi_reg2);
+				break;
+			case OP_LD_B:
+			case OP_LD_H:
+			case OP_LD_W:
+				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] -> r%u", addr_s, inst->ci_vi.vi_reg2);
+				break;
+			case OP_ST_B:
+			{
+				u_int8_t value = regs[inst->ci_vi.vi_reg2] & 0xff;
+				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] <- 0x%02hhx", addr_s, value);
+				break;
+			}
+			case OP_ST_H:
+			{
+				u_int16_t value = regs[inst->ci_vi.vi_reg2] & 0xffff;
+				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] <- 0x%04hx", addr_s, value);
+				break;
+			}
+			case OP_ST_W:
+			{
+				u_int32_t value = regs[inst->ci_vi.vi_reg2];
+				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] <- 0x%08x", addr_s, value);
+				break;
+			}
+		}
+	}
+}
+
+char *
+debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
+{
+	static debug_str_t dis;
 	const char *mnemonic;
 	switch (inst->ci_i.i_opcode)
 	{
@@ -1392,19 +1463,6 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc)
 		case OP_JAL: mnemonic = "JAL"; break;
 		case OP_ORI: mnemonic = "ORI"; break;
 		case OP_ANDI: mnemonic = "ANDI"; break;
-		case OP_CAXI: mnemonic = "CAXI"; break;
-		case OP_IN_B: mnemonic = "IN.B"; break;
-		case OP_IN_H: mnemonic = "IN.H"; break;
-		case OP_IN_W: mnemonic = "IN.W"; break;
-		case OP_LD_B: mnemonic = "LD.B"; break;
-		case OP_LD_H: mnemonic = "LD.H"; break;
-		case OP_LD_W: mnemonic = "LD.W"; break;
-		case OP_OUT_B: mnemonic = "OUT.B"; break;
-		case OP_OUT_H: mnemonic = "OUT.H"; break;
-		case OP_OUT_W: mnemonic = "OUT.W"; break;
-		case OP_ST_B: mnemonic = "ST.B"; break;
-		case OP_ST_H: mnemonic = "ST.H"; break;
-		case OP_ST_W: mnemonic = "ST.W"; break;
 		default:
 		{
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
@@ -1454,7 +1512,14 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc)
 			snprintf(dis, sizeof(dis), "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			break;
 		case OP_JMP:
-			snprintf(dis, sizeof(dis), "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
+			if (regs)
+			{
+				debug_str_t addr_s;
+				snprintf(dis, sizeof(dis), "%s [r%u]\t\t; pc <- %s",
+						mnemonic, inst->ci_i.i_reg1, debug_format_addr(regs[inst->ci_i.i_reg1], addr_s));
+			}
+			else
+				snprintf(dis, sizeof(dis), "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			break;
 		case OP_ADD2:
 		case OP_MOV2:
@@ -1478,8 +1543,8 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc)
 				disp|= 0xfd000000;
 			if (pc)
 			{
-				debug_addr_str_t addr_s;
-				snprintf(dis, sizeof(dis), "%s %i ; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
+				debug_str_t addr_s;
+				snprintf(dis, sizeof(dis), "%s %i\t\t; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
 			}
 			else
 				snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
@@ -1497,31 +1562,53 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc)
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
 			break;
 		case OP_CAXI:
-		case OP_IN_B:
-		case OP_IN_H:
-		case OP_IN_W:
-		case OP_LD_B:
-		case OP_LD_H:
-		case OP_LD_W:
-		case OP_OUT_B:
-		case OP_OUT_H:
-		case OP_OUT_W:
-		case OP_ST_B:
-		case OP_ST_H:
-		case OP_ST_W:
-		{
-			snprintf(dis, sizeof(dis), "%s %hd[r%u], r%u",
-					mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
+			debug_disasm_vi(dis, inst, "CAXI", regs);
 			break;
-		}
+		case OP_IN_B:
+			debug_disasm_vi(dis, inst, "IN.B", regs);
+			break;
+		case OP_IN_H:
+			debug_disasm_vi(dis, inst, "IN.H", regs);
+			break;
+		case OP_IN_W:
+			debug_disasm_vi(dis, inst, "IN.W", regs);
+			break;
+		case OP_LD_B:
+			debug_disasm_vi(dis, inst, "LD.B", regs);
+			break;
+		case OP_LD_H:
+			debug_disasm_vi(dis, inst, "LD.H", regs);
+			break;
+		case OP_LD_W:
+			debug_disasm_vi(dis, inst, "LD.W", regs);
+			break;
+		case OP_OUT_B:
+			debug_disasm_vi(dis, inst, "OUT.B", regs);
+			break;
+		case OP_OUT_H:
+			debug_disasm_vi(dis, inst, "OUT.H", regs);
+			break;
+		case OP_OUT_W:
+			debug_disasm_vi(dis, inst, "OUT.W", regs);
+			break;
+		case OP_ST_B:
+			debug_disasm_vi(dis, inst, "ST.B", regs);
+			break;
+		case OP_ST_H:
+			debug_disasm_vi(dis, inst, "ST.H", regs);
+			break;
+		case OP_ST_W:
+			debug_disasm_vi(dis, inst, "ST.W", regs);
+			break;
 		default:
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
 			{
 				u_int32_t disp = cpu_extend9(inst->ci_iii.iii_disp9);
 				if (pc)
 				{
-					debug_addr_str_t addr_s;
-					snprintf(dis, sizeof(dis), "%s %i ; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
+					debug_str_t addr_s;
+					snprintf(dis, sizeof(dis), "%s %i\t\t; pc <- %s",
+							mnemonic, disp, debug_format_addr(pc + disp, addr_s));
 				}
 				else
 					snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
@@ -1632,14 +1719,14 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 }
 
 static bool
-debug_disasm_at(u_int32_t *addrp, bool stop_at_jmp)
+debug_disasm_at(u_int32_t *addrp, bool stop_at_return)
 {
 	union cpu_inst inst;
 	if (!cpu_fetch(*addrp, &inst))
 		return false;
-	printf(" %s\n", debug_disasm(&inst, *addrp));
+	printf(" %s\n", debug_disasm(&inst, *addrp, NULL));
 
-	if (stop_at_jmp && inst.ci_i.i_opcode == OP_JMP)
+	if (stop_at_return && inst.ci_i.i_opcode == OP_JMP && inst.ci_i.i_reg1 == 31)
 		return false;
 
 	*addrp+= cpu_inst_size(&inst);
@@ -1664,9 +1751,9 @@ debug_run(void)
 		union cpu_inst inst;
 		if (cpu_fetch(cpu_state.cs_pc, &inst))
 		{
-			debug_addr_str_t addr_s;
+			debug_str_t addr_s;
 			printf("frame 0: %s: %s\n",
-					debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(&inst, cpu_state.cs_pc));
+					debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
 		}
 
 		tok_reset(s_token);
@@ -1696,7 +1783,7 @@ debug_run(void)
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
 					static const char *fmt = "\t%3s: %s";
-					debug_addr_str_t addr_s;
+					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
 						char rname[5];
@@ -1709,7 +1796,7 @@ debug_run(void)
 					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
 					printf(fmt, "psw", debug_format_binary(cpu_state.cs_psw, 32));
 					putchar('\n');
-					printf(fmt, "ecr", debug_format_addr(cpu_state.cs_ecr, addr_s));
+					printf(fmt, "ecr", debug_format_binary(cpu_state.cs_ecr, 32));
 					putchar('\n');
 				}
 				else if (!strcmp(argv[0], "x"))
@@ -1728,7 +1815,7 @@ debug_run(void)
 
 						for (u_int objIndex = 0; objIndex < count; ++objIndex)
 						{
-							debug_addr_str_t addr_s;
+							debug_str_t addr_s;
 							printf("%s:", debug_format_addr(addr, addr_s));
 							if (!strcmp(format, "h"))
 							{
@@ -1777,10 +1864,10 @@ debug_run(void)
 					else
 						pc = cpu_state.cs_pc;
 
-					u_int32_t end = pc + MIN(1024, 0xffffffff - pc);
+					u_int32_t end = pc + MIN(8192, 0xffffffff - pc);
 					while (pc < end)
 					{
-						debug_addr_str_t addr_s;
+						debug_str_t addr_s;
 						printf("%s:", debug_format_addr(pc, addr_s));
 						if (!debug_disasm_at(&pc, true))
 							break;
@@ -1794,6 +1881,14 @@ debug_run(void)
 			putchar('\n');
 	}
 	debugging = false;
+}
+
+void
+debug_trace(const union cpu_inst *inst)
+{
+	debug_str_t addr_s;
+	printf("%s: %s\n",
+			debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(inst, cpu_state.cs_pc, cpu_state.cs_r));
 }
 
 /* MAIN */

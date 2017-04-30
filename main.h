@@ -30,6 +30,8 @@ extern struct mem_seg_desc
 } mem_segs[MEM_NSEGS];
 
 /* CPU */
+typedef u_int32_t cpu_regs_t[32];
+
 union cpu_inst
 {
 	u_int16_t ci_hwords[2];
@@ -85,9 +87,11 @@ struct debug_symbol
 	struct debug_symbol *ds_next;
 };
 
+bool debug_tracing = true;
 void debug_add_symbol(struct debug_symbol *debug_sym);
 void debug_create_symbol(const char *name, u_int32_t addr);
-char *debug_disasm(const union cpu_inst *inst, u_int32_t pc);
+char *debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs);
 void debug_intr(void);
+void debug_trace(const union cpu_inst *inst);
 
 #endif /* MAIN_H */
