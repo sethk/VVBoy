@@ -13,5 +13,8 @@ vvboy: main.o
 clean::
 	rm -f $(TARGET) $(OBJS)
 
+tags:: $(SRCS)
+	ctags $^
+
 lint: $(SRCS)
 	$(CC_ANALYZER) $(CFLAGS) -fsyntax-only $(SRCS)
