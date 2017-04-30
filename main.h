@@ -86,6 +86,8 @@ struct debug_symbol
 };
 
 void debug_add_symbol(struct debug_symbol *debug_sym);
-char *debug_disasm(const union cpu_inst *inst);
+void debug_create_symbol(const char *name, u_int32_t addr);
+char *debug_disasm(const union cpu_inst *inst, u_int32_t pc);
+void debug_intr(void);
 
 #endif /* MAIN_H */

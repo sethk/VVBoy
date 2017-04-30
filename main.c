@@ -154,7 +154,7 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 	else
 	{
 		warnx("Bus error at 0x%08x", addr);
-		raise(SIGINT);
+		debug_intr();
 		return false;
 	}
 }
@@ -198,6 +198,8 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	else
 	{
 		// TODO: SEGV
+		fprintf(stderr, "No segment found for address 0x%08x\n", addr);
+		debug_intr();
 		return false;
 	}
 }
@@ -667,15 +669,29 @@ static bool
 cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 {
 	if (!mem_read(addr, &(inst->ci_hwords[0]), 2))
+	{
+		printf("Could not read instruction at 0x%08x\n", addr);
 		return false;
+	}
 	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
 	if (cpu_inst_size(inst) == 4)
 	{
 		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2))
+		{
+			printf("Could not read instruction at 0x%08x\n", addr + 2);
 			return false;
+		}
 		inst->ci_hwords[1] = OSSwapLittleToHostInt16(inst->ci_hwords[1]);
 	}
 	return true;
+}
+
+static inline u_int32_t
+cpu_extend9(u_int32_t s9)
+{
+	if ((s9 & 0x100) == 0x100)
+		s9|= 0xfffffe00;
+	return s9;
 }
 
 static void
@@ -845,7 +861,7 @@ cpu_exec(const union cpu_inst inst)
 					if (chcw & ~CPU_CHCW_ICE)
 					{
 						warnx("Unsupported CHCW commands");
-						raise(SIGINT);
+						debug_intr();
 						return false;
 					}
 					cpu_state.cs_chcw = chcw;
@@ -853,7 +869,7 @@ cpu_exec(const union cpu_inst inst)
 				}
 				default:
 					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
-					raise(SIGINT);
+					debug_intr();
 					return false;
 			}
 			break;
@@ -987,18 +1003,20 @@ cpu_exec(const union cpu_inst inst)
 					case BCOND_BL:
 						branch = ((cpu_state.cs_psw & CPU_PSW_CY) == CPU_PSW_CY);
 						break;
+					default:
+						fputs("Handle branch cond\n", stderr);
+						debug_intr();
+						return false;
 				}
 				if (branch)
 				{
-					u_int32_t disp = inst.ci_iii.iii_disp9;
-					if ((disp & 0x100) == 0x100)
-						disp|= 0xfffff100;
+					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
 					cpu_state.cs_pc+= disp;
 				}
 				break;
 			}
 			fputs("TODO: execute instruction\n", stderr);
-			raise(SIGINT);
+			debug_intr();
 			return false;
 	}
 	return true;
@@ -1023,7 +1041,7 @@ cpu_test_addi(int32_t left, int16_t right, int32_t result, bool overflow, bool c
 				"\tresult (0x%08x) should be 0x%08x\n"
 				"\toverflow flag (%d) should be %s\n"
 				"\tcarry flag (%d) should be %s\n",
-				left, debug_disasm(&inst),
+				left, debug_disasm(&inst, 0),
 				cpu_state.cs_r[2], result,
 				ov, (overflow) ? "set" : "reset",
 				cy, (carry) ? "set" : "reset");
@@ -1162,7 +1180,7 @@ vip_mem_read(u_int32_t addr, void *dest, size_t size)
 	{
 		// TODO: read VIP seg
 		fprintf(stderr, "VIP bus error at 0x%08x\n", addr);
-		raise(SIGINT);
+		debug_intr();
 		return false;
 	}
 }
@@ -1184,7 +1202,7 @@ vip_mem_write(u_int32_t addr, const void *src, size_t size)
 	{
 		// TODO: Write VIP seg
 		fprintf(stderr, "VIP bus error at 0x%08x\n", addr);
-		raise(SIGINT);
+		debug_intr();
 		return false;
 	}
 }
@@ -1269,6 +1287,58 @@ debug_format_binary(u_int n, u_int nbits)
 	return bin;
 }
 
+static const size_t debug_str_len = 64;
+typedef char debug_addr_str_t[debug_str_len];
+
+static const char *
+debug_format_addr(u_int32_t addr, debug_addr_str_t s)
+{
+	//static char s[64];
+	/*static*/ char human[32];
+	struct debug_symbol *sym = debug_syms;
+	const char *match_name = NULL;
+	u_int32_t match_offset;
+
+	while (sym)
+	{
+		if (sym->ds_addr <= addr)
+		{
+			u_int32_t offset = addr - sym->ds_addr;
+			if (offset <= 8192 && (!match_name || match_offset > offset))
+			{
+				match_name = sym->ds_name;
+				match_offset = offset;
+			}
+		}
+
+		sym = sym->ds_next;
+	}
+
+	if (!match_name)
+	{
+		enum mem_segment seg = MEM_ADDR2SEG(addr);
+		if (mem_seg_names[seg] && mem_segs[seg].ms_size)
+		{
+			match_name = mem_seg_names[seg];
+			match_offset = addr & mem_segs[seg].ms_addrmask;
+		}
+	}
+
+	if (match_name)
+	{
+		if (match_offset)
+			snprintf(human, sizeof(human), "<%s+%u>", match_name, match_offset);
+		else
+			snprintf(human, sizeof(human), "<%s>", match_name);
+	}
+	else
+		*human = '\0';
+
+	snprintf(s, debug_str_len, "0x%08x %-15s", addr, human);
+
+	return s;
+}
+
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
@@ -1276,10 +1346,23 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 }
 
-char *
-debug_disasm(const union cpu_inst *inst)
+void
+debug_create_symbol(const char *name, u_int32_t addr)
 {
-	static char dis[32];
+	struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
+	if (!debug_sym)
+		err(1, "Could not allocate debug symbol");
+	debug_sym->ds_name = strdup(name);
+	if (!debug_sym->ds_name)
+		err(1, "Could not copy symbol name");
+	debug_sym->ds_addr = addr;
+	debug_add_symbol(debug_sym);
+}
+
+char *
+debug_disasm(const union cpu_inst *inst, u_int32_t pc)
+{
+	static char dis[48];
 	//snprintf(dis, sizeof(dis), "%s", debug_format_binary(inst->ci_hwords[0], 16));
 	const char *mnemonic;
 	switch (inst->ci_i.i_opcode)
@@ -1393,7 +1476,13 @@ debug_disasm(const union cpu_inst *inst)
 			u_int32_t disp = (inst->ci_iv.iv_disp10 << 16) | inst->ci_iv.iv_disp16;
 			if ((disp & 0x2000000) == 0x2000000)
 				disp|= 0xfd000000;
-			snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
+			if (pc)
+			{
+				debug_addr_str_t addr_s;
+				snprintf(dis, sizeof(dis), "%s %i ; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
+			}
+			else
+				snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
 			break;
 		}
 		case OP_MOVEA:
@@ -1420,16 +1509,22 @@ debug_disasm(const union cpu_inst *inst)
 		case OP_ST_B:
 		case OP_ST_H:
 		case OP_ST_W:
+		{
 			snprintf(dis, sizeof(dis), "%s %hd[r%u], r%u",
 					mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
 			break;
+		}
 		default:
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
 			{
-				u_int16_t disp = inst->ci_iii.iii_disp9;
-				if ((disp & 0x100) == 0x100)
-					disp|= 0xfe00;
-				snprintf(dis, sizeof(dis), "%s %hi", mnemonic, disp);
+				u_int32_t disp = cpu_extend9(inst->ci_iii.iii_disp9);
+				if (pc)
+				{
+					debug_addr_str_t addr_s;
+					snprintf(dis, sizeof(dis), "%s %i ; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
+				}
+				else
+					snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
 				break;
 			}
 			snprintf(dis, sizeof(dis), "TODO: %s", mnemonic);
@@ -1453,7 +1548,8 @@ static const struct debug_help
 		"\t\tFormats: h (hex), i (instructions), b (binary)\n"
 		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 	{'r', "", "Reset the CPU (aliases: reset)"},
-	{'v', "", "Show VIP info (aliases: vip)"}
+	{'v', "", "Show VIP info (aliases: vip)"},
+	{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"}
 };
 
 static void
@@ -1535,60 +1631,43 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 	return true;
 }
 
-static char *
-debug_format_addr(u_int32_t addr)
+static bool
+debug_disasm_at(u_int32_t *addrp, bool stop_at_jmp)
 {
-	static char s[64];
-	static char human[32];
-	struct debug_symbol *sym = debug_syms;
-	const char *match_name;
-	u_int32_t match_offset;
+	union cpu_inst inst;
+	if (!cpu_fetch(*addrp, &inst))
+		return false;
+	printf(" %s\n", debug_disasm(&inst, *addrp));
 
-	while (sym)
-	{
-		if (sym->ds_addr <= addr)
-		{
-			u_int32_t offset = addr - sym->ds_addr;
-			if (offset <= 8192 && (!match_name || match_offset > offset))
-			{
-				match_name = sym->ds_name;
-				match_offset = offset;
-			}
-		}
+	if (stop_at_jmp && inst.ci_i.i_opcode == OP_JMP)
+		return false;
 
-		sym = sym->ds_next;
-	}
-
-	if (!match_name)
-	{
-		enum mem_segment seg = MEM_ADDR2SEG(addr);
-		if (mem_seg_names[seg] && mem_segs[seg].ms_size)
-		{
-			match_name = mem_seg_names[seg];
-			match_offset = addr & mem_segs[seg].ms_addrmask;
-		}
-	}
-
-	if (match_name)
-		snprintf(human, sizeof(human), "<%s+%u>", match_name, match_offset);
-	else
-		*human = '\0';
-
-	snprintf(s, sizeof(s), "0x%08x %-15s", addr, human);
-
-	return s;
+	*addrp+= cpu_inst_size(&inst);
+	return true;
 }
+
+static bool debugging = false;
 
 void
 debug_intr(void)
 {
+	if (!debugging)
+		raise(SIGINT);
+}
+
+void
+debug_run(void)
+{
+	debugging = true;
 	while (1)
 	{
 		union cpu_inst inst;
 		if (cpu_fetch(cpu_state.cs_pc, &inst))
-			printf("frame 0: %s: %s\n", debug_format_addr(cpu_state.cs_pc), debug_disasm(&inst));
-		else
-			printf("Could not read instruction at 0x%08x\n", cpu_state.cs_pc);
+		{
+			debug_addr_str_t addr_s;
+			printf("frame 0: %s: %s\n",
+					debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(&inst, cpu_state.cs_pc));
+		}
 
 		tok_reset(s_token);
 		int length;
@@ -1617,19 +1696,20 @@ debug_intr(void)
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
 					static const char *fmt = "\t%3s: %s";
+					debug_addr_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
 						char rname[5];
 						snprintf(rname, sizeof(rname), "r%d", regIndex);
-						printf(fmt, rname, debug_format_addr(cpu_state.cs_r[regIndex]));
+						printf(fmt, rname, debug_format_addr(cpu_state.cs_r[regIndex], addr_s));
 						printf(" (%11i)", cpu_state.cs_r[regIndex]);
 						if (regIndex % 2 == 1)
 							putchar('\n');
 					}
-					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc));
+					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
 					printf(fmt, "psw", debug_format_binary(cpu_state.cs_psw, 32));
 					putchar('\n');
-					printf(fmt, "ecr", debug_format_addr(cpu_state.cs_ecr));
+					printf(fmt, "ecr", debug_format_addr(cpu_state.cs_ecr, addr_s));
 					putchar('\n');
 				}
 				else if (!strcmp(argv[0], "x"))
@@ -1648,7 +1728,8 @@ debug_intr(void)
 
 						for (u_int objIndex = 0; objIndex < count; ++objIndex)
 						{
-							printf("0x%08x:", addr);
+							debug_addr_str_t addr_s;
+							printf("%s:", debug_format_addr(addr, addr_s));
 							if (!strcmp(format, "h"))
 							{
 								u_int32_t dword;
@@ -1658,12 +1739,8 @@ debug_intr(void)
 							}
 							else if (!strcmp(format, "i"))
 							{
-								union cpu_inst inst;
-								if (cpu_fetch(addr, &inst))
-									printf(" %s\n", debug_disasm(&inst));
-								else
-									fputs("Could not fetch instruction\n", stderr);
-								addr+= cpu_inst_size(&inst);
+								if (!debug_disasm_at(&addr, false))
+									break;
 							}
 							else if (!strcmp(format, "b"))
 							{
@@ -1689,6 +1766,26 @@ debug_intr(void)
 					printf("INTPND: 0x%04hx, INTENB: 0x%04hx, INTCLR: 0x%04hx\n",
 							vip_reg.vr_intpnd, vip_reg.vr_intenb, vip_reg.vr_intclr);
 				}
+				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
+				{
+					u_int32_t pc;
+					if (argc >= 2)
+					{
+						if (!debug_parse_addr(argv[1], &pc))
+							continue;
+					}
+					else
+						pc = cpu_state.cs_pc;
+
+					u_int32_t end = pc + MIN(1024, 0xffffffff - pc);
+					while (pc < end)
+					{
+						debug_addr_str_t addr_s;
+						printf("%s:", debug_format_addr(pc, addr_s));
+						if (!debug_disasm_at(&pc, true))
+							break;
+					}
+				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
 			}
@@ -1696,6 +1793,7 @@ debug_intr(void)
 		else
 			putchar('\n');
 	}
+	debugging = false;
 }
 
 /* MAIN */
@@ -1774,7 +1872,7 @@ main(int ac, char * const *av)
 		cpu_test();
 
 	if (debug_boot)
-		debug_intr();
+		debug_run();
 
 	sigset_t sigset;
 	sigemptyset(&sigset);
@@ -1794,7 +1892,7 @@ main(int ac, char * const *av)
 			signal(SIGINT, SIG_DFL);
 
 			putchar('\n');
-			debug_intr();
+			debug_run();
 			signal(SIGINT, main_noop);
 			sigprocmask(SIG_BLOCK, &sigpend, NULL);
 		}
