@@ -966,6 +966,9 @@ cpu_exec(const union cpu_inst inst)
 					case BCOND_BL:
 						branch = cpu_state.cs_psw.psw_flags.f_cy;
 						break;
+					case BCOND_BLT:
+						branch = cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov;
+						break;
 					default:
 						fputs("Handle branch cond\n", stderr);
 						debug_intr();
