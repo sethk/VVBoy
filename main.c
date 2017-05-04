@@ -538,7 +538,17 @@ static struct cpu_state
 {
 	cpu_regs_t cs_r;
 	u_int32_t cs_pc;
-	u_int32_t cs_psw;
+	union
+	{
+		u_int32_t psw_dword;
+		struct
+		{
+			unsigned f_z : 1;
+			unsigned f_s : 1;
+			unsigned f_ov : 1;
+			unsigned f_cy : 1;
+		} psw_flags;
+	} cs_psw;
 	u_int32_t cs_ecr;
 	u_int32_t cs_chcw;
 } cpu_state;
@@ -642,19 +652,11 @@ cpu_fini(void)
 	// TODO
 }
 
-enum cpu_psw_flags
-{
-	CPU_PSW_Z  = 1 << 0,
-	CPU_PSW_S  = 1 << 1,
-	CPU_PSW_OV = 1 << 2,
-	CPU_PSW_CY = 1 << 3
-};
-
 void
 cpu_reset(void)
 {
 	cpu_state.cs_pc = 0xfffffff0;
-	cpu_state.cs_psw = 0x00008000;
+	cpu_state.cs_psw.psw_dword = 0x00008000; // TODO: set by flags
 	cpu_state.cs_ecr = 0x0000fff0;
 	cpu_state.cs_chcw = CPU_CHCW_ICE;
 }
@@ -697,28 +699,16 @@ cpu_extend9(u_int32_t s9)
 static void
 cpu_setfl(u_int64_t result)
 {
-	if (result == 0)
-		cpu_state.cs_psw|= CPU_PSW_Z;
-	else
-		cpu_state.cs_psw&= ~CPU_PSW_Z;
-	if ((result & 0x80000000) == 0x80000000)
-		cpu_state.cs_psw|= CPU_PSW_S;
-	else
-		cpu_state.cs_psw&= ~CPU_PSW_S;
-	if ((result & 0x100000000) == 0x100000000)
-		cpu_state.cs_psw|= CPU_PSW_CY;
-	else
-		cpu_state.cs_psw&= ~CPU_PSW_CY;
+	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+	cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+	cpu_state.cs_psw.psw_flags.f_cy = ((result & 0x100000000) == 0x100000000);
 }
 
 static u_int32_t
 cpu_add(u_int32_t left, u_int32_t right)
 {
 	u_int64_t result = (u_int64_t)left + right;
-	if ((result & 0x80000000) != (left & 0x80000000))
-		cpu_state.cs_psw|= CPU_PSW_OV;
-	else
-		cpu_state.cs_psw&= ~CPU_PSW_OV;
+	cpu_state.cs_psw.psw_flags.f_ov = ((result & 0x80000000) != (left & 0x80000000));
 	cpu_setfl(result);
 	return result;
 }
@@ -797,19 +787,10 @@ cpu_exec(const union cpu_inst inst)
 				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
 				u_int32_t shift = inst.ci_ii.ii_imm5;
 				u_int32_t result = start << shift;
-				if (((start >> (31 - shift)) & 1) == 1)
-					cpu_state.cs_psw|= CPU_PSW_CY;
-				else
-					cpu_state.cs_psw&= ~CPU_PSW_CY;
-				cpu_state.cs_psw&= ~CPU_PSW_OV;
-				if ((result & 0x80000000) == 0x80000000)
-					cpu_state.cs_psw|= CPU_PSW_S;
-				else
-					cpu_state.cs_psw&= ~CPU_PSW_S;
-				if (result == 0)
-					cpu_state.cs_psw|= CPU_PSW_Z;
-				else
-					cpu_state.cs_psw&= ~CPU_PSW_Z;
+				cpu_state.cs_psw.psw_flags.f_cy = ((start >> (31 - shift)) & 1);
+				cpu_state.cs_psw.psw_flags.f_ov = 0;
+				cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
 			}
 			break;
@@ -824,22 +805,16 @@ cpu_exec(const union cpu_inst inst)
 				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
 				u_int32_t shift = inst.ci_ii.ii_imm5;
 				u_int32_t result = start >> shift;
-				if (((start >> (shift - 1)) & 1) == 1)
-					cpu_state.cs_psw|= CPU_PSW_CY;
-				else
-					cpu_state.cs_psw&= ~CPU_PSW_CY;
-				cpu_state.cs_psw&= ~CPU_PSW_OV;
+				cpu_state.cs_psw.psw_flags.f_cy = ((start >> (shift - 1)) & 1);
+				cpu_state.cs_psw.psw_flags.f_ov = 0;
 				if ((start & 0x80000000) == 0x80000000)
 				{
 					result|= (0xffffffff << (32 - shift));
-					cpu_state.cs_psw|= CPU_PSW_S;
+					cpu_state.cs_psw.psw_flags.f_s = 1;
 				}
 				else
-					cpu_state.cs_psw&= ~CPU_PSW_S;
-				if (result == 0)
-					cpu_state.cs_psw|= CPU_PSW_Z;
-				else
-					cpu_state.cs_psw&= ~CPU_PSW_Z;
+					cpu_state.cs_psw.psw_flags.f_s = 0;
+				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
 			}
 			break;
@@ -853,7 +828,7 @@ cpu_exec(const union cpu_inst inst)
 			switch (inst.ci_ii.ii_imm5)
 			{
 				case REGID_PSW:
-					cpu_state.cs_psw = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_psw.psw_dword = cpu_state.cs_r[inst.ci_ii.ii_reg2];
 					break;
 				case REGID_CHCW:
 				{
@@ -910,30 +885,18 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ORI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] | inst.ci_v.v_imm16;
-			cpu_state.cs_psw&= ~CPU_PSW_OV;
-			if (result == 0)
-				cpu_state.cs_psw|= CPU_PSW_Z;
-			else
-				cpu_state.cs_psw&= ~CPU_PSW_Z;
-			if ((result & 0x80000000) == 0x80000000)
-				cpu_state.cs_psw|= CPU_PSW_S;
-			else
-				cpu_state.cs_psw&= ~CPU_PSW_S;
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+			cpu_state.cs_psw.psw_flags.f_ov = 0;
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
 		case OP_ANDI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] & inst.ci_v.v_imm16;
-			cpu_state.cs_psw&= CPU_PSW_OV;
-			if ((result & 0x80000000) == 0x80000000)
-				cpu_state.cs_psw|= CPU_PSW_S;
-			else
-				cpu_state.cs_psw&= ~CPU_PSW_S;
-			if (result == 0)
-				cpu_state.cs_psw|= CPU_PSW_Z;
-			else
-				cpu_state.cs_psw&= CPU_PSW_Z;
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+			cpu_state.cs_psw.psw_flags.f_ov = 0;
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
@@ -1001,7 +964,7 @@ cpu_exec(const union cpu_inst inst)
 				switch (inst.ci_iii.iii_cond)
 				{
 					case BCOND_BL:
-						branch = ((cpu_state.cs_psw & CPU_PSW_CY) == CPU_PSW_CY);
+						branch = cpu_state.cs_psw.psw_flags.f_cy;
 						break;
 					default:
 						fputs("Handle branch cond\n", stderr);
@@ -1034,17 +997,17 @@ cpu_test_addi(int32_t left, int16_t right, int32_t result, bool overflow, bool c
 	cpu_state.cs_r[2] = 0xdeadc0de;
 	inst.ci_v.v_reg2 = 2;
 	cpu_exec(inst);
-	bool ov = (cpu_state.cs_psw & CPU_PSW_OV) == CPU_PSW_OV;
-	bool cy = (cpu_state.cs_psw & CPU_PSW_CY) == CPU_PSW_CY;
-	if (cpu_state.cs_r[2] != result || ov != overflow || cy != carry)
+	if (cpu_state.cs_r[2] != result ||
+			cpu_state.cs_psw.psw_flags.f_ov != overflow ||
+			cpu_state.cs_psw.psw_flags.f_cy != carry)
 		fprintf(stderr, "*** Test failure: r1 = 0x%08x; %s\n"
 				"\tresult (0x%08x) should be 0x%08x\n"
 				"\toverflow flag (%d) should be %s\n"
 				"\tcarry flag (%d) should be %s\n",
 				left, debug_disasm(&inst, 0, NULL),
 				cpu_state.cs_r[2], result,
-				ov, (overflow) ? "set" : "reset",
-				cy, (carry) ? "set" : "reset");
+				cpu_state.cs_psw.psw_flags.f_ov, (overflow) ? "set" : "reset",
+				cpu_state.cs_psw.psw_flags.f_cy, (carry) ? "set" : "reset");
 }
 
 static void
@@ -1742,6 +1705,23 @@ debug_intr(void)
 		raise(SIGINT);
 }
 
+static char *
+debug_format_flags(debug_str_t s, ...)
+{
+	va_list ap;
+	va_start(ap, s);
+	const char *name;
+	size_t len = 0;
+	while ((name = va_arg(ap, typeof(name))))
+	{
+		u_int flag = va_arg(ap, typeof(flag));
+		if (flag)
+			len+= snprintf(s + len, debug_str_len - len, "%s%s", (len > 0) ? "|" : "", name);
+	}
+	va_end(ap);
+	return s;
+}
+
 void
 debug_run(void)
 {
@@ -1794,7 +1774,15 @@ debug_run(void)
 							putchar('\n');
 					}
 					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
-					printf(fmt, "psw", debug_format_binary(cpu_state.cs_psw, 32));
+					debug_str_t psw_s;
+					printf("\tpsw: 0x%08x (%s)\n",
+							cpu_state.cs_psw.psw_dword,
+							debug_format_flags(psw_s,
+								"Z", cpu_state.cs_psw.psw_flags.f_z,
+								"S", cpu_state.cs_psw.psw_flags.f_s,
+								"OV", cpu_state.cs_psw.psw_flags.f_ov,
+								"CY", cpu_state.cs_psw.psw_flags.f_cy,
+								NULL));
 					putchar('\n');
 					printf(fmt, "ecr", debug_format_binary(cpu_state.cs_ecr, 32));
 					putchar('\n');
