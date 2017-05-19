@@ -758,7 +758,20 @@ cpu_exec(const union cpu_inst inst)
 			break;
 			/*
 	OP_SAR   = 0b000111,
-	OP_MUL   = 0b001000,
+	*/
+		case OP_MUL:
+		{
+			int64_t result = (int64_t)(int32_t)cpu_state.cs_r[inst.ci_i.i_reg2] *
+					(int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & 0x8000000000000000) == 0x8000000000000000);
+			u_int64_t signbits = result & 0xffffffff80000000;
+			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != 0xffffffff80000000);
+			cpu_state.cs_r[30] = (u_int64_t)result >> 32;
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result & 0xffffffff;
+			break;
+		}
+			 /*
 	OP_DIV   = 0b001001,
 	OP_MULU  = 0b001010,
 	OP_DIVU  = 0b001011,
@@ -1114,11 +1127,11 @@ cpu_test(void)
 	cpu_test_sub(2147483647, -2147483647, -2, true, true);
 	cpu_test_sub(0, 9, -9, false, true);
 
-	cpu_test_mul(1, 1, 1, 0, 0, 0);
-	cpu_test_mul(1, -1, -1, 0, 1, 0xffffffff);
-	cpu_test_mul(-1, 1, -1, 0, 1, 0xffffffff);
-	cpu_test_mul(0x7fffffff, 0x7fffffff, 1, 1, 0, 0x3fffffff);
-	cpu_test_mul(0x40000000, 4, 0, 1, 0, 1);
+	cpu_test_mul(1, 1, 1, false, false, 0);
+	cpu_test_mul(1, -1, -1, false, true, 0xffffffff);
+	cpu_test_mul(-1, 1, -1, false, true, 0xffffffff);
+	cpu_test_mul(0x7fffffff, 0x7fffffff, 1, true, false, 0x3fffffff);
+	cpu_test_mul(0x40000000, 4, 0, true, false, 1);
 
 	cpu_reset();
 }
