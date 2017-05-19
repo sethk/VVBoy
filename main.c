@@ -742,10 +742,14 @@ cpu_exec(const union cpu_inst inst)
 		case OP_MOV:
 			cpu_state.cs_r[inst.ci_i.i_reg2] = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
-			/*
-	OP_ADD   = 0b000001,
-	OP_SUB   = 0b000010,
-	*/
+		case OP_ADD:
+			cpu_state.cs_r[inst.ci_i.i_reg2] =
+					cpu_add(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
+			break;
+		case OP_SUB:
+			cpu_state.cs_r[inst.ci_i.i_reg2] =
+					cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
+			break;
 		case OP_CMP:
 			cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
 			break;
