@@ -229,7 +229,7 @@ rom_close(struct rom_file *file)
 static bool
 rom_open(const char *fn, struct rom_file *file)
 {
-	bzero(file, sizeof(file));
+	bzero(file, sizeof(*file));
 
 	file->rf_fdesc = open(fn, O_RDONLY);
 	if (file->rf_fdesc == -1)
