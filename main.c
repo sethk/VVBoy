@@ -989,28 +989,87 @@ cpu_exec(const union cpu_inst inst)
 }
 
 static void
-cpu_test_addi(int32_t left, int16_t right, int32_t result, bool overflow, bool carry)
+cpu_assert_reg(const char *dis, unsigned reg, u_int32_t value)
+{
+	if (cpu_state.cs_r[reg] != value)
+		fprintf(stderr, "*** Test failure: %s\n\tr%u (0x%08x) should be 0x%08x\n",
+				dis, reg, cpu_state.cs_r[reg], value);
+}
+
+static void
+cpu_assert_flag(const char *dis, const char *name, bool flag, bool value)
+{
+	if (flag != value)
+		fprintf(stderr, "*** Test failure: %s\n\t%s flag (%d) should be %s\n",
+				dis, name, flag, (value) ? "set" : "reset");
+}
+
+static void
+cpu_assert_overflow(const char *dis, bool overflow)
+{
+	cpu_assert_flag(dis, "overflow", cpu_state.cs_psw.psw_flags.f_ov, overflow);
+}
+
+static void
+cpu_assert_sign(const char *dis, bool sign)
+{
+	cpu_assert_flag(dis, "sign", cpu_state.cs_psw.psw_flags.f_s, sign);
+}
+
+static void
+cpu_assert_carry(const char *dis, bool carry)
+{
+	cpu_assert_flag(dis, "carry", cpu_state.cs_psw.psw_flags.f_cy, carry);
+}
+
+static void
+cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool carry)
 {
 	union cpu_inst inst;
-
-	inst.ci_v.v_opcode = OP_ADDI;
-	cpu_state.cs_r[1] = left;
-	inst.ci_v.v_reg1 = 1;
-	inst.ci_v.v_imm16 = right;
-	cpu_state.cs_r[2] = 0xdeadc0de;
+	inst.ci_v.v_opcode = OP_ADD;
+	cpu_state.cs_r[2] = left;
 	inst.ci_v.v_reg2 = 2;
+	cpu_state.cs_r[1] = right;
+	inst.ci_v.v_reg1 = 1;
 	cpu_exec(inst);
-	if (cpu_state.cs_r[2] != result ||
-			cpu_state.cs_psw.psw_flags.f_ov != overflow ||
-			cpu_state.cs_psw.psw_flags.f_cy != carry)
-		fprintf(stderr, "*** Test failure: r1 = 0x%08x; %s\n"
-				"\tresult (0x%08x) should be 0x%08x\n"
-				"\toverflow flag (%d) should be %s\n"
-				"\tcarry flag (%d) should be %s\n",
-				left, debug_disasm(&inst, 0, NULL),
-				cpu_state.cs_r[2], result,
-				cpu_state.cs_psw.psw_flags.f_ov, (overflow) ? "set" : "reset",
-				cpu_state.cs_psw.psw_flags.f_cy, (carry) ? "set" : "reset");
+	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
+	cpu_assert_reg(dis, 2, result);
+	cpu_assert_overflow(dis, overflow);
+	cpu_assert_carry(dis, carry);
+}
+
+static void
+cpu_test_sub(int32_t left, int32_t right, int32_t result, bool overflow, bool carry)
+{
+	union cpu_inst inst;
+	inst.ci_i.i_opcode = OP_SUB;
+	cpu_state.cs_r[2] = left;
+	inst.ci_i.i_reg2 = 2;
+	cpu_state.cs_r[1] = right;
+	inst.ci_i.i_reg1 = 1;
+	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
+	cpu_exec(inst);
+	cpu_assert_reg(dis, 2, result);
+	cpu_assert_overflow(dis, overflow);
+	cpu_assert_carry(dis, carry);
+}
+
+static void
+cpu_test_mul(int32_t left, int32_t right, u_int32_t result, bool overflow, bool sign, u_int32_t carry)
+{
+	union cpu_inst inst;
+	inst.ci_i.i_opcode = OP_MUL;
+	cpu_state.cs_r[1] = left;
+	inst.ci_i.i_reg1 = 1;
+	cpu_state.cs_r[2] = right;
+	inst.ci_i.i_reg2 = 2;
+	cpu_state.cs_r[30] = 0xdeadc0de;
+	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
+	cpu_exec(inst);
+	cpu_assert_reg(dis, 2, result);
+	cpu_assert_overflow(dis, overflow);
+	cpu_assert_sign(dis, sign);
+	cpu_assert_reg(dis, 30, carry);
 }
 
 static void
@@ -1018,13 +1077,35 @@ cpu_test(void)
 {
 	fputs("Running CPU self-test\n", stderr);
 
-	cpu_test_addi(1, 1, 2, false, false);
-	cpu_test_addi(2147483647, 1, -2147483648, true, false);
-	cpu_test_addi(2147483646, 1, 2147483647, false, false);
-	cpu_test_addi(2147450881, 32767, -2147483648, true, false);
-	cpu_test_addi(2147450880, 32767, 2147483647, false, false);
-	cpu_test_addi(-1, -1, -2, false, true);
-	cpu_test_addi(-2147483648, -1, 2147483647, true, true);
+	cpu_test_add(1, 1, 2, false, false);
+	cpu_test_add(2147483647, 1, -2147483648, true, false);
+	cpu_test_add(1, 2147483647, -2147483648, true, false);
+	cpu_test_add(2147483646, 1, 2147483647, false, false);
+	cpu_test_add(1, 2147483646, 2147483647, false, false);
+	cpu_test_add(2147450881, 32767, -2147483648, true, false);
+	cpu_test_add(2147450880, 32767, 2147483647, false, false);
+	cpu_test_add(-1, -1, -2, false, true);
+	cpu_test_add(-2147483648, -1, 2147483647, true, true);
+
+	cpu_test_sub(1, 0, 1, false, false);
+	cpu_test_sub(1, 1, 0, false, false);
+	cpu_test_sub(2, 1, 1, false, false);
+	cpu_test_sub(0, 1, -1, true, true);
+	cpu_test_sub(0, 2, -2, true, true);
+	cpu_test_sub(-1, 0, -1, false, false);
+	cpu_test_sub(-1, -2, 1, false, false);
+	cpu_test_sub(-2147483648, 1, 2147483647, true, false);
+	cpu_test_sub(2147483646, 2147483647, -1, true, true);
+	cpu_test_sub(2147483647, -1, -2147483648, true, true);
+	cpu_test_sub(2147483647, -2147483648, -1, true, true);
+	cpu_test_sub(2147483647, -2147483647, -2, true, true);
+	cpu_test_sub(0, 9, -9, true, true);
+
+	cpu_test_mul(1, 1, 1, 0, 0, 0);
+	cpu_test_mul(1, -1, -1, 0, 1, 0xffffffff);
+	cpu_test_mul(-1, 1, -1, 0, 1, 0xffffffff);
+	cpu_test_mul(0x7fffffff, 0x7fffffff, 1, 1, 0, 0x3fffffff);
+	cpu_test_mul(0x40000000, 4, 0, 1, 0, 1);
 
 	cpu_reset();
 }
