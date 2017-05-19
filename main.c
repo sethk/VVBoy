@@ -688,6 +688,8 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	return true;
 }
 
+static const u_int32_t sign_bit32 = 0x80000000;
+
 static inline u_int32_t
 cpu_extend9(u_int32_t s9)
 {
@@ -705,19 +707,22 @@ cpu_extend5to16(u_int16_t s5)
 }
 
 static void
-cpu_setfl(u_int64_t result)
+cpu_setfl(u_int64_t result, u_int32_t left, bool sign_agree)
 {
 	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-	cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+	cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 	cpu_state.cs_psw.psw_flags.f_cy = ((result & 0x100000000) == 0x100000000);
+	if (sign_agree)
+		cpu_state.cs_psw.psw_flags.f_ov = ((result & sign_bit32) != (left & sign_bit32));
+	else
+		cpu_state.cs_psw.psw_flags.f_ov = 0;
 }
 
 static u_int32_t
 cpu_add(u_int32_t left, u_int32_t right)
 {
 	u_int64_t result = (u_int64_t)left + right;
-	cpu_state.cs_psw.psw_flags.f_ov = ((result & 0x80000000) != (left & 0x80000000));
-	cpu_setfl(result);
+	cpu_setfl(result, left, (left & sign_bit32) == (right & sign_bit32));
 	return result;
 }
 
@@ -725,7 +730,7 @@ static u_int32_t
 cpu_sub(u_int32_t left, u_int32_t right)
 {
 	u_int64_t result = (u_int64_t)left - right;
-	cpu_setfl(result);
+	cpu_setfl(result, left, (left & sign_bit32) != (right & sign_bit32));
 	return result;
 }
 
@@ -797,7 +802,7 @@ cpu_exec(const union cpu_inst inst)
 				u_int32_t result = start << shift;
 				cpu_state.cs_psw.psw_flags.f_cy = ((start >> (31 - shift)) & 1);
 				cpu_state.cs_psw.psw_flags.f_ov = 0;
-				cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+				cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
 			}
@@ -815,7 +820,7 @@ cpu_exec(const union cpu_inst inst)
 				u_int32_t result = start >> shift;
 				cpu_state.cs_psw.psw_flags.f_cy = ((start >> (shift - 1)) & 1);
 				cpu_state.cs_psw.psw_flags.f_ov = 0;
-				if ((start & 0x80000000) == 0x80000000)
+				if ((start & sign_bit32) == sign_bit32)
 				{
 					result|= (0xffffffff << (32 - shift));
 					cpu_state.cs_psw.psw_flags.f_s = 1;
@@ -894,7 +899,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] | inst.ci_v.v_imm16;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 			cpu_state.cs_psw.psw_flags.f_ov = 0;
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
@@ -903,7 +908,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] & inst.ci_v.v_imm16;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_psw.psw_flags.f_s = ((result & 0x80000000) == 0x80000000);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 			cpu_state.cs_psw.psw_flags.f_ov = 0;
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
@@ -1098,16 +1103,16 @@ cpu_test(void)
 	cpu_test_sub(1, 0, 1, false, false);
 	cpu_test_sub(1, 1, 0, false, false);
 	cpu_test_sub(2, 1, 1, false, false);
-	cpu_test_sub(0, 1, -1, true, true);
-	cpu_test_sub(0, 2, -2, true, true);
+	cpu_test_sub(0, 1, -1, false, true);
+	cpu_test_sub(0, 2, -2, false, true);
 	cpu_test_sub(-1, 0, -1, false, false);
 	cpu_test_sub(-1, -2, 1, false, false);
 	cpu_test_sub(-2147483648, 1, 2147483647, true, false);
-	cpu_test_sub(2147483646, 2147483647, -1, true, true);
+	cpu_test_sub(2147483646, 2147483647, -1, false, true);
 	cpu_test_sub(2147483647, -1, -2147483648, true, true);
 	cpu_test_sub(2147483647, -2147483648, -1, true, true);
 	cpu_test_sub(2147483647, -2147483647, -2, true, true);
-	cpu_test_sub(0, 9, -9, true, true);
+	cpu_test_sub(0, 9, -9, false, true);
 
 	cpu_test_mul(1, 1, 1, 0, 0, 0);
 	cpu_test_mul(1, -1, -1, 0, 1, 0xffffffff);
