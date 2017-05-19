@@ -448,7 +448,9 @@ rom_read_isx(struct rom_file *file)
 							"ISX debug symbol address"))
 					return false;
 
-				fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhd\n", debug_sym->ds_name, debug_sym->ds_addr, unk);
+				#if 0
+					fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhd\n", debug_sym->ds_name, debug_sym->ds_addr, unk);
+				#endif // 0
 
 				debug_add_symbol(debug_sym);
 
