@@ -1164,14 +1164,14 @@ cpu_step(void)
 /* VIP */
 static struct
 {
-	u_int8_t vs_left0[0x8000];
-	u_int8_t vs_chr0[0x2000];
-	u_int8_t vs_left1[0x8000];
-	u_int8_t vs_chr1[0x2000];
-	u_int8_t vs_right0[0x8000];
-	u_int8_t vs_chr2[0x2000];
-	u_int8_t vs_right1[0x8000];
-	u_int8_t vs_chr3[0x2000];
+	u_int8_t vv_left0[0x6000];
+	u_int8_t vv_chr0[0x2000];
+	u_int8_t vv_left1[0x6000];
+	u_int8_t vv_chr1[0x2000];
+	u_int8_t vv_right0[0x6000];
+	u_int8_t vv_chr2[0x2000];
+	u_int8_t vv_right1[0x6000];
+	u_int8_t vv_chr3[0x2000];
 } vip_vrm;
 
 static struct
@@ -1214,8 +1214,8 @@ vip_init(void)
 {
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
-	//assert(sizeof(vip_vrm) == 0x20000);
-	//assert(sizeof(vip_dram) == 0x20000);
+	assert(sizeof(vip_vrm) == 0x20000);
+	assert(sizeof(vip_dram) == 0x20000);
 	assert(sizeof(vip_reg) == 0x72);
 	debug_create_symbol("INTPND", 0x5f800);
 	debug_create_symbol("INTENB", 0x5f802);
@@ -1277,7 +1277,17 @@ vip_mem_read(u_int32_t addr, void *dest, size_t size)
 		fprintf(stderr, "VIP address alignment error at 0x%08x\n", addr);
 		return false;
 	}
-	if ((addr & 0xfff00) == 0x5f800)
+	if (addr < 0x20000)
+	{
+		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_vrm + addr);
+		return true;
+	}
+	else if (addr < 0x40000)
+	{
+		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_dram + (addr & 0x1ffff));
+		return true;
+	}
+	else if ((addr & 0xfff00) == 0x5f800)
 	{
 		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_reg + (addr & 0x7e));
 		return true;
@@ -1298,6 +1308,17 @@ vip_mem_write(u_int32_t addr, const void *src, size_t size)
 	{
 		fprintf(stderr, "Invalid VIP store size %lu\n", size);
 		return false;
+	}
+
+	if (addr < 0x20000)
+	{
+		*(u_int16_t *)((u_int8_t *)&vip_vrm + addr) = *(u_int16_t *)src;
+		return true;
+	}
+	else if (addr < 0x40000)
+	{
+		*(u_int16_t *)((u_int8_t *)&vip_dram + (addr & 0x1ffff)) = *(u_int16_t *)src;
+		return true;
 	}
 	if ((addr & 0xfff00) == 0x5f800)
 	{
