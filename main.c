@@ -1102,7 +1102,7 @@ cpu_test_mul(int32_t left, int32_t right, u_int32_t result, bool overflow, bool 
 	cpu_assert_reg(dis, 30, carry);
 }
 
-static void
+void
 cpu_test(void)
 {
 	fputs("Running CPU self-test\n", stderr);
@@ -1214,9 +1214,6 @@ vip_init(void)
 {
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
-	assert(sizeof(vip_vrm) == 0x20000);
-	assert(sizeof(vip_dram) == 0x20000);
-	assert(sizeof(vip_reg) == 0x72);
 	debug_create_symbol("INTPND", 0x5f800);
 	debug_create_symbol("INTENB", 0x5f802);
 	debug_create_symbol("INTCLR", 0x5f804);
@@ -1332,6 +1329,16 @@ vip_mem_write(u_int32_t addr, const void *src, size_t size)
 		debug_intr();
 		return false;
 	}
+}
+
+void
+vip_test(void)
+{
+	fputs("Running VIP self-test\n", stderr);
+
+	assert(sizeof(vip_vrm) == 0x20000);
+	assert(sizeof(vip_dram) == 0x20000);
+	assert(sizeof(vip_reg) == 0x72);
 }
 
 /* VSU */
@@ -2119,7 +2126,10 @@ main(int ac, char * const *av)
 	s_running = true;
 
 	if (self_test)
+	{
 		cpu_test();
+		vip_test();
+	}
 
 	if (debug_boot)
 		debug_run();
