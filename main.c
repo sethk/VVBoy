@@ -696,6 +696,14 @@ cpu_extend9(u_int32_t s9)
 	return s9;
 }
 
+static inline u_int16_t
+cpu_extend5to16(u_int16_t s5)
+{
+	if ((s5 & 0b10000) == 0b10000)
+		s5|= 0xffe0;
+	return s5;
+}
+
 static void
 cpu_setfl(u_int64_t result)
 {
@@ -1479,9 +1487,8 @@ debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemoni
 }
 
 char *
-debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
+debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, debug_str_t dis)
 {
-	static debug_str_t dis;
 	const char *mnemonic;
 	switch (inst->ci_i.i_opcode)
 	{
@@ -1493,6 +1500,7 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
 		case OP_MOV2:
 			mnemonic = "MOV";
 			break;
+		case OP_SUB: mnemonic = "SUB"; break;
 		case OP_CMP:
 		case OP_CMP2:
 			mnemonic = "CMP";
@@ -1502,6 +1510,9 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
 		case OP_SAR:
 		case OP_SAR2:
 			mnemonic = "SAR";
+			break;
+		case OP_MUL:
+			mnemonic = "MUL";
 			break;
 		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
@@ -1541,14 +1552,29 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
 	}
 	switch (inst->ci_i.i_opcode)
 	{
+		case OP_MUL:
+			if (regs)
+				snprintf(dis, debug_str_len, "%s r%d, r%d ; %i * %i",
+						mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
+						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1]);
+			else
+				snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			break;
+		case OP_SUB:
+			if (regs)
+				snprintf(dis, debug_str_len, "%s r%d, r%d ; %i - %i | 0x%08x - 0x%08x",
+						mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
+						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1],
+						regs[inst->ci_i.i_reg2], regs[inst->ci_i.i_reg1]);
+			else
+				snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			break;
 		case OP_MOV:
 		case OP_ADD:
-		case OP_SUB:
 		case OP_CMP:
 		case OP_SHL:
 		case OP_SHR:
 		case OP_SAR:
-		case OP_MUL:
 		case OP_DIV:
 		case OP_MULU:
 		case OP_DIVU:
@@ -1556,32 +1582,39 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
 		case OP_AND:
 		case OP_XOR:
 		case OP_NOT:
-			snprintf(dis, sizeof(dis), "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			break;
 		case OP_JMP:
 			if (regs)
 			{
 				debug_str_t addr_s;
-				snprintf(dis, sizeof(dis), "%s [r%u]\t\t; pc <- %s",
+				snprintf(dis, debug_str_len, "%s [r%u]\t\t; pc <- %s",
 						mnemonic, inst->ci_i.i_reg1, debug_format_addr(regs[inst->ci_i.i_reg1], addr_s));
 			}
 			else
-				snprintf(dis, sizeof(dis), "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
+				snprintf(dis, debug_str_len, "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			break;
 		case OP_ADD2:
 		case OP_MOV2:
+		{
+			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
+			snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			break;
+		}
 		case OP_CMP2:
 		{
-			u_int16_t imm = inst->ci_ii.ii_imm5;
-			if ((imm & 0b10000) == 0b10000)
-				imm|= 0xffe0;
-			snprintf(dis, sizeof(dis), "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
+			if (regs)
+				snprintf(dis, debug_str_len, "%s %hi, r%u\t\t; %d <=> %hi",
+						mnemonic, imm, inst->ci_ii.ii_reg2, regs[inst->ci_ii.ii_reg2], imm);
+			else
+				snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			break;
 		}
 		case OP_SHL2:
 		case OP_SAR2:
 		case OP_LDSR:
-			snprintf(dis, sizeof(dis), "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
+			snprintf(dis, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
 			break;
 		case OP_JAL:
 		{
@@ -1591,21 +1624,21 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
 			if (pc)
 			{
 				debug_str_t addr_s;
-				snprintf(dis, sizeof(dis), "%s %i\t\t; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
+				snprintf(dis, debug_str_len, "%s %i\t\t; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
 			}
 			else
-				snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
+				snprintf(dis, debug_str_len, "%s %i", mnemonic, disp);
 			break;
 		}
 		case OP_MOVEA:
 		case OP_MOVHI:
 		case OP_ORI:
 		case OP_ANDI:
-			snprintf(dis, sizeof(dis), "%s %hXh, r%d, r%d",
+			snprintf(dis, debug_str_len, "%s %hXh, r%d, r%d",
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
 			break;
 		case OP_ADDI:
-			snprintf(dis, sizeof(dis), "%s %hd, r%d, r%d",
+			snprintf(dis, debug_str_len, "%s %hd, r%d, r%d",
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
 			break;
 		case OP_CAXI:
@@ -1654,16 +1687,23 @@ debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
 				if (pc)
 				{
 					debug_str_t addr_s;
-					snprintf(dis, sizeof(dis), "%s %i\t\t; pc <- %s",
+					snprintf(dis, debug_str_len, "%s %i\t\t; pc <- %s",
 							mnemonic, disp, debug_format_addr(pc + disp, addr_s));
 				}
 				else
-					snprintf(dis, sizeof(dis), "%s %i", mnemonic, disp);
+					snprintf(dis, debug_str_len, "%s %i", mnemonic, disp);
 				break;
 			}
-			snprintf(dis, sizeof(dis), "TODO: %s", mnemonic);
+			snprintf(dis, debug_str_len, "TODO: %s", mnemonic);
 	}
 	return dis;
+}
+
+char *
+debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs)
+{
+	static debug_str_t dis;
+	return debug_disasm_s(inst, pc, regs, dis);
 }
 
 static const struct debug_help
