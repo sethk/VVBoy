@@ -131,10 +131,15 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
 
+		const void *src;
 		if (seg == MEM_SEG_VIP)
-			return vip_mem_read(addr, dest, size);
+		{
+			if (!(src = vip_mem_emu2host(addr, size)))
+				return false;
+		}
+		else
+			src = mem_segs[seg].ms_ptr + offset;
 
-		const void *src = mem_segs[seg].ms_ptr + offset;
 		switch (size)
 		{
 			case 1:
@@ -175,10 +180,15 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
 
+		void *dest;
 		if (seg == MEM_SEG_VIP)
-			return vip_mem_write(addr, src, size);
+		{
+			if (!(dest = vip_mem_emu2host(addr, size)))
+				return false;
+		}
+		else
+			dest = mem_segs[seg].ms_ptr + offset;
 
-		void *dest = mem_segs[seg].ms_ptr + offset;
 		switch (size)
 		{
 			case 1:
@@ -1263,73 +1273,31 @@ vip_fini(void)
 	// TODO
 }
 
-bool
-vip_mem_read(u_int32_t addr, void *dest, size_t size)
+void *
+vip_mem_emu2host(u_int32_t addr, size_t size)
 {
 	if (size != 2)
 	{
-		fprintf(stderr, "Invalid VIP load size %lu\n", size);
-		return false;
+		fprintf(stderr, "Invalid VIP access size %lu\n", size);
+		return NULL;
 	}
 	if (addr & 1)
 	{
 		fprintf(stderr, "VIP address alignment error at 0x%08x\n", addr);
-		return false;
+		return NULL;
 	}
 	if (addr < 0x20000)
-	{
-		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_vrm + addr);
-		return true;
-	}
+		return (u_int8_t *)&vip_vrm + addr;
 	else if (addr < 0x40000)
-	{
-		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_dram + (addr & 0x1ffff));
-		return true;
-	}
+		return (u_int8_t *)&vip_dram + (addr & 0x1ffff);
 	else if ((addr & 0xfff00) == 0x5f800)
-	{
-		*(u_int16_t *)dest = *(u_int16_t *)((u_int8_t *)&vip_reg + (addr & 0x7e));
-		return true;
-	}
+		return (u_int8_t *)&vip_reg + (addr & 0x7e);
 	else
 	{
-		// TODO: read VIP seg
+		// TODO: map VIP seg
 		fprintf(stderr, "VIP bus error at 0x%08x\n", addr);
 		debug_intr();
-		return false;
-	}
-}
-
-bool
-vip_mem_write(u_int32_t addr, const void *src, size_t size)
-{
-	if (size != 2)
-	{
-		fprintf(stderr, "Invalid VIP store size %lu\n", size);
-		return false;
-	}
-
-	if (addr < 0x20000)
-	{
-		*(u_int16_t *)((u_int8_t *)&vip_vrm + addr) = *(u_int16_t *)src;
-		return true;
-	}
-	else if (addr < 0x40000)
-	{
-		*(u_int16_t *)((u_int8_t *)&vip_dram + (addr & 0x1ffff)) = *(u_int16_t *)src;
-		return true;
-	}
-	if ((addr & 0xfff00) == 0x5f800)
-	{
-		*(u_int16_t *)((u_int8_t *)&vip_reg + (addr & 0x7e)) = *(u_int16_t *)src;
-		return true;
-	}
-	else
-	{
-		// TODO: Write VIP seg
-		fprintf(stderr, "VIP bus error at 0x%08x\n", addr);
-		debug_intr();
-		return false;
+		return NULL;
 	}
 }
 
@@ -1341,6 +1309,9 @@ vip_test(void)
 	assert(sizeof(vip_vrm) == 0x20000);
 	assert(sizeof(vip_dram) == 0x20000);
 	assert(sizeof(vip_reg) == 0x72);
+	assert(vip_mem_emu2host(0x5f800, 2) == &(vip_reg.vr_intpnd));
+	assert(vip_mem_emu2host(0x5f820, 2) == &(vip_reg.vr_dpstts));
+	assert(vip_mem_emu2host(0x5f870, 2) == &(vip_reg.vr_bkcol));
 }
 
 /* VSU */
