@@ -1292,6 +1292,14 @@ vip_mem_emu2host(u_int32_t addr, size_t size)
 		return (u_int8_t *)&vip_dram + (addr & 0x1ffff);
 	else if ((addr & 0xfff00) == 0x5f800)
 		return (u_int8_t *)&vip_reg + (addr & 0x7e);
+	else if (addr >= 0x78000 && addr < 0x7a000)
+		return (u_int8_t *)&(vip_vrm.vv_chr0) + (addr - 0x78000);
+	else if (addr >= 0x7a000 && addr < 0x7c000)
+		return (u_int8_t *)&(vip_vrm.vv_chr1) + (addr - 0x7a000);
+	else if (addr >= 0x7c000 && addr < 0x7e000)
+		return (u_int8_t *)&(vip_vrm.vv_chr2) + (addr - 0x7c000);
+	else if (addr >= 0x7e000 && addr < 0x80000)
+		return (u_int8_t *)&(vip_vrm.vv_chr3) + (addr - 0x7e000);
 	else
 	{
 		// TODO: map VIP seg
@@ -1312,6 +1320,8 @@ vip_test(void)
 	assert(vip_mem_emu2host(0x5f800, 2) == &(vip_reg.vr_intpnd));
 	assert(vip_mem_emu2host(0x5f820, 2) == &(vip_reg.vr_dpstts));
 	assert(vip_mem_emu2host(0x5f870, 2) == &(vip_reg.vr_bkcol));
+	assert(vip_mem_emu2host(0x78000, 2) == &(vip_vrm.vv_chr0));
+	assert(vip_mem_emu2host(0x7e000, 2) == &(vip_vrm.vv_chr3));
 }
 
 /* VSU */
