@@ -1770,8 +1770,9 @@ static const struct debug_help
 	{'c', "", "Continue execution (aliases: cont)"},
 	{'s', "", "Step into the next instruction (aliases: step)"},
 	{'i', "", "Show CPU info (aliases: info)"},
-	{'x', "<addr> [<format>] [<count>]", "Examine memory at <addr>\n"
+	{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
 		"\t\tFormats: h (hex), i (instructions), b (binary)\n"
+		"\t\tSizes: b (byte), h (half-word), w (word)\n"
 		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 	{'r', "", "Reset the CPU (aliases: reset)"},
 	{'v', "", "Show VIP info (aliases: vip)"},
@@ -1977,28 +1978,45 @@ debug_run(void)
 						if (argc >= 4)
 							count = strtoul(argv[3], NULL, 0);
 
+						size_t int_size = 4;
+						if ((format[0] == 'h' || format[0] == 'b') && strlen(format) == 2)
+						{
+							switch (format[1])
+							{
+								case 'b':
+									int_size = 1;
+									break;
+								case 'h':
+									int_size = 2;
+									break;
+								case 'w':
+									int_size = 4;
+									break;
+							}
+						}
+
 						for (u_int objIndex = 0; objIndex < count; ++objIndex)
 						{
 							debug_str_t addr_s;
 							printf("%s:", debug_format_addr(addr, addr_s));
-							if (!strcmp(format, "h"))
+							if (format[0] == 'h' && strlen(format) <= 2)
 							{
-								u_int32_t dword;
-								if (debug_mem_read(addr, &dword, sizeof(dword)))
-									printf(" %08x\n", dword);
-								addr+= sizeof(dword);
+								u_int value;
+								if (debug_mem_read(addr, &value, int_size))
+									printf(" 0x%0*x\n", (int)int_size << 1, value);
+								addr+= int_size;
 							}
 							else if (!strcmp(format, "i"))
 							{
 								if (!debug_disasm_at(&addr, false))
 									break;
 							}
-							else if (!strcmp(format, "b"))
+							else if (format[0] == 'b' && strlen(format) <= 2)
 							{
-								u_int8_t byte;
-								if (debug_mem_read(addr, &byte, sizeof(byte)))
-									printf(" %s\n", debug_format_binary(byte, sizeof(byte) << 3));
-								addr+= sizeof(byte);
+								u_int value;
+								if (debug_mem_read(addr, &value, int_size))
+									printf(" %s\n", debug_format_binary(value, int_size << 3));
+								addr+= sizeof(value);
 							}
 							else
 							{
