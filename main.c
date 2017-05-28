@@ -1005,12 +1005,34 @@ cpu_exec(const union cpu_inst inst)
 				bool branch;
 				switch (inst.ci_iii.iii_cond)
 				{
+					/*
+					BCOND_BV  = 0b0000,
+					*/
 					case BCOND_BL:
 						branch = cpu_state.cs_psw.psw_flags.f_cy;
 						break;
+					case BCOND_BZ:
+						branch = cpu_state.cs_psw.psw_flags.f_z;
+						break;
+					/*
+					BCOND_BNH = 0b0011,
+					BCOND_BN  = 0b0100,
+					BCOND_BR  = 0b0101,
+					*/
 					case BCOND_BLT:
 						branch = cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov;
 						break;
+					/*
+					BCOND_BLE = 0b0111,
+					BCOND_BNV = 0b1000,
+					BCOND_BNC = 0b1001,
+					BCOND_BNZ = 0b1010,
+					BCOND_BH  = 0b1011,
+					BCOND_BP  = 0b1100,
+					BCOND_NOP = 0b1101,
+					BCOND_BGE = 0b1110,
+					BCOND_BGT = 0b1111,
+					*/
 					default:
 						fputs("Handle branch cond\n", stderr);
 						debug_intr();
