@@ -12,7 +12,14 @@ vvboy: main.o
 	$(CC) $(LDFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
 
 clean::
-	rm -f $(TARGET) $(OBJS)
+	rm -f $(TARGET) $(OBJS) .depend tags
+
+$(TARGET): .depend
+
+.depend: $(SRCS)
+	mkdep $^
+
+-include .depend
 
 tags:: $(SRCS) $(HEADERS)
 	ctags --c-kinds=+p $^
