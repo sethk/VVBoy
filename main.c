@@ -552,7 +552,7 @@ static struct cpu_state
 	u_int32_t cs_pc;
 	union
 	{
-		u_int32_t psw_dword;
+		u_int32_t psw_word;
 		struct
 		{
 			unsigned f_z : 1;
@@ -668,7 +668,7 @@ void
 cpu_reset(void)
 {
 	cpu_state.cs_pc = 0xfffffff0;
-	cpu_state.cs_psw.psw_dword = 0x00008000; // TODO: set by flags
+	cpu_state.cs_psw.psw_word = 0x00008000; // TODO: set by flags
 	cpu_state.cs_ecr = 0x0000fff0;
 	cpu_state.cs_chcw = CPU_CHCW_ICE;
 }
@@ -870,7 +870,7 @@ cpu_exec(const union cpu_inst inst)
 			switch (inst.ci_ii.ii_imm5)
 			{
 				case REGID_PSW:
-					cpu_state.cs_psw.psw_dword = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_psw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
 					break;
 				case REGID_CHCW:
 				{
@@ -1956,7 +1956,7 @@ debug_run(void)
 					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
 					debug_str_t psw_s;
 					printf("\tpsw: 0x%08x (%s)\n",
-							cpu_state.cs_psw.psw_dword,
+							cpu_state.cs_psw.psw_word,
 							debug_format_flags(psw_s,
 								"Z", cpu_state.cs_psw.psw_flags.f_z,
 								"S", cpu_state.cs_psw.psw_flags.f_s,
