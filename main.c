@@ -1241,7 +1241,7 @@ static struct
 	u_int16_t vr_gplt[4];
 	u_int16_t vr_jplt[4];
 	u_int16_t vr_bkcol;
-} vip_reg;
+} vip_regs;
 
 bool
 vip_init(void)
@@ -1313,7 +1313,7 @@ vip_mem_emu2host(u_int32_t addr, size_t size)
 	else if (addr < 0x40000)
 		return (u_int8_t *)&vip_dram + (addr & 0x1ffff);
 	else if ((addr & 0xfff00) == 0x5f800)
-		return (u_int8_t *)&vip_reg + (addr & 0x7e);
+		return (u_int8_t *)&vip_regs + (addr & 0x7e);
 	else if (addr >= 0x78000 && addr < 0x7a000)
 		return (u_int8_t *)&(vip_vrm.vv_chr0) + (addr - 0x78000);
 	else if (addr >= 0x7a000 && addr < 0x7c000)
@@ -1338,10 +1338,10 @@ vip_test(void)
 
 	assert(sizeof(vip_vrm) == 0x20000);
 	assert(sizeof(vip_dram) == 0x20000);
-	assert(sizeof(vip_reg) == 0x72);
-	assert(vip_mem_emu2host(0x5f800, 2) == &(vip_reg.vr_intpnd));
-	assert(vip_mem_emu2host(0x5f820, 2) == &(vip_reg.vr_dpstts));
-	assert(vip_mem_emu2host(0x5f870, 2) == &(vip_reg.vr_bkcol));
+	assert(sizeof(vip_regs) == 0x72);
+	assert(vip_mem_emu2host(0x5f800, 2) == &(vip_regs.vr_intpnd));
+	assert(vip_mem_emu2host(0x5f820, 2) == &(vip_regs.vr_dpstts));
+	assert(vip_mem_emu2host(0x5f870, 2) == &(vip_regs.vr_bkcol));
 	assert(vip_mem_emu2host(0x78000, 2) == &(vip_vrm.vv_chr0));
 	assert(vip_mem_emu2host(0x7e000, 2) == &(vip_vrm.vv_chr3));
 }
@@ -2063,7 +2063,7 @@ debug_run(void)
 				else if (!strcmp(argv[0], "v") || !strcmp(argv[0], "vip"))
 				{
 					printf("INTPND: 0x%04hx, INTENB: 0x%04hx, INTCLR: 0x%04hx\n",
-							vip_reg.vr_intpnd, vip_reg.vr_intenb, vip_reg.vr_intclr);
+							vip_regs.vr_intpnd, vip_regs.vr_intenb, vip_regs.vr_intclr);
 				}
 				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
 				{
