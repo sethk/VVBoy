@@ -546,34 +546,44 @@ rom_unload(void)
 }
 
 /* CPU */
+union cpu_psw
+{
+	u_int32_t psw_word;
+	struct
+	{
+		unsigned f_z : 1;
+		unsigned f_s : 1;
+		unsigned f_ov : 1;
+		unsigned f_cy : 1;
+		unsigned f_fpr : 1;
+		unsigned f_fud : 1;
+		unsigned f_fov : 1;
+		unsigned f_fzd : 1;
+		unsigned f_fiv : 1;
+		unsigned f_fro : 1;
+		unsigned reserved1 : 2;
+		unsigned f_id : 1;
+		unsigned f_ae : 1;
+		unsigned f_ep : 1;
+		unsigned f_np : 1;
+		unsigned f_i : 4;
+	} psw_flags;
+};
+
 static struct cpu_state
 {
 	cpu_regs_t cs_r;
 	u_int32_t cs_pc;
-	union
+	union cpu_psw cs_psw;
+	struct cpu_ecr
 	{
-		u_int32_t psw_word;
-		struct
-		{
-			unsigned f_z : 1;
-			unsigned f_s : 1;
-			unsigned f_ov : 1;
-			unsigned f_cy : 1;
-			unsigned f_fpr : 1;
-			unsigned f_fud : 1;
-			unsigned f_fov : 1;
-			unsigned f_fzd : 1;
-			unsigned f_fiv : 1;
-			unsigned f_fro : 1;
-			unsigned reserved1 : 2;
-			unsigned f_id : 1;
-			unsigned f_ae : 1;
-			unsigned f_ep : 1;
-			unsigned f_np : 1;
-			unsigned f_i : 4;
-		} psw_flags;
-	} cs_psw;
-	u_int32_t cs_ecr;
+		int16_t ecr_eicc;
+		int16_t ecr_fecc;
+	} cs_ecr;
+	u_int32_t cs_eipc;
+	union cpu_psw cs_eipsw;
+	u_int32_t cs_fepc;
+	union cpu_psw cs_fepsw;
 	u_int32_t cs_chcw;
 } cpu_state;
 
@@ -682,9 +692,8 @@ cpu_reset(void)
 	cpu_state.cs_pc = 0xfffffff0;
 	cpu_state.cs_psw.psw_word = 0;
 	cpu_state.cs_psw.psw_flags.f_np = 1;
-	// TODO: FECC = 0
-	// TODO: EICC = 0xfff0
-	cpu_state.cs_ecr = 0x0000fff0;
+	cpu_state.cs_ecr.ecr_fecc = 0;
+	cpu_state.cs_ecr.ecr_eicc = 0xfff0;
 	cpu_state.cs_chcw = CPU_CHCW_ICE;
 }
 
@@ -1210,6 +1219,25 @@ cpu_step(void)
 		cpu_state.cs_pc+= cpu_inst_size(&inst);
 }
 
+void
+cpu_intr(u_int level)
+{
+	if (!cpu_state.cs_psw.psw_flags.f_np && !cpu_state.cs_psw.psw_flags.f_ep && !cpu_state.cs_psw.psw_flags.f_id)
+	{
+		if (level >= cpu_state.cs_psw.psw_flags.f_i)
+		{
+			cpu_state.cs_eipc = cpu_state.cs_pc;
+			cpu_state.cs_eipsw = cpu_state.cs_eipsw;
+			cpu_state.cs_ecr.ecr_eicc = 0xfe00 | (level << 4);
+			cpu_state.cs_psw.psw_flags.f_ep = 1;
+			cpu_state.cs_psw.psw_flags.f_id = 1;
+			cpu_state.cs_psw.psw_flags.f_ae = 0;
+			cpu_state.cs_psw.psw_flags.f_i = MIN(level + 1, 15);
+			cpu_state.cs_pc = cpu_state.cs_ecr.ecr_eicc;
+		}
+	}
+}
+
 /* Scanner */
 bool
 scanner_init(void)
@@ -1437,6 +1465,7 @@ nvc_reset(void)
 void
 nvc_step(void)
 {
+	// TODO: Update timer
 	cpu_step();
 }
 
@@ -1970,6 +1999,32 @@ debug_format_flags(debug_str_t s, ...)
 	return s;
 }
 
+static void
+debug_print_psw(union cpu_psw psw, const char *name)
+{
+	debug_str_t psw_s;
+	printf("\t%s: 0x%08x (%s) (interrupt level %d)",
+			name,
+			cpu_state.cs_psw.psw_word,
+			debug_format_flags(psw_s,
+				"Z", cpu_state.cs_psw.psw_flags.f_z,
+				"S", cpu_state.cs_psw.psw_flags.f_s,
+				"OV", cpu_state.cs_psw.psw_flags.f_ov,
+				"CY", cpu_state.cs_psw.psw_flags.f_cy,
+				"FPR", cpu_state.cs_psw.psw_flags.f_fpr,
+				"FUD", cpu_state.cs_psw.psw_flags.f_fud,
+				"FOV", cpu_state.cs_psw.psw_flags.f_fov,
+				"FZD", cpu_state.cs_psw.psw_flags.f_fzd,
+				"FIV", cpu_state.cs_psw.psw_flags.f_fiv,
+				"FRO", cpu_state.cs_psw.psw_flags.f_fro,
+				"ID", cpu_state.cs_psw.psw_flags.f_id,
+				"AE", cpu_state.cs_psw.psw_flags.f_ae,
+				"EP", cpu_state.cs_psw.psw_flags.f_ep,
+				"NP", cpu_state.cs_psw.psw_flags.f_np,
+				NULL),
+			cpu_state.cs_psw.psw_flags.f_i);
+}
+
 void
 debug_run(void)
 {
@@ -2010,7 +2065,7 @@ debug_run(void)
 					main_step();
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
-					static const char *fmt = "\t%3s: %s";
+					static const char *fmt = "\t%5s: %s";
 					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
@@ -2022,28 +2077,15 @@ debug_run(void)
 							putchar('\n');
 					}
 					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
-					debug_str_t psw_s;
-					printf("\tpsw: 0x%08x (%s) (interrupt level %d)\n",
-							cpu_state.cs_psw.psw_word,
-							debug_format_flags(psw_s,
-								"Z", cpu_state.cs_psw.psw_flags.f_z,
-								"S", cpu_state.cs_psw.psw_flags.f_s,
-								"OV", cpu_state.cs_psw.psw_flags.f_ov,
-								"CY", cpu_state.cs_psw.psw_flags.f_cy,
-								"FPR", cpu_state.cs_psw.psw_flags.f_fpr,
-								"FUD", cpu_state.cs_psw.psw_flags.f_fud,
-								"FOV", cpu_state.cs_psw.psw_flags.f_fov,
-								"FZD", cpu_state.cs_psw.psw_flags.f_fzd,
-								"FIV", cpu_state.cs_psw.psw_flags.f_fiv,
-								"FRO", cpu_state.cs_psw.psw_flags.f_fro,
-								"ID", cpu_state.cs_psw.psw_flags.f_id,
-								"AE", cpu_state.cs_psw.psw_flags.f_ae,
-								"EP", cpu_state.cs_psw.psw_flags.f_ep,
-								"NP", cpu_state.cs_psw.psw_flags.f_np,
-								NULL),
-							cpu_state.cs_psw.psw_flags.f_i);
+					debug_print_psw(cpu_state.cs_psw, "  psw");
 					putchar('\n');
-					printf(fmt, "ecr", debug_format_binary(cpu_state.cs_ecr, 32));
+					printf("\t  ecr: (eicc: 0x%04hx, fecc: 0x%04hx)\n",
+							cpu_state.cs_ecr.ecr_eicc, cpu_state.cs_ecr.ecr_fecc);
+					printf(fmt, "eipc", debug_format_addr(cpu_state.cs_eipc, addr_s));
+					debug_print_psw(cpu_state.cs_eipsw, "eipsw");
+					putchar('\n');
+					printf(fmt, "fepc", debug_format_addr(cpu_state.cs_fepc, addr_s));
+					debug_print_psw(cpu_state.cs_fepsw, "fepsw");
 					putchar('\n');
 				}
 				else if (!strcmp(argv[0], "x"))
