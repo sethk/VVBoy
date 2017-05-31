@@ -1195,6 +1195,26 @@ cpu_step(void)
 		cpu_state.cs_pc+= cpu_inst_size(&inst);
 }
 
+/* Scanner */
+bool
+scanner_init(void)
+{
+	// TODO
+	return true;
+}
+
+void
+scanner_step(void)
+{
+	// TODO: Refresh left or right image from FBs
+}
+
+void
+scanner_fini(void)
+{
+	// TODO
+}
+
 /* VIP */
 static struct
 {
@@ -1274,6 +1294,10 @@ vip_init(void)
 	debug_create_symbol("JPLT2", 0x5f86c);
 	debug_create_symbol("JPLT3", 0x5f86e);
 	debug_create_symbol("BKCOL", 0x5f870);
+
+	if (!scanner_init())
+		return false;
+
 	return true;
 }
 
@@ -1287,11 +1311,13 @@ void
 vip_step(void)
 {
 	// TODO
+	scanner_step();
 }
 
 void
 vip_fini(void)
 {
+	scanner_fini();
 	// TODO
 }
 
