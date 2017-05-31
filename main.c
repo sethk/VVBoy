@@ -30,7 +30,7 @@ static const char *mem_seg_names[MEM_NSEGS] =
 {
 	[MEM_SEG_VIP] = "VIP",
 	[MEM_SEG_VSU] = "VSU",
-	[MEM_SEG_HWCTL] = "HWCTL",
+	[MEM_SEG_NVC] = "NVC",
 	[3] = "Not Used (0x03000000-0x03ffffff)",
 	[MEM_SEG_CARTEX] = "CARTEX",
 	[MEM_SEG_WRAM] = "WRAM",
@@ -1372,6 +1372,33 @@ vsu_fini(void)
 	// TODO
 }
 
+/* NVC */
+// TODO: struct nvc_regs ...
+bool
+nvc_init(void)
+{
+	return cpu_init();
+}
+
+void
+nvc_fini(void)
+{
+	cpu_fini();
+}
+
+void
+nvc_reset(void)
+{
+	// TODO: Initialize NVC interval registers
+	cpu_reset();
+}
+
+void
+nvc_step(void)
+{
+	cpu_step();
+}
+
 /* DEBUG */
 static EditLine *s_editline;
 static Tokenizer *s_token;
@@ -2080,9 +2107,9 @@ debug_trace(const union cpu_inst *inst)
 void
 main_reset(void)
 {
-	cpu_reset();
 	vip_reset();
 	vsu_reset();
+	nvc_reset();
 }
 
 void
@@ -2141,7 +2168,7 @@ main(int ac, char * const *av)
 	if (!rom_load(av[0]))
 		return EX_NOINPUT;
 
-	if (!sram_init() || !wram_init() || !cpu_init() || !vip_init() || !vsu_init() || !debug_init())
+	if (!sram_init() || !wram_init() || !vip_init() || !vsu_init() || !nvc_init() || !debug_init())
 		return EX_OSERR;
 
 	main_reset();
@@ -2150,8 +2177,8 @@ main(int ac, char * const *av)
 
 	if (self_test)
 	{
-		cpu_test();
 		vip_test();
+		cpu_test();
 	}
 
 	if (debug_boot)
@@ -2183,9 +2210,9 @@ main(int ac, char * const *av)
 	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
 	debug_fini();
+	nvc_fini();
 	vsu_fini();
 	vip_fini();
-	cpu_fini();
 	wram_fini();
 	sram_fini();
 	rom_unload();

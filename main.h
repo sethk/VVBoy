@@ -13,7 +13,7 @@ enum mem_segment
 {
 	MEM_SEG_VIP = 0,
 	MEM_SEG_VSU = 1,
-	MEM_SEG_HWCTL = 2,
+	MEM_SEG_NVC = 2,
 	MEM_SEG_CARTEX = 4,
 	MEM_SEG_WRAM = 5,
 	MEM_SEG_SRAM = 6,
