@@ -559,6 +559,18 @@ static struct cpu_state
 			unsigned f_s : 1;
 			unsigned f_ov : 1;
 			unsigned f_cy : 1;
+			unsigned f_fpr : 1;
+			unsigned f_fud : 1;
+			unsigned f_fov : 1;
+			unsigned f_fzd : 1;
+			unsigned f_fiv : 1;
+			unsigned f_fro : 1;
+			unsigned reserved1 : 2;
+			unsigned f_id : 1;
+			unsigned f_ae : 1;
+			unsigned f_ep : 1;
+			unsigned f_np : 1;
+			unsigned f_i : 4;
 		} psw_flags;
 	} cs_psw;
 	u_int32_t cs_ecr;
@@ -668,7 +680,10 @@ void
 cpu_reset(void)
 {
 	cpu_state.cs_pc = 0xfffffff0;
-	cpu_state.cs_psw.psw_word = 0x00008000; // TODO: set by flags
+	cpu_state.cs_psw.psw_word = 0;
+	cpu_state.cs_psw.psw_flags.f_np = 1;
+	// TODO: FECC = 0
+	// TODO: EICC = 0xfff0
 	cpu_state.cs_ecr = 0x0000fff0;
 	cpu_state.cs_chcw = CPU_CHCW_ICE;
 }
@@ -2008,14 +2023,25 @@ debug_run(void)
 					}
 					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
 					debug_str_t psw_s;
-					printf("\tpsw: 0x%08x (%s)\n",
+					printf("\tpsw: 0x%08x (%s) (interrupt level %d)\n",
 							cpu_state.cs_psw.psw_word,
 							debug_format_flags(psw_s,
 								"Z", cpu_state.cs_psw.psw_flags.f_z,
 								"S", cpu_state.cs_psw.psw_flags.f_s,
 								"OV", cpu_state.cs_psw.psw_flags.f_ov,
 								"CY", cpu_state.cs_psw.psw_flags.f_cy,
-								NULL));
+								"FPR", cpu_state.cs_psw.psw_flags.f_fpr,
+								"FUD", cpu_state.cs_psw.psw_flags.f_fud,
+								"FOV", cpu_state.cs_psw.psw_flags.f_fov,
+								"FZD", cpu_state.cs_psw.psw_flags.f_fzd,
+								"FIV", cpu_state.cs_psw.psw_flags.f_fiv,
+								"FRO", cpu_state.cs_psw.psw_flags.f_fro,
+								"ID", cpu_state.cs_psw.psw_flags.f_id,
+								"AE", cpu_state.cs_psw.psw_flags.f_ae,
+								"EP", cpu_state.cs_psw.psw_flags.f_ep,
+								"NP", cpu_state.cs_psw.psw_flags.f_np,
+								NULL),
+							cpu_state.cs_psw.psw_flags.f_i);
 					putchar('\n');
 					printf(fmt, "ecr", debug_format_binary(cpu_state.cs_ecr, 32));
 					putchar('\n');
