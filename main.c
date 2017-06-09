@@ -658,6 +658,7 @@ enum cpu_opcode
 	OP_OUT_B = 0b111100,
 	OP_OUT_H = 0b111101,
 	OP_FLOAT = 0b111110,
+	// TODO: Nintendo extra instructions
 	OP_OUT_W = 0b111111
 };
 
