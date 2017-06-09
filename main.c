@@ -1259,16 +1259,21 @@ scanner_fini(void)
 }
 
 /* VIP */
+struct vip_chr
+{
+	u_int16_t chr_rows[8];
+};
+
 static struct
 {
 	u_int8_t vv_left0[0x6000];
-	u_int8_t vv_chr0[0x2000];
+	struct vip_chr vv_chr0[512];
 	u_int8_t vv_left1[0x6000];
-	u_int8_t vv_chr1[0x2000];
+	struct vip_chr vv_chr1[512];
 	u_int8_t vv_right0[0x6000];
-	u_int8_t vv_chr2[0x2000];
+	struct vip_chr vv_chr2[512];
 	u_int8_t vv_right1[0x6000];
-	u_int8_t vv_chr3[0x2000];
+	struct vip_chr vv_chr3[512];
 } vip_vrm;
 
 static struct
@@ -1337,6 +1342,7 @@ vip_init(void)
 	debug_create_symbol("JPLT2", 0x5f86c);
 	debug_create_symbol("JPLT3", 0x5f86e);
 	debug_create_symbol("BKCOL", 0x5f870);
+	debug_create_symbol("CHR", 0x78000);
 
 	if (!scanner_init())
 		return false;
@@ -1871,7 +1877,7 @@ static const struct debug_help
 	{'s', "", "Step into the next instruction (aliases: step)"},
 	{'i', "", "Show CPU info (aliases: info)"},
 	{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
-		"\t\tFormats: h (hex), i (instructions), b (binary)\n"
+		"\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR)\n"
 		"\t\tSizes: b (byte), h (half-word), w (word)\n"
 		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 	{'r', "", "Reset the CPU (aliases: reset)"},
@@ -2141,6 +2147,25 @@ debug_run(void)
 								if (debug_mem_read(addr, &value, int_size))
 									printf(" %s\n", debug_format_binary(value, int_size << 3));
 								addr+= sizeof(value);
+							}
+							else if (!strcmp(format, "C"))
+							{
+								putchar('\n');
+								for (u_int rindex = 0; rindex < 8; ++rindex)
+								{
+									u_int16_t chr_row;
+									if (!debug_mem_read(addr, &(chr_row), sizeof(chr_row)))
+										break;
+									//static const char *shading = " ░▒▓";
+									static const char *shading = " -=#";
+									for (u_int cindex = 0; cindex < 8; ++cindex)
+									{
+										putchar(shading[chr_row & 0x3]);
+										chr_row>>= 2;
+									}
+									putchar('\n');
+									addr+= sizeof(chr_row);
+								}
 							}
 							else
 							{
