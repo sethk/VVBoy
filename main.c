@@ -1478,6 +1478,7 @@ nvc_step(void)
 
 /* DEBUG */
 static EditLine *s_editline;
+static History *s_history;
 static Tokenizer *s_token;
 
 static struct debug_symbol *debug_syms = NULL;
@@ -1498,6 +1499,17 @@ debug_init(void)
 		return false;
 	}
 	el_set(s_editline, EL_PROMPT, debug_prompt);
+	el_source(s_editline, NULL);
+
+	s_history = history_init();
+	if (!s_history)
+	{
+		warnx("Could not initialize history editing");
+		return false;
+	}
+	HistEvent event;
+	history(s_history, &event, H_SETSIZE, INT_MAX);
+	el_set(s_editline, EL_HIST, history, s_history);
 
 	s_token = tok_init(NULL);
 	if (!s_token)
@@ -1513,6 +1525,7 @@ void
 debug_fini(void)
 {
 	el_end(s_editline);
+	history_end(s_history);
 }
 
 static char *
@@ -2207,10 +2220,18 @@ debug_run(void)
 				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
+
+				HistEvent hist_event;
+				if (history(s_history, &hist_event, H_ENTER, line) == -1)
+					warn("Could not save editline history");
 			}
 		}
 		else
+		{
 			putchar('\n');
+			main_exit();
+			break;
+		}
 	}
 	debugging = false;
 }
