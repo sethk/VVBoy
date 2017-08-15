@@ -1250,6 +1250,7 @@ scanner_init(void)
 void
 scanner_step(void)
 {
+	// TODO: Update FCLK
 	// TODO: Refresh left or right image from FBs
 }
 
@@ -1285,14 +1286,56 @@ static struct
 	u_int8_t vd_oam[0x1000];
 } vip_dram;
 
+struct vip_intreg
+{
+	unsigned vi_scanerr : 1,
+			 vi_lfbend : 1,
+			 vi_rfbend : 1,
+			 vi_gamestart : 1,
+			 vi_framestart : 1,
+			 vi_unused : 8,
+			 vi_sbhit : 1,
+			 vi_xpend : 1,
+			 vi_timeerr : 1;
+} __attribute__((packed));
+
+struct vip_dpctrl
+{
+	unsigned vd_dprst: 1;
+	unsigned vd_disp : 1;
+	unsigned vd_dpbsy_l_fb0 : 1;
+	unsigned vd_dpbsy_r_fb0 : 1;
+	unsigned vd_dpbsy_l_fb1 : 1;
+	unsigned vd_dpbsy_r_fb1 : 1;
+	unsigned vd_scanrdy : 1;
+	unsigned vd_fclk : 1;
+	unsigned vd_re : 1;
+	unsigned vd_synce : 1;
+	unsigned vd_lock : 1;
+	unsigned vd_unused : 5;
+} __attribute__((packed));
+
+struct vip_xpctrl
+{
+	unsigned vx_xprst : 1;
+	unsigned vx_xpen : 1;
+	unsigned vx_xpbsy_fb0 : 1;
+	unsigned vx_xpbsy_fb1 : 1;
+	unsigned vx_overtime : 1;
+	unsigned vx_unused : 3;
+	unsigned vx_sbcount : 5; // AKA sbcmp
+	unsigned vx_unused2 : 2;
+	unsigned vx_sbout : 1;
+} __attribute__((packed));
+
 static struct
 {
-	u_int16_t vr_intpnd;
-	u_int16_t vr_intenb;
-	u_int16_t vr_intclr;
+	struct vip_intreg vr_intpnd;
+	struct vip_intreg vr_intenb;
+	struct vip_intreg vr_intclr;
 	u_int16_t vr_undef1[13];
-	u_int16_t vr_dpstts;
-	u_int16_t vr_dpctrl;
+	struct vip_dpctrl vr_dpstts;
+	struct vip_dpctrl vr_dpctrl;
 	u_int16_t vr_brta;
 	u_int16_t vr_brtb;
 	u_int16_t vr_brtc;
@@ -1301,8 +1344,8 @@ static struct
 	u_int16_t vr_undef2;
 	u_int16_t vr_cta;
 	u_int16_t vr_undef3[7];
-	u_int16_t vr_xpstts;
-	u_int16_t vr_xpctrl;
+	struct vip_xpctrl vr_xpstts;
+	struct vip_xpctrl vr_xpctrl;
 	u_int16_t vr_ver;
 	u_int16_t vr_undef4;
 	u_int16_t vr_spt[4];
@@ -1317,9 +1360,11 @@ vip_init(void)
 {
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
+	bzero(&vip_regs, sizeof(vip_regs));
 	debug_create_symbol("INTPND", 0x5f800);
 	debug_create_symbol("INTENB", 0x5f802);
 	debug_create_symbol("INTCLR", 0x5f804);
+	vip_regs.vr_dpstts.vd_scanrdy = 1;
 	debug_create_symbol("DPSTTS", 0x5f820);
 	debug_create_symbol("DPCTRL", 0x5f822);
 	debug_create_symbol("BRTA", 0x5f824);
@@ -1357,11 +1402,36 @@ vip_reset(void)
 	// TODO: set initial reg states
 }
 
+/*
+static void
+vip_draw_side(void)
+{
+	// TODO: Draw background color
+	// TODO: For each world 31 to 0
+		// TODO: Draw BG or OBJ
+}
+*/
+
 void
 vip_step(void)
 {
-	// TODO
+	/*
 	scanner_step();
+	if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
+	{
+		vip_draw_side();
+	}
+	else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
+	{
+		vip_draw_side();
+	}
+	else
+	{
+		if (vip_regs.vr_xpctrl.vx_xpen)
+		{
+			vip_regs.vr_xpstts.vx_xpen = 1;
+	}
+	*/
 }
 
 void
@@ -1374,6 +1444,7 @@ vip_fini(void)
 void *
 vip_mem_emu2host(u_int32_t addr, size_t size)
 {
+	// TODO: Set read/write permissions
 	if (size != 2)
 	{
 		fprintf(stderr, "Invalid VIP access size %lu\n", size);
@@ -2009,6 +2080,7 @@ debug_format_flags(debug_str_t s, ...)
 	va_start(ap, s);
 	const char *name;
 	size_t len = 0;
+	s[0] = '\0';
 	while ((name = va_arg(ap, typeof(name))))
 	{
 		u_int flag = va_arg(ap, typeof(flag));
@@ -2043,6 +2115,60 @@ debug_print_psw(union cpu_psw psw, const char *name)
 				"NP", cpu_state.cs_psw.psw_flags.f_np,
 				NULL),
 			cpu_state.cs_psw.psw_flags.f_i);
+}
+
+static void
+debug_print_intreg(struct vip_intreg vi, const char *name)
+{
+	debug_str_t flags_str;
+	printf("%s: (%s)",
+			name,
+			debug_format_flags(flags_str,
+				"SCANERR", vi.vi_scanerr,
+				"LFBEND", vi.vi_lfbend,
+				"RFBEND", vi.vi_rfbend,
+				"GAMESTART", vi.vi_gamestart,
+				"FRAMESTART", vi.vi_framestart,
+				"SBHIT", vi.vi_sbhit,
+				"XPEND", vi.vi_xpend,
+				"TIMEERR", vi.vi_timeerr,
+				NULL));
+}
+
+static void
+debug_print_dpctrl(struct vip_dpctrl vd, const char *name)
+{
+	debug_str_t flags_str;
+	printf("%s: (%s)",
+			name,
+			debug_format_flags(flags_str,
+				"DISP", vd.vd_disp,
+				"DPBSY:L:FB0", vd.vd_dpbsy_l_fb0,
+				"DPBSY:R:FB0", vd.vd_dpbsy_r_fb0,
+				"DPBSY:L:FB1", vd.vd_dpbsy_l_fb1,
+				"DPBSY:R:FB1", vd.vd_dpbsy_r_fb1,
+				"SCANRDY", vd.vd_scanrdy,
+				"FCLK", vd.vd_fclk,
+				"RE", vd.vd_re,
+				"SYNCE", vd.vd_synce,
+				"LOCK", vd.vd_lock,
+				NULL));
+}
+
+static void
+debug_print_xpctrl(struct vip_xpctrl vx, const char *name)
+{
+	debug_str_t flags_str;
+	printf("%s: (%s)",
+			name,
+			debug_format_flags(flags_str,
+				"XPRST", vx.vx_xprst,
+				"XPEN", vx.vx_xpen,
+				"XPBSY:FB0", vx.vx_xpbsy_fb0,
+				"XPBSY:FB1", vx.vx_xpbsy_fb1,
+				"OVERTIME", vx.vx_overtime,
+				"SBOUT", vx.vx_sbout,
+				NULL));
 }
 
 void
@@ -2082,7 +2208,7 @@ debug_run(void)
 				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
 					break;
 				else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
-					main_step();
+					cpu_step();
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
 					static const char *fmt = "\t%5s: %s";
@@ -2195,8 +2321,25 @@ debug_run(void)
 					cpu_reset();
 				else if (!strcmp(argv[0], "v") || !strcmp(argv[0], "vip"))
 				{
-					printf("INTPND: 0x%04hx, INTENB: 0x%04hx, INTCLR: 0x%04hx\n",
-							vip_regs.vr_intpnd, vip_regs.vr_intenb, vip_regs.vr_intclr);
+					debug_print_intreg(vip_regs.vr_intpnd, "INTPND");
+					fputs(", ", stdout);
+					debug_print_intreg(vip_regs.vr_intenb, "INTENB");
+					fputs(", ", stdout);
+					debug_print_intreg(vip_regs.vr_intclr, "INTCLR");
+					putchar('\n');
+					debug_print_dpctrl(vip_regs.vr_dpstts, "DPSTTS");
+					fputs(", ", stdout);
+					debug_print_dpctrl(vip_regs.vr_dpctrl, "DPCTRL");
+					putchar('\n');
+					debug_print_xpctrl(vip_regs.vr_xpstts, "XPSTTS");
+					printf(" SBCOUNT=%d", vip_regs.vr_xpstts.vx_sbcount);
+					fputs(", ", stdout);
+					debug_print_xpctrl(vip_regs.vr_xpctrl, "XPCTRL");
+					printf(" SBCMP=%d", vip_regs.vr_xpctrl.vx_sbcount);
+					putchar('\n');
+					printf("BRTA: %d, BRTB: %d, BRTC: %d, REST: %d\n",
+							vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
+					printf("FRMCYC: %d\n", vip_regs.vr_frmcyc);
 				}
 				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
 				{
@@ -2245,6 +2388,23 @@ debug_trace(const union cpu_inst *inst)
 }
 
 /* MAIN */
+bool
+main_init(void)
+{
+	return (sram_init() && wram_init() && vip_init() && vsu_init() && nvc_init() && debug_init());
+}
+
+void
+main_fini(void)
+{
+	debug_fini();
+	nvc_fini();
+	vsu_fini();
+	vip_fini();
+	wram_fini();
+	sram_fini();
+}
+
 void
 main_reset(void)
 {
@@ -2256,9 +2416,9 @@ main_reset(void)
 void
 main_step(void)
 {
-	cpu_step();
 	vip_step();
 	vsu_step();
+	nvc_step();
 }
 
 static bool s_running = false;
@@ -2309,7 +2469,7 @@ main(int ac, char * const *av)
 	if (!rom_load(av[0]))
 		return EX_NOINPUT;
 
-	if (!sram_init() || !wram_init() || !vip_init() || !vsu_init() || !nvc_init() || !debug_init())
+	if (!main_init())
 		return EX_OSERR;
 
 	main_reset();
@@ -2350,11 +2510,6 @@ main(int ac, char * const *av)
 	}
 	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
-	debug_fini();
-	nvc_fini();
-	vsu_fini();
-	vip_fini();
-	wram_fini();
-	sram_fini();
+	main_fini();
 	rom_unload();
 }
