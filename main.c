@@ -704,6 +704,15 @@ cpu_inst_size(const union cpu_inst *inst)
 	return (inst->ci_i.i_opcode < 0x28) ? 2 : 4;
 }
 
+static u_int32_t
+cpu_inst_disp26(const union cpu_inst *inst)
+{
+	u_int32_t disp = (inst->ci_iv.iv_disp10 << 16) | inst->ci_iv.iv_disp16;
+	if ((disp & 0x2000000) == 0x2000000)
+		disp|= 0xfd000000;
+	return disp;
+}
+
 static bool
 cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 {
@@ -817,7 +826,17 @@ cpu_exec(const union cpu_inst inst)
 	OP_MULU  = 0b001010,
 	OP_DIVU  = 0b001011,
 	OP_OR    = 0b001100,
-	OP_AND   = 0b001101,
+	*/
+		case OP_AND:
+		{
+			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] & cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+			cpu_state.cs_psw.psw_flags.f_ov = 0;
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
+	/*
 	OP_XOR   = 0b001110,
 	OP_NOT   = 0b001111,
 	*/
@@ -888,7 +907,20 @@ cpu_exec(const union cpu_inst inst)
 
 			 /*
 	OP_TRAP  = 0b011000,
-	OP_RETI  = 0b011001,
+	*/
+		case OP_RETI:
+			if (cpu_state.cs_psw.psw_flags.f_np)
+			{
+				cpu_state.cs_pc = cpu_state.cs_fepc;
+				cpu_state.cs_psw = cpu_state.cs_fepsw;
+			}
+			else
+			{
+				cpu_state.cs_pc = cpu_state.cs_eipc;
+				cpu_state.cs_psw = cpu_state.cs_eipsw;
+			}
+			break;
+			 /*
 	OP_HALT  = 0b011010,
 	*/
 		case OP_LDSR:
@@ -938,13 +970,16 @@ cpu_exec(const union cpu_inst inst)
 		}
 		/*
 	OP_JR    = 0b101010,
-	OP_JAL   = 0b101011,
 	*/
+		case OP_JR:
+		{
+			u_int32_t disp = cpu_inst_disp26(&inst);
+			cpu_state.cs_pc+= disp;
+			break;
+		}
 		case OP_JAL:
 		{
-			u_int32_t disp = (inst.ci_iv.iv_disp10 << 16) | inst.ci_iv.iv_disp16;
-			if ((disp & 0x2000000) == 0x2000000)
-				disp|= 0xfd000000;
+			u_int32_t disp = cpu_inst_disp26(&inst);
 			cpu_state.cs_r[31] = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
 			break;
@@ -973,9 +1008,18 @@ cpu_exec(const union cpu_inst inst)
 		case OP_MOVHI:
 			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] | (inst.ci_v.v_imm16 << 16);
 			break;
-			/*
-	OP_LD_B  = 0b110000,
-	*/
+		case OP_LD_B:
+		{
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int8_t value;
+			if (!mem_read(addr, &value, sizeof(value)))
+				return false;
+			if ((value & 0x80) == 0x80)
+				cpu_state.cs_r[inst.ci_vi.vi_reg2] = 0xffffff00 | value;
+			else
+				cpu_state.cs_r[inst.ci_vi.vi_reg2] = value;
+			break;
+		}
 		case OP_LD_H:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
@@ -1051,11 +1095,19 @@ cpu_exec(const union cpu_inst inst)
 					BCOND_BLE = 0b0111,
 					BCOND_BNV = 0b1000,
 					BCOND_BNC = 0b1001,
-					BCOND_BNZ = 0b1010,
+					*/
+					case BCOND_BNZ:
+						branch = !cpu_state.cs_psw.psw_flags.f_z;
+						break;
+					  /*
 					BCOND_BH  = 0b1011,
 					BCOND_BP  = 0b1100,
 					BCOND_NOP = 0b1101,
-					BCOND_BGE = 0b1110,
+					*/
+					case BCOND_BGE:
+						branch = !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov);
+						break;
+					/*
 					BCOND_BGT = 0b1111,
 					*/
 					default:
@@ -1210,7 +1262,7 @@ cpu_step(void)
 	}
 	u_int32_t old_pc = cpu_state.cs_pc;
 
-	if (debug_tracing)
+	if (trace_cpu)
 		debug_trace(&inst);
 
 	if (!cpu_exec(inst))
@@ -1221,7 +1273,7 @@ cpu_step(void)
 }
 
 void
-cpu_intr(u_int level)
+cpu_intr(enum nvc_intlevel level)
 {
 	if (!cpu_state.cs_psw.psw_flags.f_np && !cpu_state.cs_psw.psw_flags.f_ep && !cpu_state.cs_psw.psw_flags.f_id)
 	{
@@ -1250,8 +1302,19 @@ scanner_init(void)
 void
 scanner_step(void)
 {
-	// TODO: Update FCLK
-	// TODO: Refresh left or right image from FBs
+	static unsigned scanner_usec = 0;
+
+	if (scanner_usec == 0)
+		vip_frame_clock();
+	else if (scanner_usec == 2500)
+		vip_left_sync();
+	else if (scanner_usec == 12500)
+		vip_right_sync();
+
+	if (scanner_usec == 19999)
+		scanner_usec = 0;
+	else
+		++scanner_usec;
 }
 
 void
@@ -1286,18 +1349,17 @@ static struct
 	u_int8_t vd_oam[0x1000];
 } vip_dram;
 
-struct vip_intreg
+enum vip_intflag
 {
-	unsigned vi_scanerr : 1,
-			 vi_lfbend : 1,
-			 vi_rfbend : 1,
-			 vi_gamestart : 1,
-			 vi_framestart : 1,
-			 vi_unused : 8,
-			 vi_sbhit : 1,
-			 vi_xpend : 1,
-			 vi_timeerr : 1;
-} __attribute__((packed));
+	VIP_SCANERR = (1 << 0),
+	VIP_LFBEND = (1 << 1),
+	VIP_RFBEND = (1 << 2),
+	VIP_GAMESTART = (1 << 3),
+	VIP_FRAMESTART = (1 << 4),
+	VIP_SBHIT = (1 << 13),
+	VIP_XPEND = (1 << 14),
+	VIP_TIMEERR = (1 << 15)
+};
 
 struct vip_dpctrl
 {
@@ -1330,9 +1392,9 @@ struct vip_xpctrl
 
 static struct
 {
-	struct vip_intreg vr_intpnd;
-	struct vip_intreg vr_intenb;
-	struct vip_intreg vr_intclr;
+	u_int16_t vr_intpnd;
+	u_int16_t vr_intenb;
+	u_int16_t vr_intclr;
 	u_int16_t vr_undef1[13];
 	struct vip_dpctrl vr_dpstts;
 	struct vip_dpctrl vr_dpctrl;
@@ -1402,6 +1464,49 @@ vip_reset(void)
 	// TODO: set initial reg states
 }
 
+static void
+vip_raise(enum vip_intflag intflag)
+{
+	vip_regs.vr_intpnd|= intflag;
+	if (vip_regs.vr_intenb & intflag)
+		cpu_intr(NVC_INTVIP);
+}
+
+void
+vip_frame_clock(void)
+{
+	static unsigned frame_cycles = 0;
+	enum vip_intflag intflags = VIP_FRAMESTART;
+
+	if (trace_vip)
+		puts("VIP: FRAMESTART");
+
+	if (frame_cycles == 0)
+	{
+		intflags|= VIP_GAMESTART;
+		if (trace_vip)
+			puts("VIP: GAMESTART");
+	}
+	if (frame_cycles == vip_regs.vr_frmcyc)
+		frame_cycles = 0;
+	else
+		frame_cycles++;
+
+	vip_raise(intflags);
+}
+
+void
+vip_left_sync(void)
+{
+	// TODO: Copy left FB to screen
+}
+
+void
+vip_right_sync(void)
+{
+	// TODO: Copy right FB to screen
+}
+
 /*
 static void
 vip_draw_side(void)
@@ -1415,8 +1520,8 @@ vip_draw_side(void)
 void
 vip_step(void)
 {
-	/*
 	scanner_step();
+	/*
 	if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
 	{
 		vip_draw_side();
@@ -1748,6 +1853,9 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_CMP2:
 			mnemonic = "CMP";
 			break;
+		case OP_RETI:
+			mnemonic = "RETI";
+			break;
 		case OP_JMP: mnemonic = "JMP"; break;
 		case OP_SHL2: mnemonic = "SHL"; break;
 		case OP_SAR:
@@ -1757,10 +1865,14 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_MUL:
 			mnemonic = "MUL";
 			break;
+		case OP_AND:
+			mnemonic = "AND";
+			break;
 		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
+		case OP_JR: mnemonic = "JR"; break;
 		case OP_JAL: mnemonic = "JAL"; break;
 		case OP_ORI: mnemonic = "ORI"; break;
 		case OP_ANDI: mnemonic = "ANDI"; break;
@@ -1854,16 +1966,18 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			break;
 		}
+		case OP_RETI:
+			snprintf(dis, debug_str_len, "%s", mnemonic);
+			break;
 		case OP_SHL2:
 		case OP_SAR2:
 		case OP_LDSR:
 			snprintf(dis, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
 			break;
+		case OP_JR:
 		case OP_JAL:
 		{
-			u_int32_t disp = (inst->ci_iv.iv_disp10 << 16) | inst->ci_iv.iv_disp16;
-			if ((disp & 0x2000000) == 0x2000000)
-				disp|= 0xfd000000;
+			u_int32_t disp = cpu_inst_disp26(inst);
 			if (pc)
 			{
 				debug_str_t addr_s;
@@ -2118,20 +2232,20 @@ debug_print_psw(union cpu_psw psw, const char *name)
 }
 
 static void
-debug_print_intreg(struct vip_intreg vi, const char *name)
+debug_print_intreg(u_int16_t intreg, const char *name)
 {
 	debug_str_t flags_str;
 	printf("%s: (%s)",
 			name,
 			debug_format_flags(flags_str,
-				"SCANERR", vi.vi_scanerr,
-				"LFBEND", vi.vi_lfbend,
-				"RFBEND", vi.vi_rfbend,
-				"GAMESTART", vi.vi_gamestart,
-				"FRAMESTART", vi.vi_framestart,
-				"SBHIT", vi.vi_sbhit,
-				"XPEND", vi.vi_xpend,
-				"TIMEERR", vi.vi_timeerr,
+				"SCANERR", intreg & VIP_SCANERR,
+				"LFBEND", intreg & VIP_LFBEND,
+				"RFBEND", intreg & VIP_RFBEND,
+				"GAMESTART", intreg & VIP_GAMESTART,
+				"FRAMESTART", intreg & VIP_FRAMESTART,
+				"SBHIT", intreg & VIP_SBHIT,
+				"XPEND", intreg & VIP_XPEND,
+				"TIMEERR", intreg & VIP_TIMEERR,
 				NULL));
 }
 

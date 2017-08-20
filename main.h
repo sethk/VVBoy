@@ -29,6 +29,16 @@ extern struct mem_seg_desc
 	bool ms_is_mmap;
 } mem_segs[MEM_NSEGS];
 
+/* NVC */
+enum nvc_intlevel
+{
+	NVC_INTKEY = 0,
+	NVC_INTTIM = 1,
+	NVC_INTCRO = 2,
+	NVC_INTCOM = 3,
+	NVC_INTVIP = 4
+};
+
 /* CPU */
 typedef u_int32_t cpu_regs_t[32];
 
@@ -77,6 +87,9 @@ union cpu_inst
 
 /* VIP */
 void *vip_mem_emu2host(u_int32_t addr, size_t size);
+void vip_frame_clock(void);
+void vip_left_sync(void);
+void vip_right_sync(void);
 
 /* DEBUG */
 struct debug_symbol
@@ -86,7 +99,8 @@ struct debug_symbol
 	struct debug_symbol *ds_next;
 };
 
-bool debug_tracing = true;
+bool trace_cpu = true;
+bool trace_vip = true;
 void debug_add_symbol(struct debug_symbol *debug_sym);
 void debug_create_symbol(const char *name, u_int32_t addr);
 char *debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs);
