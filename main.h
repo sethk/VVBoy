@@ -103,6 +103,7 @@ bool trace_cpu = true;
 bool trace_vip = true;
 void debug_add_symbol(struct debug_symbol *debug_sym);
 void debug_create_symbol(const char *name, u_int32_t addr);
+void debug_destroy_symbol(struct debug_symbol *debug_sym);
 char *debug_disasm(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs);
 void debug_intr(void);
 void debug_trace(const union cpu_inst *inst);

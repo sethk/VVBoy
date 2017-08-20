@@ -444,15 +444,22 @@ rom_read_isx(struct rom_file *file)
 				if (!debug_sym->ds_name)
 				{
 					warn("Could not alloc ISX debug sym name");
+					debug_destroy_symbol(debug_sym);
 					return false;
 				}
 
 				if (!rom_read_buffer(file, debug_sym->ds_name, symlen + 1, "ISX debug sym name"))
+				{
+					debug_destroy_symbol(debug_sym);
 					return false;
+				}
 
 				u_int8_t unk;
 				if (!rom_read_buffer(file, &unk, sizeof(unk), "ISX unknown data"))
+				{
+					debug_destroy_symbol(debug_sym);
 					return false;
+				}
 
 				if (!rom_read_buffer(file, &(debug_sym->ds_addr), sizeof(debug_sym->ds_addr),
 							"ISX debug symbol address"))
@@ -1702,6 +1709,13 @@ debug_fini(void)
 {
 	el_end(s_editline);
 	history_end(s_history);
+
+	while (debug_syms)
+	{
+		struct debug_symbol *debug_sym = debug_syms;
+		debug_syms = debug_sym->ds_next;
+		debug_destroy_symbol(debug_sym);
+	}
 }
 
 static char *
@@ -1790,6 +1804,14 @@ debug_create_symbol(const char *name, u_int32_t addr)
 	debug_add_symbol(debug_sym);
 }
 
+void
+debug_destroy_symbol(struct debug_symbol *debug_sym)
+{
+	if (debug_sym->ds_name)
+		free(debug_sym->ds_name);
+	free(debug_sym);
+}
+
 static void
 debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemonic, const cpu_regs_t regs)
 {
@@ -1837,7 +1859,7 @@ debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemoni
 char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, debug_str_t dis)
 {
-	const char *mnemonic;
+	const char *mnemonic = "???";
 	switch (inst->ci_i.i_opcode)
 	{
 		case OP_ADD:
@@ -1853,21 +1875,15 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_CMP2:
 			mnemonic = "CMP";
 			break;
-		case OP_RETI:
-			mnemonic = "RETI";
-			break;
+		case OP_RETI: mnemonic = "RETI"; break;
 		case OP_JMP: mnemonic = "JMP"; break;
 		case OP_SHL2: mnemonic = "SHL"; break;
 		case OP_SAR:
 		case OP_SAR2:
 			mnemonic = "SAR";
 			break;
-		case OP_MUL:
-			mnemonic = "MUL";
-			break;
-		case OP_AND:
-			mnemonic = "AND";
-			break;
+		case OP_MUL: mnemonic = "MUL"; break;
+		case OP_AND: mnemonic = "AND"; break;
 		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
@@ -2624,6 +2640,6 @@ main(int ac, char * const *av)
 	}
 	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
-	main_fini();
 	rom_unload();
+	main_fini();
 }
