@@ -1,4 +1,11 @@
-CFLAGS?= -pipe -Wall -O0 -g -fno-inline
+DEBUG = 1
+
+CFLAGS?= -pipe -Wall
+ifdef DEBUG
+    CFLAGS+= -O0 -g -fno-inline
+else
+    CFLAGS+= -O3
+endif
 TARGET = vvboy
 SRCS = main.c
 HEADERS = main.h
