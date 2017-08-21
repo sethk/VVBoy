@@ -14,6 +14,9 @@ vvboy: main.o
 clean::
 	rm -f $(TARGET) $(OBJS) .depend tags
 
+main.h: vendor/makeheaders/makeheaders $(SRCS)
+	vendor/makeheaders/makeheaders $(SRCS)
+
 $(TARGET): .depend
 
 .depend: $(SRCS)

@@ -1,4 +1,10 @@
+#if INTERFACE
+# include <sys/types.h>
+# include <stdbool.h>
+#endif // INTERFACE
+
 #include "main.h"
+
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/fcntl.h>
@@ -16,15 +22,30 @@
 #include <err.h>
 #include <histedit.h>
 
-static bool
-validate_seg_size(size_t size)
-{
-	double log2size = log2(size);
-	return (remainder(log2size, 1.0) == 0.0);
-}
-
 /* MEM */
-struct mem_seg_desc mem_segs[MEM_NSEGS];
+#if INTERFACE
+	enum mem_segment
+	{
+		MEM_SEG_VIP = 0,
+		MEM_SEG_VSU = 1,
+		MEM_SEG_NVC = 2,
+		MEM_SEG_CARTEX = 4,
+		MEM_SEG_WRAM = 5,
+		MEM_SEG_SRAM = 6,
+		MEM_SEG_ROM = 7,
+		MEM_NSEGS = 8
+	};
+
+	struct mem_seg_desc
+	{
+		size_t ms_size;
+		u_int8_t *ms_ptr;
+		u_int32_t ms_addrmask;
+		bool ms_is_mmap;
+	}
+#endif // INTERFACE
+
+static struct mem_seg_desc mem_segs[MEM_NSEGS];
 
 static const char *mem_seg_names[MEM_NSEGS] =
 {
@@ -37,6 +58,13 @@ static const char *mem_seg_names[MEM_NSEGS] =
 	[MEM_SEG_SRAM] = "SRAM",
 	[MEM_SEG_ROM] = "ROM"
 };
+
+static bool
+validate_seg_size(size_t size)
+{
+	double log2size = log2(size);
+	return (remainder(log2size, 1.0) == 0.0);
+}
 
 static bool
 mem_seg_alloc(enum mem_segment seg, size_t size)
@@ -553,6 +581,53 @@ rom_unload(void)
 }
 
 /* CPU */
+#if INTERFACE
+	typedef u_int32_t cpu_regs_t[32];
+
+	union cpu_inst
+	{
+		u_int16_t ci_hwords[2];
+		struct
+		{
+			u_int i_reg1 : 5;
+			u_int i_reg2 : 5;
+			u_int i_opcode : 6;
+		} ci_i;
+		struct
+		{
+			u_int ii_imm5 : 5;
+			u_int ii_reg2 : 5;
+			u_int ii_opcode : 6;
+		} ci_ii;
+		struct
+		{
+			u_int iii_disp9 : 9;
+			u_int iii_cond : 4;
+			u_int iii_opcode : 3;
+		} ci_iii;
+		struct
+		{
+			u_int iv_disp10 : 10;
+			u_int iv_opcode : 6;
+			u_int iv_disp16 : 16;
+		} ci_iv;
+		struct
+		{
+			u_int v_reg1 : 5;
+			u_int v_reg2 : 5;
+			u_int v_opcode : 6;
+			u_int16_t v_imm16;
+		} ci_v;
+		struct
+		{
+			u_int vi_reg1 : 5;
+			u_int vi_reg2 : 5;
+			u_int vi_opcode : 6;
+			int16_t vi_disp16;
+		} ci_vi;
+	};
+#endif // INTERFACE
+
 union cpu_psw
 {
 	u_int32_t psw_word;
@@ -577,7 +652,7 @@ union cpu_psw
 	} psw_flags;
 };
 
-static struct cpu_state
+struct cpu_state
 {
 	cpu_regs_t cs_r;
 	u_int32_t cs_pc;
@@ -592,7 +667,9 @@ static struct cpu_state
 	u_int32_t cs_fepc;
 	union cpu_psw cs_fepsw;
 	u_int32_t cs_chcw;
-} cpu_state;
+};
+
+static struct cpu_state cpu_state;
 
 enum cpu_opcode
 {
@@ -743,7 +820,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 
 static const u_int32_t sign_bit32 = 0x80000000;
 
-static inline u_int32_t
+extern inline u_int32_t
 cpu_extend9(u_int32_t s9)
 {
 	if ((s9 & 0x100) == 0x100)
@@ -751,7 +828,7 @@ cpu_extend9(u_int32_t s9)
 	return s9;
 }
 
-static inline u_int16_t
+extern inline u_int16_t
 cpu_extend5to16(u_int16_t s5)
 {
 	if ((s5 & 0b10000) == 0b10000)
@@ -1336,7 +1413,7 @@ struct vip_chr
 	u_int16_t chr_rows[8];
 };
 
-static struct
+struct vip_vrm
 {
 	u_int8_t vv_left0[0x6000];
 	struct vip_chr vv_chr0[512];
@@ -1346,27 +1423,33 @@ static struct
 	struct vip_chr vv_chr2[512];
 	u_int8_t vv_right1[0x6000];
 	struct vip_chr vv_chr3[512];
-} vip_vrm;
+};
 
-static struct
+static struct vip_vrm vip_vrm;
+
+struct vip_dram
 {
 	u_int8_t vd_bgseg[0x1d800];
 	u_int8_t vd_winattr[0x400];
 	u_int8_t vd_coltbl[0x1400];
 	u_int8_t vd_oam[0x1000];
-} vip_dram;
-
-enum vip_intflag
-{
-	VIP_SCANERR = (1 << 0),
-	VIP_LFBEND = (1 << 1),
-	VIP_RFBEND = (1 << 2),
-	VIP_GAMESTART = (1 << 3),
-	VIP_FRAMESTART = (1 << 4),
-	VIP_SBHIT = (1 << 13),
-	VIP_XPEND = (1 << 14),
-	VIP_TIMEERR = (1 << 15)
 };
+
+static struct vip_dram vip_dram;
+
+#if INTERFACE
+	enum vip_intflag
+	{
+		VIP_SCANERR = (1 << 0),
+		VIP_LFBEND = (1 << 1),
+		VIP_RFBEND = (1 << 2),
+		VIP_GAMESTART = (1 << 3),
+		VIP_FRAMESTART = (1 << 4),
+		VIP_SBHIT = (1 << 13),
+		VIP_XPEND = (1 << 14),
+		VIP_TIMEERR = (1 << 15)
+	};
+#endif // INTERFACE
 
 struct vip_dpctrl
 {
@@ -1397,7 +1480,7 @@ struct vip_xpctrl
 	unsigned vx_sbout : 1;
 } __attribute__((packed));
 
-static struct
+struct vip_regs
 {
 	u_int16_t vr_intpnd;
 	u_int16_t vr_intenb;
@@ -1422,7 +1505,9 @@ static struct
 	u_int16_t vr_gplt[4];
 	u_int16_t vr_jplt[4];
 	u_int16_t vr_bkcol;
-} vip_regs;
+};
+
+static struct vip_regs vip_regs;
 
 bool
 vip_init(void)
@@ -1472,7 +1557,7 @@ vip_reset(void)
 }
 
 static void
-vip_raise(enum vip_intflag intflag)
+vip_raise(/*enum*/ vip_intflag intflag)
 {
 	vip_regs.vr_intpnd|= intflag;
 	if (vip_regs.vr_intenb & intflag)
@@ -1632,7 +1717,19 @@ vsu_fini(void)
 }
 
 /* NVC */
-// TODO: struct nvc_regs ...
+#if INTERFACE
+	// TODO: struct nvc_regs ...
+
+	enum nvc_intlevel
+	{
+		NVC_INTKEY = 0,
+		NVC_INTTIM = 1,
+		NVC_INTCRO = 2,
+		NVC_INTCOM = 3,
+		NVC_INTVIP = 4
+	};
+#endif // INTERFACE
+
 bool
 nvc_init(void)
 {
@@ -1660,6 +1757,18 @@ nvc_step(void)
 }
 
 /* DEBUG */
+#if INTERFACE
+	struct debug_symbol
+	{
+		char *ds_name;
+		u_int32_t ds_addr;
+		struct debug_symbol *ds_next;
+	};
+#endif // INTERFACE
+
+bool trace_cpu = true;
+bool trace_vip = true;
+
 static EditLine *s_editline;
 static History *s_history;
 static Tokenizer *s_token;
@@ -1856,7 +1965,7 @@ debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemoni
 	}
 }
 
-char *
+static char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, debug_str_t dis)
 {
 	const char *mnemonic = "???";
