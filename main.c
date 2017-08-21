@@ -2668,14 +2668,14 @@ main_exit(void)
 	s_running = false;
 }
 
-int
+static int
 main_usage(void)
 {
 	fprintf(stderr, "usage: %s [-d] { <file.vb> | <file.isx> }\n", getprogname());
 	return EX_USAGE;
 }
 
-void
+static void
 main_noop(int sig)
 {
 }
