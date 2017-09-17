@@ -148,7 +148,18 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	if (mem_segs[seg].ms_size)
+	const void *src;
+	if (seg == MEM_SEG_VIP)
+	{
+		if (!(src = vip_mem_emu2host(addr, size)))
+			return false;
+	}
+	else if (seg == MEM_SEG_NVC)
+	{
+		if (!(src = nvc_mem_emu2host(addr, size)))
+			return false;
+	}
+	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
 
@@ -159,36 +170,29 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
 
-		const void *src;
-		if (seg == MEM_SEG_VIP)
-		{
-			if (!(src = vip_mem_emu2host(addr, size)))
-				return false;
-		}
-		else
-			src = mem_segs[seg].ms_ptr + offset;
-
-		switch (size)
-		{
-			case 1:
-				*(u_int8_t *)dest = *(u_int8_t *)src;
-				return true;
-			case 2:
-				*(u_int16_t *)dest = *(u_int16_t *)src;
-				return true;
-			case 4:
-				*(u_int32_t *)dest = *(u_int32_t *)src;
-				return true;
-			default:
-				bcopy(src, dest, size);
-				return true;
-		}
+		src = mem_segs[seg].ms_ptr + offset;
 	}
 	else
 	{
 		warnx("Bus error at 0x%08x", addr);
 		debug_intr();
 		return false;
+	}
+
+	switch (size)
+	{
+		case 1:
+			*(u_int8_t *)dest = *(u_int8_t *)src;
+			return true;
+		case 2:
+			*(u_int16_t *)dest = *(u_int16_t *)src;
+			return true;
+		case 4:
+			*(u_int32_t *)dest = *(u_int32_t *)src;
+			return true;
+		default:
+			bcopy(src, dest, size);
+			return true;
 	}
 }
 
@@ -197,7 +201,18 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	if (mem_segs[seg].ms_size)
+	void *dest;
+	if (seg == MEM_SEG_VIP)
+	{
+		if (!(dest = vip_mem_emu2host(addr, size)))
+			return false;
+	}
+	else if (seg == MEM_SEG_NVC)
+	{
+		if (!(dest = nvc_mem_emu2host(addr, size)))
+			return false;
+	}
+	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
 
@@ -208,30 +223,7 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
 
-		void *dest;
-		if (seg == MEM_SEG_VIP)
-		{
-			if (!(dest = vip_mem_emu2host(addr, size)))
-				return false;
-		}
-		else
-			dest = mem_segs[seg].ms_ptr + offset;
-
-		switch (size)
-		{
-			case 1:
-				*(u_int8_t *)dest = *(u_int8_t *)src;
-				return true;
-			case 2:
-				*(u_int16_t *)dest = *(u_int16_t *)src;
-				return true;
-			case 4:
-				*(u_int32_t *)dest = *(u_int32_t *)src;
-				return true;
-			default:
-				bcopy(src, dest, size);
-				return true;
-		}
+		dest = mem_segs[seg].ms_ptr + offset;
 	}
 	else
 	{
@@ -239,6 +231,22 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 		fprintf(stderr, "No segment found for address 0x%08x\n", addr);
 		debug_intr();
 		return false;
+	}
+
+	switch (size)
+	{
+		case 1:
+			*(u_int8_t *)dest = *(u_int8_t *)src;
+			return true;
+		case 2:
+			*(u_int16_t *)dest = *(u_int16_t *)src;
+			return true;
+		case 4:
+			*(u_int32_t *)dest = *(u_int32_t *)src;
+			return true;
+		default:
+			bcopy(src, dest, size);
+			return true;
 	}
 }
 
@@ -837,6 +845,14 @@ cpu_extend5to16(u_int16_t s5)
 }
 
 static void
+cpu_setfl_zs0(u_int32_t result)
+{
+	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+	cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+	cpu_state.cs_psw.psw_flags.f_ov = 0;
+}
+
+static void
 cpu_setfl(u_int64_t result, u_int32_t left, bool sign_agree)
 {
 	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
@@ -909,14 +925,18 @@ cpu_exec(const union cpu_inst inst)
 	OP_DIV   = 0b001001,
 	OP_MULU  = 0b001010,
 	OP_DIVU  = 0b001011,
-	OP_OR    = 0b001100,
 	*/
+		case OP_OR:
+		{
+			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] | cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_setfl_zs0(result);
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
 		case OP_AND:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] & cpu_state.cs_r[inst.ci_i.i_reg1];
-			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
-			cpu_state.cs_psw.psw_flags.f_ov = 0;
+			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
 			break;
 		}
@@ -1071,18 +1091,14 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ORI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] | inst.ci_v.v_imm16;
-			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
-			cpu_state.cs_psw.psw_flags.f_ov = 0;
+			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
 		case OP_ANDI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] & inst.ci_v.v_imm16;
-			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
-			cpu_state.cs_psw.psw_flags.f_ov = 0;
+			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
@@ -1126,6 +1142,14 @@ cpu_exec(const union cpu_inst inst)
 			 /*
 	OP_ST_B  = 0b110100,
 	*/
+		case OP_ST_B:
+		{
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xff;
+			if (!mem_write(addr, &value, sizeof(value)))
+				return false;
+			break;
+		}
 		case OP_ST_H:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
@@ -1191,9 +1215,10 @@ cpu_exec(const union cpu_inst inst)
 					case BCOND_BGE:
 						branch = !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov);
 						break;
-					/*
-					BCOND_BGT = 0b1111,
-					*/
+					case BCOND_BGT:
+						branch = !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) ||
+								cpu_state.cs_psw.psw_flags.f_z;
+						break;
 					default:
 						fputs("Handle branch cond\n", stderr);
 						debug_intr();
@@ -1717,6 +1742,22 @@ vsu_fini(void)
 }
 
 /* NVC */
+struct nvc_regs
+{
+	u_int8_t nr_regs[0x28];
+	struct
+	{
+		unsigned s_abt_dis : 1,
+				 s_si_stat : 1,
+				 s_hw_si : 1,
+				 s_rfu1 : 1,
+				 s_soft_ck : 1,
+				 s_para_si : 1,
+				 s_rfu2 : 1,
+				 s_k_int_inh : 1;
+	} __attribute__((packed)) nr_scr;
+};
+
 #if INTERFACE
 	// TODO: struct nvc_regs ...
 
@@ -1730,9 +1771,22 @@ vsu_fini(void)
 	};
 #endif // INTERFACE
 
+static struct nvc_regs nvc_regs;
+
 bool
 nvc_init(void)
 {
+	debug_create_symbol("SCR", 0x02000028);
+	debug_create_symbol("WCR", 0x02000024);
+	debug_create_symbol("TCR", 0x02000020);
+	debug_create_symbol("THR", 0x0200001c);
+	debug_create_symbol("TLR", 0x02000018);
+	debug_create_symbol("SDHR", 0x02000014);
+	debug_create_symbol("SDLR", 0x02000010);
+	debug_create_symbol("CDRR", 0x0200000c);
+	debug_create_symbol("CDTR", 0x02000008);
+	debug_create_symbol("CCSR", 0x02000004);
+	debug_create_symbol("CCR", 0x02000000);
 	return cpu_init();
 }
 
@@ -1745,8 +1799,19 @@ nvc_fini(void)
 void
 nvc_reset(void)
 {
-	// TODO: Initialize NVC interval registers
+	nvc_regs.nr_scr.s_hw_si = 1;
+	nvc_regs.nr_scr.s_rfu1 = 1;
+	nvc_regs.nr_scr.s_rfu2 = 1;
+	// TODO: Initialize other NVC interval registers
 	cpu_reset();
+}
+
+void
+nvc_test(void)
+{
+	fputs("Running NVC self-test\n", stderr);
+
+	assert(sizeof(nvc_regs) == 0x29);
 }
 
 void
@@ -1754,6 +1819,25 @@ nvc_step(void)
 {
 	// TODO: Update timer
 	cpu_step();
+}
+
+void *
+nvc_mem_emu2host(u_int32_t addr, size_t size)
+{
+	// TODO: Set read/write permissions
+	if (size != 1)
+	{
+		fprintf(stderr, "Invalid NVC access size %lu\n", size);
+		return NULL;
+	}
+	if (addr <= 0x02000028)
+		return (u_int8_t *)&nvc_regs + (addr & 0xff);
+	else
+	{
+		fprintf(stderr, "NVC bus error at 0x%08x\n", addr);
+		debug_intr();
+		return NULL;
+	}
 }
 
 /* DEBUG */
@@ -1766,13 +1850,14 @@ nvc_step(void)
 	};
 #endif // INTERFACE
 
-bool trace_cpu = true;
+bool trace_cpu = false;
 bool trace_vip = true;
 
 static EditLine *s_editline;
 static History *s_history;
 static Tokenizer *s_token;
 
+// TODO: Use hcreate()
 static struct debug_symbol *debug_syms = NULL;
 
 static char *
@@ -1992,6 +2077,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			mnemonic = "SAR";
 			break;
 		case OP_MUL: mnemonic = "MUL"; break;
+		case OP_OR: mnemonic = "OR"; break;
 		case OP_AND: mnemonic = "AND"; break;
 		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
@@ -2717,6 +2803,7 @@ main(int ac, char * const *av)
 
 	if (self_test)
 	{
+		nvc_test();
 		vip_test();
 		cpu_test();
 	}
