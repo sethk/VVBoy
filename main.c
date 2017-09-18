@@ -67,7 +67,7 @@ validate_seg_size(size_t size)
 }
 
 static bool
-mem_seg_alloc(enum mem_segment seg, size_t size)
+mem_seg_alloc(/*enum*/ mem_segment seg, size_t size)
 {
 	assert(validate_seg_size(size));
 	mem_segs[seg].ms_ptr = malloc(size);
@@ -83,7 +83,7 @@ mem_seg_alloc(enum mem_segment seg, size_t size)
 }
 
 static bool
-mem_seg_mmap(enum mem_segment seg, size_t size, int fd)
+mem_seg_mmap(/*enum*/ mem_segment seg, size_t size, int fd)
 {
 	mem_segs[seg].ms_size = size;
 	mem_segs[seg].ms_ptr = mmap(NULL, size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
@@ -98,7 +98,7 @@ mem_seg_mmap(enum mem_segment seg, size_t size, int fd)
 }
 
 static bool
-mem_seg_realloc(enum mem_segment seg, size_t size)
+mem_seg_realloc(/*enum*/ mem_segment seg, size_t size)
 {
 	assert(!mem_segs[seg].ms_is_mmap);
 	assert(validate_seg_size(size));
@@ -114,7 +114,7 @@ mem_seg_realloc(enum mem_segment seg, size_t size)
 }
 
 static void
-mem_seg_free(enum mem_segment seg)
+mem_seg_free(/*enum*/ mem_segment seg)
 {
 	if (!mem_segs[seg].ms_is_mmap)
 		free(mem_segs[seg].ms_ptr);
@@ -251,6 +251,15 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 }
 
 /* ROM */
+#if INTERFACE
+	enum isx_symbol_type
+	{
+		ISX_SYMBOL_CONST = 0,
+		ISX_SYMBOL_POINTER = 16,
+		ISX_SYMBOL_END = 214
+	};
+#endif // INTERFACE
+
 #define ROM_BASE_ADDR 0x07000000
 #define ROM_MIN_SIZE 1024lu
 #define ROM_MAX_SIZE 0x01000000
@@ -351,9 +360,7 @@ rom_seek(struct rom_file *file, off_t off, int whence)
 enum isx_tag
 {
 	ISX_TAG_LOAD = 0x11,
-	ISX_TAG_DEBUG1 = 0x14,
-	ISX_TAG_DEBUG2 = 0x13,
-	ISX_TAG_DEBUG3 = 0x20
+	ISX_TAG_DEBUG = 0x14
 };
 
 struct isx_chunk_header
@@ -427,7 +434,7 @@ rom_read_isx(struct rom_file *file)
 			if (!rom_seek(file, header.ich_size, SEEK_CUR))
 				return false;
 		}
-		else if (header.ich_tag == ISX_TAG_DEBUG1 || header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
+		else if (header.ich_tag == ISX_TAG_DEBUG)
 			break;
 	}
 
@@ -458,7 +465,7 @@ rom_read_isx(struct rom_file *file)
 			if (!rom_read_buffer(file, mem_segs[MEM_SEG_ROM].ms_ptr + offset, header.ich_size, "ISX chunk"))
 				return false;
 		}
-		else if (header.ich_tag == ISX_TAG_DEBUG1)
+		else if (header.ich_tag == ISX_TAG_DEBUG)
 		{
 			u_int16_t num_syms;
 			if (!rom_read_buffer(file, &num_syms, sizeof(num_syms), "ISX debug num syms"))
@@ -490,19 +497,19 @@ rom_read_isx(struct rom_file *file)
 					return false;
 				}
 
-				u_int8_t unk;
-				if (!rom_read_buffer(file, &unk, sizeof(unk), "ISX unknown data"))
+				u_int8_t type;
+				if (!rom_read_buffer(file, &type, sizeof(type), "ISX debug sym type"))
 				{
 					debug_destroy_symbol(debug_sym);
 					return false;
 				}
+				debug_sym->ds_type = type;
 
-				if (!rom_read_buffer(file, &(debug_sym->ds_addr), sizeof(debug_sym->ds_addr),
-							"ISX debug symbol address"))
+				if (!rom_read_buffer(file, &(debug_sym->ds_addr), sizeof(debug_sym->ds_addr), "ISX debug sym address"))
 					return false;
 
 				#if 0
-					fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhd\n", debug_sym->ds_name, debug_sym->ds_addr, unk);
+					fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhu\n", debug_sym->ds_name, debug_sym->ds_addr, type);
 				#endif // 0
 
 				debug_add_symbol(debug_sym);
@@ -512,11 +519,11 @@ rom_read_isx(struct rom_file *file)
 
 			break;
 		}
-		else if (header.ich_tag == ISX_TAG_DEBUG2 || header.ich_tag == ISX_TAG_DEBUG3)
+		else
 		{
-			fprintf(stderr, "Debug info type 0x%hhx @ 0x%08llx\n", header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
+			fprintf(stderr, "ISX chunk type 0x%hhx @ 0x%08llx\n", header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
 			char *debug_info = malloc(2048);
-			if (!rom_read_buffer(file, debug_info, 2048, "ISX debug info"))
+			if (!rom_read_buffer(file, debug_info, 2048, "ISX chunk data"))
 				return false;
 			raise(SIGTRAP);
 			free(debug_info);
@@ -1382,7 +1389,7 @@ cpu_step(void)
 }
 
 void
-cpu_intr(enum nvc_intlevel level)
+cpu_intr(/*enum*/ nvc_intlevel level)
 {
 	if (!cpu_state.cs_psw.psw_flags.f_np && !cpu_state.cs_psw.psw_flags.f_ep && !cpu_state.cs_psw.psw_flags.f_id)
 	{
@@ -1847,6 +1854,7 @@ nvc_mem_emu2host(u_int32_t addr, size_t size)
 		char *ds_name;
 		u_int32_t ds_addr;
 		struct debug_symbol *ds_next;
+		enum isx_symbol_type ds_type;
 	};
 #endif // INTERFACE
 
@@ -1930,45 +1938,42 @@ debug_format_binary(u_int n, u_int nbits)
 static const size_t debug_str_len = 64;
 typedef char debug_str_t[debug_str_len];
 
-static const char *
-debug_format_addr(u_int32_t addr, debug_str_t s)
+static struct debug_symbol *
+debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
 {
-	char human[32];
 	struct debug_symbol *sym = debug_syms;
-	const char *match_name = NULL;
-	u_int32_t match_offset;
+	struct debug_symbol *match_sym = NULL;
 
 	while (sym)
 	{
-		if (sym->ds_addr <= addr)
+		if (sym->ds_type == ISX_SYMBOL_POINTER && sym->ds_addr <= addr)
 		{
 			u_int32_t offset = addr - sym->ds_addr;
-			if (offset <= 8192 && (!match_name || match_offset > offset))
+			if (offset <= 8192 && (!match_sym || *match_offsetp > offset))
 			{
-				match_name = sym->ds_name;
-				match_offset = offset;
+				match_sym = sym;
+				*match_offsetp = offset;
 			}
 		}
 
 		sym = sym->ds_next;
 	}
 
-	if (!match_name)
-	{
-		enum mem_segment seg = MEM_ADDR2SEG(addr);
-		if (mem_seg_names[seg] && mem_segs[seg].ms_size)
-		{
-			match_name = mem_seg_names[seg];
-			match_offset = addr & mem_segs[seg].ms_addrmask;
-		}
-	}
+	return match_sym;
+}
 
-	if (match_name)
+static const char *
+debug_format_addrsym(u_int32_t addr, struct debug_symbol *sym, debug_str_t s)
+{
+	char human[32];
+
+	if (sym)
 	{
-		if (match_offset)
-			snprintf(human, sizeof(human), "<%s+%u>", match_name, match_offset);
+		u_int32_t offset = addr - sym->ds_addr;
+		if (offset)
+			snprintf(human, sizeof(human), "<%s+%u>", sym->ds_name, offset);
 		else
-			snprintf(human, sizeof(human), "<%s>", match_name);
+			snprintf(human, sizeof(human), "<%s>", sym->ds_name);
 	}
 	else
 		*human = '\0';
@@ -1976,6 +1981,16 @@ debug_format_addr(u_int32_t addr, debug_str_t s)
 	snprintf(s, debug_str_len, "0x%08x %-15s", addr, human);
 
 	return s;
+}
+
+static const char *
+debug_format_addr(u_int32_t addr, debug_str_t s)
+{
+	struct debug_symbol *match_sym;
+	u_int32_t match_offset;
+
+	match_sym = debug_resolve_addr(addr, &match_offset);
+	return debug_format_addrsym(addr, match_sym, s);
 }
 
 void
@@ -1995,6 +2010,7 @@ debug_create_symbol(const char *name, u_int32_t addr)
 	if (!debug_sym->ds_name)
 		err(1, "Could not copy symbol name");
 	debug_sym->ds_addr = addr;
+	debug_sym->ds_type = ISX_SYMBOL_POINTER;
 	debug_add_symbol(debug_sym);
 }
 
@@ -2292,7 +2308,8 @@ static const struct debug_help
 		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 	{'r', "", "Reset the CPU (aliases: reset)"},
 	{'v', "", "Show VIP info (aliases: vip)"},
-	{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"}
+	{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
+	{'S', "", "Show symbol table"}
 };
 
 static void
@@ -2352,6 +2369,8 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 	else if ((sscanf(s, "%i[r%2d]%n", &disp, &reg_num, &nparsed) == 2 && nparsed == len) ||
 			(sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
 		base = cpu_state.cs_r[reg_num & 0x1f];
+	else if (sscanf(s, "%i%n", &base, &nparsed) == 1 && nparsed == len)
+		;
 	else
 	{
 		char sym_name[64 + 1], sign[2];
@@ -2359,6 +2378,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		num_parsed = sscanf(s, "%64[^+-]%n%1[+-]%i%n", sym_name, &nparsed, sign, &disp, &nparsed);
 		if (num_parsed >= 1 && nparsed == len)
 		{
+			fprintf(stderr, "Sym name: \"%s\"\n", sym_name);
 			if (!(base = debug_locate_symbol(sym_name)))
 				return false;
 			if (num_parsed >= 2 && *sign == '-')
@@ -2375,15 +2395,12 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 }
 
 static bool
-debug_disasm_at(u_int32_t *addrp, bool stop_at_return)
+debug_disasm_at(u_int32_t *addrp)
 {
 	union cpu_inst inst;
 	if (!cpu_fetch(*addrp, &inst))
 		return false;
 	printf(" %s\n", debug_disasm(&inst, *addrp, NULL));
-
-	if (stop_at_return && inst.ci_i.i_opcode == OP_JMP && inst.ci_i.i_reg1 == 31)
-		return false;
 
 	*addrp+= cpu_inst_size(&inst);
 	return true;
@@ -2603,7 +2620,7 @@ debug_run(void)
 							}
 							else if (!strcmp(format, "i"))
 							{
-								if (!debug_disasm_at(&addr, false))
+								if (!debug_disasm_at(&addr))
 									break;
 							}
 							else if (format[0] == 'b' && strlen(format) <= 2)
@@ -2677,14 +2694,26 @@ debug_run(void)
 					else
 						pc = cpu_state.cs_pc;
 
-					u_int32_t end = pc + MIN(8192, 0xffffffff - pc);
-					while (pc < end)
+					struct debug_symbol *start_sym, *next_sym;
+					u_int32_t offset;
+					start_sym = debug_resolve_addr(pc, &offset);
+					next_sym = start_sym;
+
+					while (next_sym == start_sym)
 					{
 						debug_str_t addr_s;
-						printf("%s:", debug_format_addr(pc, addr_s));
-						if (!debug_disasm_at(&pc, true))
+
+						printf("%s:", debug_format_addrsym(pc, next_sym, addr_s));
+						if (!debug_disasm_at(&pc))
 							break;
+						next_sym = debug_resolve_addr(pc, &offset);
 					}
+				}
+				else if (!strcmp(argv[0], "S"))
+				{
+					for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
+						fprintf(stderr, "debug symbol: %s = 0x%08x, type = %u\n",
+								sym->ds_name, sym->ds_addr, sym->ds_type);
 				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
