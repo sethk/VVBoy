@@ -863,7 +863,7 @@ cpu_setfl_zs0(u_int32_t result)
 static void
 cpu_setfl(u_int64_t result, u_int32_t left, bool sign_agree)
 {
-	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+	cpu_state.cs_psw.psw_flags.f_z = ((result & 0xffffffff) == 0);
 	cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 	cpu_state.cs_psw.psw_flags.f_cy = ((result & 0x100000000) == 0x100000000);
 	if (sign_agree)
@@ -1281,7 +1281,13 @@ cpu_assert_carry(const char *dis, bool carry)
 }
 
 static void
-cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool carry)
+cpu_assert_zero(const char *dis, bool zero)
+{
+	cpu_assert_flag(dis, "zero", cpu_state.cs_psw.psw_flags.f_z, zero);
+}
+
+static void
+cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool carry, bool zero)
 {
 	union cpu_inst inst;
 	inst.ci_v.v_opcode = OP_ADD;
@@ -1289,11 +1295,12 @@ cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 	inst.ci_v.v_reg2 = 2;
 	cpu_state.cs_r[1] = right;
 	inst.ci_v.v_reg1 = 1;
-	cpu_exec(inst);
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
+	cpu_exec(inst);
 	cpu_assert_reg(dis, 2, result);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_carry(dis, carry);
+	cpu_assert_zero(dis, zero);
 }
 
 static void
@@ -1335,15 +1342,16 @@ cpu_test(void)
 {
 	fputs("Running CPU self-test\n", stderr);
 
-	cpu_test_add(1, 1, 2, false, false);
-	cpu_test_add(2147483647, 1, -2147483648, true, false);
-	cpu_test_add(1, 2147483647, -2147483648, true, false);
-	cpu_test_add(2147483646, 1, 2147483647, false, false);
-	cpu_test_add(1, 2147483646, 2147483647, false, false);
-	cpu_test_add(2147450881, 32767, -2147483648, true, false);
-	cpu_test_add(2147450880, 32767, 2147483647, false, false);
-	cpu_test_add(-1, -1, -2, false, true);
-	cpu_test_add(-2147483648, -1, 2147483647, true, true);
+	cpu_test_add(1, 1, 2, false, false, false);
+	cpu_test_add(2147483647, 1, -2147483648, true, false, false);
+	cpu_test_add(1, 2147483647, -2147483648, true, false, false);
+	cpu_test_add(2147483646, 1, 2147483647, false, false, false);
+	cpu_test_add(1, 2147483646, 2147483647, false, false, false);
+	cpu_test_add(2147450881, 32767, -2147483648, true, false, false);
+	cpu_test_add(2147450880, 32767, 2147483647, false, false, false);
+	cpu_test_add(-1, -1, -2, false, true, false);
+	cpu_test_add(-2147483648, -1, 2147483647, true, true, false);
+	cpu_test_add(1, -1, 0, false, true, true);
 
 	cpu_test_sub(1, 0, 1, false, false);
 	cpu_test_sub(1, 1, 0, false, false);
