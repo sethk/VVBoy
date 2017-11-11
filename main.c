@@ -2713,7 +2713,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 			(sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
 		base = cpu_state.cs_r[reg_num & 0x1f];
 	else if (sscanf(s, "%i%n", &base, &nparsed) == 1 && nparsed == len)
-		;
+		disp = 0;
 	else
 	{
 		char sym_name[64 + 1], sign[2];
