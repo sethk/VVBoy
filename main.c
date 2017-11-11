@@ -958,8 +958,14 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
 			break;
 		}
+		case OP_XOR:
+		{
+			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] ^ cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_setfl_zs0(result);
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
 	/*
-	OP_XOR   = 0b001110,
 	OP_NOT   = 0b001111,
 	*/
 		case OP_MOV2:
@@ -1005,8 +1011,10 @@ cpu_exec(const union cpu_inst inst)
 
 			/*
 	OP_SHR2  = 0b010101,
-	OP_CLI   = 0b010110,
 	*/
+		case OP_CLI:
+			cpu_state.cs_psw.psw_flags.f_id = 0;
+			break;
 		case OP_SAR2:
 			if (inst.ci_ii.ii_imm5)
 			{
@@ -1071,7 +1079,11 @@ cpu_exec(const union cpu_inst inst)
 			break;
 			 /*
 	OP_STSR  = 0b011101,
-	OP_SEI   = 0b011110,
+	*/
+		case OP_SEI:
+			cpu_state.cs_psw.psw_flags.f_id = 1;
+			break;
+			 /*
 	OP_BSTR  = 0b011111,
 	*/
 		case OP_MOVEA:
@@ -2404,9 +2416,13 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			mnemonic = "SAR";
 			break;
 		case OP_MUL: mnemonic = "MUL"; break;
+		case OP_DIV: mnemonic = "DIV"; break;
 		case OP_OR: mnemonic = "OR"; break;
 		case OP_AND: mnemonic = "AND"; break;
+		case OP_XOR: mnemonic = "XOR"; break;
+		case OP_CLI: mnemonic = "CLI"; break;
 		case OP_LDSR: mnemonic = "LDSR"; break;
+		case OP_SEI: mnemonic = "SEI"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
@@ -2517,7 +2533,9 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			break;
 		}
+		case OP_CLI:
 		case OP_RETI:
+		case OP_SEI:
 			snprintf(dis, debug_str_len, "%s", mnemonic);
 			break;
 		case OP_SHL2:
