@@ -155,6 +155,11 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 		if (!(src = vip_mem_emu2host(addr, size)))
 			return false;
 	}
+	else if (seg == MEM_SEG_VSU)
+	{
+		if (!(src = vsu_mem_emu2host(addr, size)))
+			return false;
+	}
 	else if (seg == MEM_SEG_NVC)
 	{
 		if (!(src = nvc_mem_emu2host(addr, size)))
@@ -206,6 +211,11 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	if (seg == MEM_SEG_VIP)
 	{
 		if (!(dest = vip_mem_emu2host(addr, size)))
+			return false;
+	}
+	else if (seg == MEM_SEG_VSU)
+	{
+		if (!(dest = vsu_mem_emu2host(addr, size)))
 			return false;
 	}
 	else if (seg == MEM_SEG_NVC)
@@ -1983,11 +1993,32 @@ vip_test(void)
 }
 
 /* VSU */
+struct vsu_regs
+{
+	u_int8_t vr_regs[0x180];
+	struct
+	{
+		unsigned vs_stop : 1 __attribute__((packed));
+		unsigned vs_unused : 7 __attribute__((packed));
+	} vr_sstop;
+};
+
+static struct vsu_regs vsu_regs;
+
 bool
 vsu_init(void)
 {
+	debug_create_symbol("SSTOP", 0x01000580);
 	// TODO
 	return true;
+}
+
+void
+vsu_test(void)
+{
+	fputs("Running VSU self-test\n", stderr);
+	assert(sizeof(vsu_regs) == 0x181);
+	assert(vsu_mem_emu2host(0x01000580, 1) == &(vsu_regs.vr_sstop));
 }
 
 void
@@ -2000,6 +2031,15 @@ void
 vsu_step(void)
 {
 	// TODO
+}
+
+void *
+vsu_mem_emu2host(u_int32_t addr, size_t size)
+{
+	if (addr >= 0x01000400 && addr + size <= 0x01000581)
+		return (u_int8_t *)&vsu_regs + (addr - 0x01000400);
+	else
+		return NULL;
 }
 
 void
