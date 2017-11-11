@@ -4,6 +4,7 @@
 #endif // INTERFACE
 
 #include "main.h"
+#include "tk.h"
 
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -1407,42 +1408,10 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 	}
 }
 
-/* Scanner */
-bool
-scanner_init(void)
-{
-	// TODO
-	return true;
-}
-
-void
-scanner_step(void)
-{
-	static unsigned scanner_usec = 0;
-
-	if (scanner_usec == 0)
-		vip_frame_clock();
-	else if (scanner_usec == 2500)
-		vip_left_sync();
-	else if (scanner_usec == 12500)
-		vip_right_sync();
-
-	if (scanner_usec == 19999)
-		scanner_usec = 0;
-	else
-		++scanner_usec;
-}
-
-void
-scanner_fini(void)
-{
-	// TODO
-}
-
 /* VIP */
 struct vip_chr
 {
-	u_int16_t chr_rows[8];
+	u_int16_t vc_rows[8];
 };
 
 struct vip_vrm
@@ -1459,12 +1428,78 @@ struct vip_vrm
 
 static struct vip_vrm vip_vrm;
 
+#if INTERFACE
+	struct vip_bgsc
+	{
+		unsigned vb_chr_no : 11 __attribute__((packed));
+		unsigned vb_rfu1 : 1 __attribute__((packed));
+		unsigned vb_bvflp : 1 __attribute__((packed));
+		unsigned vb_bhflp : 1 __attribute__((packed));
+		unsigned vb_gplts : 2 __attribute__((packed));
+	};
+#endif // INTERFACE
+
+static const u_int vip_bgseg_width = 64, vip_bgseg_height = 64;
+typedef struct vip_bgsc vip_bgseg_t[vip_bgseg_width * vip_bgseg_height];
+
+struct vip_oam
+{
+	int16_t vo_jx;
+	unsigned vo_jp : 14;
+	unsigned vo_jron : 1;
+	unsigned vo_jlon : 1;
+	int16_t vo_jy;
+	unsigned vo_jca : 11;
+	unsigned vo_rfu1 : 1;
+	unsigned vo_jvflp : 1;
+	unsigned vo_jhflp : 1;
+	unsigned vo_jplts : 2;
+} __attribute__((packed));
+
+#if INTERFACE
+	enum vip_world_bgm
+	{
+		WORLD_BGM_NORMAL = 0b00,
+		WORLD_BGM_H_BIAS = 0b01,
+		WORLD_BGM_AFFINE = 0b10,
+		WORLD_BGM_OBJ = 0b11
+	};
+
+	struct vip_world_att
+	{
+		unsigned vwa_bgmap_base : 4;
+		unsigned vwa_rfu1 : 2;
+		unsigned vwa_end : 1;
+		unsigned vwa_over : 1;
+		unsigned vwa_scy : 2;
+		unsigned vwa_scx : 2;
+		unsigned vwa_bgm : 2;
+		unsigned vwa_ron : 1;
+		unsigned vwa_lon : 1;
+		int16_t vwa_gx;
+		int16_t vwa_gp;
+		u_int16_t vwa_gy;
+		int16_t vwa_mx;
+		int16_t vwa_mp;
+		u_int16_t vwa_my;
+		u_int16_t vwa_w;
+		u_int16_t vwa_h;
+		u_int16_t vwa_param_base;
+		u_int16_t vwa_over_chrno;
+		u_int16_t vwa_reserved[5];
+	};
+#endif // INTERFACE
+
 struct vip_dram
 {
-	u_int8_t vd_bgseg[0x1d800];
-	u_int8_t vd_winattr[0x400];
-	u_int8_t vd_coltbl[0x1400];
-	u_int8_t vd_oam[0x1000];
+	union
+	{
+		vip_bgseg_t s_bgsegs[14];
+		u_int8_t s_param_tbl[0x1d800];
+	} vd_shared;
+	struct vip_world_att vd_world_atts[32];
+	u_int8_t vd_clm_tbl[0x400];
+	struct vip_oam vd_oam[1024];
 };
 
 static struct vip_dram vip_dram;
@@ -1482,6 +1517,10 @@ static struct vip_dram vip_dram;
 		VIP_TIMEERR = (1 << 15)
 	};
 #endif // INTERFACE
+
+static const enum vip_intflag vip_dpints =
+	VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
+static const enum vip_intflag vip_xpints = VIP_XPEND | VIP_TIMEERR;
 
 struct vip_dpctrl
 {
@@ -1547,10 +1586,18 @@ vip_init(void)
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
 	bzero(&vip_regs, sizeof(vip_regs));
+	vip_regs.vr_dpstts.vd_scanrdy = 1;
+	debug_create_symbol("BG_MAP", 0x20000);
+	//debug_create_symbol("BG_SEG1", 0x20000);
+	//debug_create_symbol("BG_SEG2", 0x20000);
+	//debug_create_symbol("BG_SEG2", 0x20000);
+	//debug_create_symbol("BG_SEG2", 0x20000);
+	//debug_create_symbol("BG_SEG2", 0x20000);
+	debug_create_symbol("WORLD_ATT", 0x3d800);
+	debug_create_symbol("CLM_TBL", 0x3dc00);
 	debug_create_symbol("INTPND", 0x5f800);
 	debug_create_symbol("INTENB", 0x5f802);
 	debug_create_symbol("INTCLR", 0x5f804);
-	vip_regs.vr_dpstts.vd_scanrdy = 1;
 	debug_create_symbol("DPSTTS", 0x5f820);
 	debug_create_symbol("DPCTRL", 0x5f822);
 	debug_create_symbol("BRTA", 0x5f824);
@@ -1575,9 +1622,6 @@ vip_init(void)
 	debug_create_symbol("JPLT3", 0x5f86e);
 	debug_create_symbol("BKCOL", 0x5f870);
 	debug_create_symbol("CHR", 0x78000);
-
-	if (!scanner_init())
-		return false;
 
 	return true;
 }
@@ -1605,11 +1649,60 @@ vip_frame_clock(void)
 	if (trace_vip)
 		puts("VIP: FRAMESTART");
 
+	if (vip_regs.vr_dpctrl.vd_dprst)
+	{
+		puts("VIP: DPRST");
+		vip_regs.vr_dpctrl.vd_dprst = 0;
+		vip_regs.vr_intenb&= ~vip_dpints;
+		vip_regs.vr_intpnd&= ~vip_dpints;
+		frame_cycles = 0;
+	}
+	else
+	{
+		/*
+		 * TODO
+		if (vip_regs.vr_dpctrl.vd_lock != vip_regs.vr_dpctrl.vd_lock)
+		{
+			if (trace_vip)
+				printf("VIP: LOCK=%d\n", vip_regs.vr_dpctrl.vd_lock);
+			vip_regs.vr_dpstts.vd_lock = vip_regs.vr_dpctrl.vd_lock;
+		}
+		*/
+		if (vip_regs.vr_dpctrl.vd_synce != vip_regs.vr_dpstts.vd_synce)
+		{
+			if (trace_vip)
+				printf("VIP: SYNCE=%d\n", vip_regs.vr_dpctrl.vd_synce);
+			vip_regs.vr_dpstts.vd_synce = vip_regs.vr_dpctrl.vd_synce;
+		}
+		if (vip_regs.vr_dpctrl.vd_disp != vip_regs.vr_dpstts.vd_disp)
+		{
+			if (trace_vip)
+				printf("VIP: DISP=%d\n", vip_regs.vr_dpctrl.vd_disp);
+			vip_regs.vr_dpstts.vd_disp = vip_regs.vr_dpctrl.vd_disp;
+		}
+	}
+
 	if (frame_cycles == 0)
 	{
 		intflags|= VIP_GAMESTART;
 		if (trace_vip)
 			puts("VIP: GAMESTART");
+
+		if (vip_regs.vr_xpctrl.vx_xprst)
+		{
+			if (trace_vip)
+				puts("VIP: XPRST");
+			vip_regs.vr_intenb &= ~vip_xpints;
+			vip_regs.vr_intpnd&= ~vip_xpints;
+			vip_regs.vr_xpctrl.vx_xprst = 0;
+			vip_regs.vr_xpstts.vx_xpen = 0;
+		}
+		else if (vip_regs.vr_xpctrl.vx_xpen != vip_regs.vr_xpstts.vx_xpen)
+		{
+			if (trace_vip)
+				printf("VIP: XPEN=%d\n", vip_regs.vr_xpctrl.vx_xpen);
+			vip_regs.vr_xpstts.vx_xpen = vip_regs.vr_xpctrl.vx_xpen;
+		}
 	}
 	if (frame_cycles == vip_regs.vr_frmcyc)
 		frame_cycles = 0;
@@ -1619,54 +1712,210 @@ vip_frame_clock(void)
 	vip_raise(intflags);
 }
 
-void
-vip_left_sync(void)
+static u_int8_t
+vip_chr_read(const struct vip_chr *vc, u_int x, u_int y)
 {
-	// TODO: Copy left FB to screen
+	return (vc->vc_rows[y] >> (x * 2)) & 0b11;
+}
+
+u_int8_t
+vip_fb_read(const u_int8_t *fb, u_int16_t x, u_int16_t y)
+{
+	u_int offset = x * 224 + y;
+	u_int shift = (offset % 4) * 2;
+	return (fb[offset / 4] >> shift) & 0b11;
+}
+
+u_int32_t
+vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
+{
+	static const u_int32_t lut[4] = {0xff000000, 0xff400000, 0xff800000, 0xffa00000};
+	return lut[vip_fb_read(fb, x, y)];
 }
 
 void
-vip_right_sync(void)
+vip_fb_write(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
 {
-	// TODO: Copy right FB to screen
+	assert(x < 384 && y < 224);
+	u_int offset = x * 224 + y;
+	u_int shift = (offset % 4) * 2;
+	u_int8_t mask = ~(0b11 << shift);
+	fb[offset / 4] = (fb[offset / 4] & mask) | (value << shift);
 }
 
-/*
 static void
-vip_draw_side(void)
+vip_draw(u_int8_t *left_fb, u_int8_t *right_fb)
 {
+	if (trace_vip)
+		puts("VIP: Draw");
+
 	// TODO: Draw background color
-	// TODO: For each world 31 to 0
+	u_int world_index = 31;
+	do
+	{
+		struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
+
+		if (trace_vip)
+		{
+			printf("WORLD_ATT[%u]: ", world_index);
+			debug_print_world_att(vwa);
+		}
+
+		if (vwa->vwa_end)
+			break;
+
+		if (!vwa->vwa_lon && !vwa->vwa_ron)
+			continue;
+
+		switch (vwa->vwa_bgm)
+		{
+			case WORLD_BGM_NORMAL:
+			case WORLD_BGM_H_BIAS:
+			case WORLD_BGM_AFFINE:
+			{
+				struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
+				u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width;
+				u_int height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
+				for (u_int bg_x = 0; bg_x < width_chrs; ++bg_x)
+					for (u_int bg_y = 0; bg_y < height_chrs; ++bg_y)
+					{
+						u_int scr_x = bg_x * 8;
+						u_int scr_y = bg_y * 8;
+						struct vip_bgsc *vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
+						struct vip_chr *vc;
+						if (vb->vb_chr_no < 512)
+							vc = &(vip_vrm.vv_chr0[vb->vb_chr_no]);
+						else if (vb->vb_chr_no < 1024)
+							vc = &(vip_vrm.vv_chr1[vb->vb_chr_no - 512]);
+						else if (vb->vb_chr_no < 1536)
+							vc = &(vip_vrm.vv_chr2[vb->vb_chr_no - 1024]);
+						else
+							vc = &(vip_vrm.vv_chr3[vb->vb_chr_no - 1536]);
+						for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+							for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+							{
+								if (scr_x < 384 && scr_y < 224)
+								{
+									u_int8_t pixel = vip_chr_read(vc, chr_x, chr_y);
+									vip_fb_write(left_fb, scr_x + chr_x, scr_y + chr_y, pixel);
+								}
+							}
+						/*
+						for (u_int scr_x = 0; scr_x < 384; ++scr_x)
+							for (u_int scr_y = 0; scr_y < 224; ++scr_y)
+								*/
+					}
+				// TODO: Draw BG
+				break;
+			}
+			case WORLD_BGM_OBJ:
+				// TODO: Draw OBJ
+				break;
+		}
 		// TODO: Draw BG or OBJ
+	} while (--world_index > 0);
 }
-*/
 
 void
 vip_step(void)
 {
-	scanner_step();
-	/*
+	static unsigned scanner_usec = 0;
+	static u_int draw_fb_index = 0;
+
+	if (scanner_usec == 0)
+		vip_frame_clock();
+	else if (scanner_usec == 2500 && vip_regs.vr_dpstts.vd_synce)
+	{
+		if (vip_regs.vr_dpstts.vd_disp)
+		{
+			if (draw_fb_index == 0)
+			{
+				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 1;
+				tk_blit(vip_vrm.vv_left0);
+			}
+			else
+			{
+				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 1;
+				tk_blit(vip_vrm.vv_left1);
+			}
+		}
+
+		if (vip_regs.vr_xpstts.vx_xpen && !vip_regs.vr_xpstts.vx_xpbsy_fb0 && !vip_regs.vr_xpstts.vx_xpbsy_fb1)
+		{
+			// Start drawing
+			if (draw_fb_index == 0)
+				vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
+			else
+				vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
+		}
+	}
+	else if (scanner_usec == 7500 && vip_regs.vr_dpstts.vd_synce)
+	{
+		if (vip_regs.vr_dpstts.vd_disp)
+		{
+			if (draw_fb_index == 0)
+				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 0;
+			else
+				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 0;
+		}
+	}
+	else if (scanner_usec == 12500 && vip_regs.vr_dpstts.vd_synce)
+	{
+		if (vip_regs.vr_dpstts.vd_disp)
+		{
+			if (draw_fb_index == 0)
+				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 1;
+			else
+				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 1;
+			// TODO: Copy right FB to screen
+		}
+
+		/*
+		if (vip_regs.vr_xpstts.vx_xpen && !vip_regs.vr_xpstts.vx_xpbsy_fb0 && !vip_regs.vr_xpstts.vx_xpbsy_fb1)
+		{
+			// Start drawing
+			if (draw_fb_index == 0)
+				vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
+			else
+				vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
+		}
+		*/
+	}
+	else if (scanner_usec == 17500 && vip_regs.vr_dpstts.vd_synce)
+	{
+		if (vip_regs.vr_dpstts.vd_disp)
+		{
+			if (draw_fb_index == 0)
+				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 0;
+			else
+				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 0;
+
+			draw_fb_index = (draw_fb_index + 1) % 2;
+		}
+	}
+
 	if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
 	{
-		vip_draw_side();
+		vip_draw(vip_vrm.vv_left0, vip_vrm.vv_right0);
+		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
+		vip_raise(VIP_XPEND);
 	}
 	else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
 	{
-		vip_draw_side();
+		vip_draw(vip_vrm.vv_left1, vip_vrm.vv_right1);
+		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
+		vip_raise(VIP_XPEND);
 	}
+
+	if (scanner_usec == 19999)
+		scanner_usec = 0;
 	else
-	{
-		if (vip_regs.vr_xpctrl.vx_xpen)
-		{
-			vip_regs.vr_xpstts.vx_xpen = 1;
-	}
-	*/
+		++scanner_usec;
 }
 
 void
 vip_fini(void)
 {
-	scanner_fini();
 	// TODO
 }
 
@@ -1674,7 +1923,7 @@ void *
 vip_mem_emu2host(u_int32_t addr, size_t size)
 {
 	// TODO: Set read/write permissions
-	if (size != 2)
+	if (size & 1)
 	{
 		fprintf(stderr, "Invalid VIP access size %lu\n", size);
 		return NULL;
@@ -1713,8 +1962,11 @@ vip_test(void)
 	fputs("Running VIP self-test\n", stderr);
 
 	assert(sizeof(vip_vrm) == 0x20000);
+	assert(sizeof(struct vip_oam) == 8);
 	assert(sizeof(vip_dram) == 0x20000);
 	assert(sizeof(vip_regs) == 0x72);
+	assert(vip_mem_emu2host(0x3d800, 4) == &(vip_dram.vd_world_atts));
+	assert(vip_mem_emu2host(0x3e000, 8) == &(vip_dram.vd_oam));
 	assert(vip_mem_emu2host(0x5f800, 2) == &(vip_regs.vr_intpnd));
 	assert(vip_mem_emu2host(0x5f820, 2) == &(vip_regs.vr_dpstts));
 	assert(vip_mem_emu2host(0x5f870, 2) == &(vip_regs.vr_bkcol));
@@ -2023,6 +2275,17 @@ debug_destroy_symbol(struct debug_symbol *debug_sym)
 }
 
 static void
+debug_disasm_i(debug_str_t dis, const union cpu_inst *inst, const char *mnemonic, const char *op, const cpu_regs_t regs)
+{
+	if (regs)
+		snprintf(dis, debug_str_len, "%s r%d, r%d\t\t; %i %s %i",
+				mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
+				regs[inst->ci_i.i_reg1], op, regs[inst->ci_i.i_reg2]);
+	else
+		snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+}
+
+static void
 debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemonic, const cpu_regs_t regs)
 {
 	snprintf(dis, debug_str_len, "%s %hd[r%u], r%u",
@@ -2136,7 +2399,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 	{
 		case OP_MUL:
 			if (regs)
-				snprintf(dis, debug_str_len, "%s r%d, r%d ; %i * %i",
+				snprintf(dis, debug_str_len, "%s r%d, r%d\t; %i * %i",
 						mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
 						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1]);
 			else
@@ -2151,9 +2414,13 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			else
 				snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			break;
-		case OP_MOV:
 		case OP_ADD:
+			debug_disasm_i(dis, inst, "ADD", "+", regs);
+			break;
 		case OP_CMP:
+			debug_disasm_i(dis, inst, "CMP", "<=>", regs);
+			break;
+		case OP_MOV:
 		case OP_SHL:
 		case OP_SHR:
 		case OP_SAR:
@@ -2177,6 +2444,15 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				snprintf(dis, debug_str_len, "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			break;
 		case OP_ADD2:
+		{
+			int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
+			if (regs)
+				snprintf(dis, debug_str_len, "%s %hi, r%u\t\t; %d + %hi",
+						mnemonic, imm, inst->ci_ii.ii_reg2, regs[inst->ci_ii.ii_reg2], imm);
+			else
+				snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			break;
+		}
 		case OP_MOV2:
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
@@ -2303,7 +2579,8 @@ static const struct debug_help
 	{'s', "", "Step into the next instruction (aliases: step)"},
 	{'i', "", "Show CPU info (aliases: info)"},
 	{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
-		"\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR)\n"
+		"\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR), O (VIP OAM), B (VIP BGSC)\n"
+		"\t\t\tW (VIP WORLD_ATT)\n"
 		"\t\tSizes: b (byte), h (half-word), w (word)\n"
 		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 	{'r', "", "Reset the CPU (aliases: reset)"},
@@ -2378,7 +2655,9 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		num_parsed = sscanf(s, "%64[^+-]%n%1[+-]%i%n", sym_name, &nparsed, sign, &disp, &nparsed);
 		if (num_parsed >= 1 && nparsed == len)
 		{
+#if 0
 			fprintf(stderr, "Sym name: \"%s\"\n", sym_name);
+#endif // 0
 			if (!(base = debug_locate_symbol(sym_name)))
 				return false;
 			if (num_parsed >= 2 && *sign == '-')
@@ -2514,6 +2793,36 @@ debug_print_xpctrl(struct vip_xpctrl vx, const char *name)
 }
 
 void
+debug_print_bgsc(struct vip_bgsc *vb)
+{
+	printf("CHR No: %u, BVFLP=%u, BHFLP=%u, GPLTS=%u\n",
+			vb->vb_chr_no, vb->vb_bvflp, vb->vb_bhflp, vb->vb_gplts);
+}
+
+void
+debug_print_world_att(const struct vip_world_att *vwa)
+{
+	debug_str_t flags_s;
+	printf("(%s) BGM=%u, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
+			debug_format_flags(flags_s,
+				"LON", vwa->vwa_lon,
+				"RON", vwa->vwa_ron,
+				"OVER", vwa->vwa_over,
+				"END", vwa->vwa_end,
+				NULL),
+			vwa->vwa_bgm,
+			vwa->vwa_scx,
+			vwa->vwa_scy,
+			vwa->vwa_bgmap_base);
+	if (!vwa->vwa_end && (vwa->vwa_lon || vwa->vwa_ron))
+	{
+		printf("\tGX=%hd, GP=%hd, GY=%hu, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
+				vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
+		printf("\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu\n", vwa->vwa_param_base, vwa->vwa_over_chrno);
+	}
+}
+
+void
 debug_run(void)
 {
 	debugging = true;
@@ -2642,12 +2951,39 @@ debug_run(void)
 									static const char *shading = " -=#";
 									for (u_int cindex = 0; cindex < 8; ++cindex)
 									{
-										putchar(shading[chr_row & 0x3]);
+										putchar(shading[chr_row & 0b11]);
 										chr_row>>= 2;
 									}
 									putchar('\n');
 									addr+= sizeof(chr_row);
 								}
+							}
+							else if (!strcmp(format, "O"))
+							{
+								struct vip_oam oam;
+								if (!debug_mem_read(addr, &oam, sizeof(oam)))
+									break;
+								printf("JX=%hd, JP=%d, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
+										", JVFLP=%u, JHFLP=%u, JPLTS=%u\n",
+										oam.vo_jx, oam.vo_jp, oam.vo_jron, oam.vo_jlon, oam.vo_jy, oam.vo_jca,
+										oam.vo_jvflp, oam.vo_jhflp, oam.vo_jplts);
+								addr+= sizeof(oam);
+							}
+							else if (!strcmp(format, "B"))
+							{
+								struct vip_bgsc bgsc;
+								if (!debug_mem_read(addr, &bgsc, sizeof(bgsc)))
+									break;
+								debug_print_bgsc(&bgsc);
+								addr+= sizeof(bgsc);
+							}
+							else if (!strcmp(format, "W"))
+							{
+								struct vip_world_att att;
+								if (!debug_mem_read(addr, &att, sizeof(att)))
+									break;
+								debug_print_world_att(&att);
+								addr+= sizeof(att);
 							}
 							else
 							{
@@ -2745,12 +3081,13 @@ debug_trace(const union cpu_inst *inst)
 bool
 main_init(void)
 {
-	return (sram_init() && wram_init() && vip_init() && vsu_init() && nvc_init() && debug_init());
+	return (sram_init() && wram_init() && vip_init() && vsu_init() && nvc_init() && debug_init() && tk_init());
 }
 
 void
 main_fini(void)
 {
+	tk_fini();
 	debug_fini();
 	nvc_fini();
 	vsu_fini();
@@ -2773,6 +3110,7 @@ main_step(void)
 	vip_step();
 	vsu_step();
 	nvc_step();
+	tk_step();
 }
 
 static bool s_running = false;
@@ -2833,6 +3171,7 @@ main(int ac, char * const *av)
 	if (self_test)
 	{
 		nvc_test();
+		vsu_test();
 		vip_test();
 		cpu_test();
 	}

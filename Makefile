@@ -9,14 +9,23 @@ endif
 TARGET = vvboy
 SRCS = main.c
 HEADERS = main.h
-OBJS := $(SRCS:%.c=%.o)
 LDLIBS = -ledit
 CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
 
+USE_SDL = yes
+
+ifeq ($(USE_SDL),yes)
+    SRCS+= tk_sdl.c
+    CFLAGS+= `sdl2-config --cflags`
+    LDLIBS+= `sdl2-config --libs`
+endif
+
+OBJS := $(SRCS:%.c=%.o)
+
 all: $(TARGET)
 
-vvboy: main.o
-	$(CC) $(LDFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
+vvboy: $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 clean::
 	rm -f $(TARGET) $(OBJS) .depend tags
@@ -24,10 +33,10 @@ clean::
 main.h: vendor/makeheaders/makeheaders $(SRCS)
 	vendor/makeheaders/makeheaders $(SRCS)
 
-$(TARGET): .depend
+$(OBJS): .depend
 
 .depend: $(SRCS)
-	mkdep $^
+	mkdep $(CFLAGS) $^
 
 -include .depend
 
