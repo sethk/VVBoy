@@ -3,6 +3,7 @@
 /vvboy
 /doc/virtual_boy.pdf
 /main.h
+/tk_sdl.h
 .depend
 /vendor/makeheaders/makeheaders
 /main.plist/

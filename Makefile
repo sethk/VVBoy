@@ -30,7 +30,7 @@ vvboy: $(OBJS)
 clean::
 	rm -f $(TARGET) $(OBJS) .depend tags
 
-main.h: vendor/makeheaders/makeheaders $(SRCS)
+main.h tk_sdl.h: vendor/makeheaders/makeheaders $(SRCS)
 	vendor/makeheaders/makeheaders $(SRCS)
 
 $(OBJS): .depend

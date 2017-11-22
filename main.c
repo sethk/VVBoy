@@ -1,6 +1,7 @@
 #if INTERFACE
 # include <sys/types.h>
 # include <stdbool.h>
+# include <stdio.h>
 #endif // INTERFACE
 
 #include "main.h"
@@ -16,7 +17,6 @@
 #include <math.h>
 #include <stdlib.h>
 #include <strings.h>
-#include <stdio.h>
 #include <signal.h>
 #include <sysexits.h>
 #include <assert.h>
@@ -149,22 +149,14 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	const void *src;
+	const void *src = NULL;
+
 	if (seg == MEM_SEG_VIP)
-	{
-		if (!(src = vip_mem_emu2host(addr, size)))
-			return false;
-	}
+		src = vip_mem_emu2host(addr, size);
 	else if (seg == MEM_SEG_VSU)
-	{
-		if (!(src = vsu_mem_emu2host(addr, size)))
-			return false;
-	}
+		src = vsu_mem_emu2host(addr, size);
 	else if (seg == MEM_SEG_NVC)
-	{
-		if (!(src = nvc_mem_emu2host(addr, size)))
-			return false;
-	}
+		src = nvc_mem_emu2host(addr, size);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -178,7 +170,8 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 
 		src = mem_segs[seg].ms_ptr + offset;
 	}
-	else
+
+	if (!src)
 	{
 		warnx("Bus error at 0x%08x", addr);
 		debug_intr();
@@ -207,22 +200,14 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	void *dest;
+	void *dest = NULL;
+
 	if (seg == MEM_SEG_VIP)
-	{
-		if (!(dest = vip_mem_emu2host(addr, size)))
-			return false;
-	}
+		dest = vip_mem_emu2host(addr, size);
 	else if (seg == MEM_SEG_VSU)
-	{
-		if (!(dest = vsu_mem_emu2host(addr, size)))
-			return false;
-	}
+		dest = vsu_mem_emu2host(addr, size);
 	else if (seg == MEM_SEG_NVC)
-	{
-		if (!(dest = nvc_mem_emu2host(addr, size)))
-			return false;
-	}
+		dest = nvc_mem_emu2host(addr, size);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -236,10 +221,11 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 
 		dest = mem_segs[seg].ms_ptr + offset;
 	}
-	else
+
+	if (!dest)
 	{
 		// TODO: SEGV
-		fprintf(stderr, "No segment found for address 0x%08x\n", addr);
+		fprintf(stderr, "Bus error at 0x%08x\n", addr);
 		debug_intr();
 		return false;
 	}
@@ -1008,10 +994,19 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
 			}
 			break;
-
-			/*
-	OP_SHR2  = 0b010101,
-	*/
+		case OP_SHR2:
+			if (inst.ci_ii.ii_imm5)
+			{
+				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+				u_int32_t shift = inst.ci_ii.ii_imm5;
+				u_int32_t result = start >> shift;
+				cpu_state.cs_psw.psw_flags.f_cy = ((start << (31 - shift)) & 1);
+				cpu_state.cs_psw.psw_flags.f_ov = 0;
+				cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
+			}
+			break;
 		case OP_CLI:
 			cpu_state.cs_psw.psw_flags.f_id = 0;
 			break;
@@ -1039,6 +1034,13 @@ cpu_exec(const union cpu_inst inst)
 	OP_TRAP  = 0b011000,
 	*/
 		case OP_RETI:
+			if (!cpu_state.cs_psw.psw_flags.f_ep)
+			{
+				warnx("Tried to return from interrupt/exception while EP=0");
+				debug_intr();
+				return false;
+			}
+
 			if (cpu_state.cs_psw.psw_flags.f_np)
 			{
 				cpu_state.cs_pc = cpu_state.cs_fepc;
@@ -1169,9 +1171,6 @@ cpu_exec(const union cpu_inst inst)
 				return false;
 			break;
 		}
-			 /*
-	OP_ST_B  = 0b110100,
-	*/
 		case OP_ST_B:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
@@ -1409,8 +1408,14 @@ cpu_step(void)
 	}
 	u_int32_t old_pc = cpu_state.cs_pc;
 
-	if (trace_cpu)
-		debug_trace(&inst);
+	if (cpu_trace_file)
+	{
+		debug_str_t addr_s;
+		fprintf(cpu_trace_file, "@%07d %-26s: %s\n",
+				nvc_usec,
+				debug_format_addr(cpu_state.cs_pc, addr_s),
+				debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
+	}
 
 	if (!cpu_exec(inst))
 		return;
@@ -1426,6 +1431,13 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 	{
 		if (level >= cpu_state.cs_psw.psw_flags.f_i)
 		{
+			if (cpu_trace_file)
+			{
+				debug_str_t addr_s;
+				fprintf(cpu_trace_file, "%-26s: Interrupt level=%d\n",
+						debug_format_addr(cpu_state.cs_pc, addr_s), level);
+			}
+
 			cpu_state.cs_eipc = cpu_state.cs_pc;
 			cpu_state.cs_eipsw = cpu_state.cs_eipsw;
 			cpu_state.cs_ecr.ecr_eicc = 0xfe00 | (level << 4);
@@ -1625,6 +1637,7 @@ vip_init(void)
 	//debug_create_symbol("BG_SEG2", 0x20000);
 	debug_create_symbol("WORLD_ATT", 0x3d800);
 	debug_create_symbol("CLM_TBL", 0x3dc00);
+	debug_create_symbol("OAM", 0x3e000);
 	debug_create_symbol("INTPND", 0x5f800);
 	debug_create_symbol("INTENB", 0x5f802);
 	debug_create_symbol("INTCLR", 0x5f804);
@@ -1681,7 +1694,8 @@ vip_frame_clock(void)
 
 	if (vip_regs.vr_dpctrl.vd_dprst)
 	{
-		puts("VIP: DPRST");
+		if (trace_vip)
+			puts("VIP: DPRST");
 		vip_regs.vr_dpctrl.vd_dprst = 0;
 		vip_regs.vr_intenb&= ~vip_dpints;
 		vip_regs.vr_intpnd&= ~vip_dpints;
@@ -1722,7 +1736,7 @@ vip_frame_clock(void)
 		{
 			if (trace_vip)
 				puts("VIP: XPRST");
-			vip_regs.vr_intenb &= ~vip_xpints;
+			vip_regs.vr_intenb&= ~vip_xpints;
 			vip_regs.vr_intpnd&= ~vip_xpints;
 			vip_regs.vr_xpctrl.vx_xprst = 0;
 			vip_regs.vr_xpstts.vx_xpen = 0;
@@ -1757,10 +1771,14 @@ vip_fb_read(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 }
 
 u_int32_t
-vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
+vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y, bool right)
 {
-	static const u_int32_t lut[4] = {0xff000000, 0xff400000, 0xff800000, 0xffa00000};
-	return lut[vip_fb_read(fb, x, y)];
+	static const u_int32_t lut[2][4] =
+	{
+		{0xff000000, 0xff400000, 0xff800000, 0xffa00000},
+		{0xff000000, 0xff400000, 0xff800000, 0xffa00000}
+	};
+	return lut[right ? 1 : 0][vip_fb_read(fb, x, y)];
 }
 
 void
@@ -1774,10 +1792,23 @@ vip_fb_write(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
 }
 
 static void
-vip_draw(u_int8_t *left_fb, u_int8_t *right_fb)
+vip_draw_start(u_int fb_index)
 {
+	// Start left drawing
+	if (fb_index == 0)
+		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
+	else
+		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
+
 	if (trace_vip)
-		puts("VIP: Draw");
+		printf("VIP: Draw FB%u start\n", fb_index);
+}
+
+static void
+vip_draw_finish(u_int fb_index)
+{
+	u_int8_t *left_fb = (fb_index) ? vip_vrm.vv_left1 : vip_vrm.vv_left0;
+	u_int8_t *right_fb = (fb_index) ? vip_vrm.vv_right1 : vip_vrm.vv_right0;
 
 	// TODO: Draw background color
 	u_int world_index = 31;
@@ -1827,7 +1858,10 @@ vip_draw(u_int8_t *left_fb, u_int8_t *right_fb)
 								if (scr_x < 384 && scr_y < 224)
 								{
 									u_int8_t pixel = vip_chr_read(vc, chr_x, chr_y);
-									vip_fb_write(left_fb, scr_x + chr_x, scr_y + chr_y, pixel);
+									if (vwa->vwa_lon)
+										vip_fb_write(left_fb, scr_x + chr_x, scr_y + chr_y, pixel);
+									if (vwa->vwa_ron)
+										vip_fb_write(right_fb, scr_x + chr_x, scr_y + chr_y, pixel);
 								}
 							}
 						/*
@@ -1844,13 +1878,23 @@ vip_draw(u_int8_t *left_fb, u_int8_t *right_fb)
 		}
 		// TODO: Draw BG or OBJ
 	} while (--world_index > 0);
+
+	if (trace_vip)
+		printf("VIP: Draw FB%u finish\n", fb_index);
+
+	if (fb_index == 0)
+		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
+	else
+		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
+
+	vip_raise(VIP_XPEND);
 }
 
 void
 vip_step(void)
 {
 	static unsigned scanner_usec = 0;
-	static u_int draw_fb_index = 0;
+	static u_int disp_fb_index = 0;
 
 	if (scanner_usec == 0)
 		vip_frame_clock();
@@ -1858,83 +1902,92 @@ vip_step(void)
 	{
 		if (vip_regs.vr_dpstts.vd_disp)
 		{
-			if (draw_fb_index == 0)
+			if (disp_fb_index == 0)
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 1;
-				tk_blit(vip_vrm.vv_left0);
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display L:FB0 start\n");
+				tk_blit(vip_vrm.vv_left0, false);
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 1;
-				tk_blit(vip_vrm.vv_left1);
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display L:FB1 start\n");
+				tk_blit(vip_vrm.vv_left1, false);
 			}
 		}
 
 		if (vip_regs.vr_xpstts.vx_xpen && !vip_regs.vr_xpstts.vx_xpbsy_fb0 && !vip_regs.vr_xpstts.vx_xpbsy_fb1)
-		{
-			// Start drawing
-			if (draw_fb_index == 0)
-				vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
-			else
-				vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
-		}
+			vip_draw_start(!disp_fb_index);
 	}
 	else if (scanner_usec == 7500 && vip_regs.vr_dpstts.vd_synce)
 	{
 		if (vip_regs.vr_dpstts.vd_disp)
 		{
-			if (draw_fb_index == 0)
+			if (disp_fb_index == 0)
+			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 0;
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display L:FB0 finish\n");
+			}
 			else
+			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 0;
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display L:FB1 finish\n");
+			}
 		}
+
+		// TODO: Raise RFBEND
+	}
+	else if (scanner_usec == 10000)
+	{
+		if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
+			vip_draw_finish(0);
+		else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
+			vip_draw_finish(1);
 	}
 	else if (scanner_usec == 12500 && vip_regs.vr_dpstts.vd_synce)
 	{
 		if (vip_regs.vr_dpstts.vd_disp)
 		{
-			if (draw_fb_index == 0)
+			if (disp_fb_index == 0)
+			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 1;
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display R:FB0 start\n");
+				tk_blit(vip_vrm.vv_right0, true);
+			}
 			else
+			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 1;
-			// TODO: Copy right FB to screen
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display R:FB1 start\n");
+				tk_blit(vip_vrm.vv_right1, true);
+			}
 		}
-
-		/*
-		if (vip_regs.vr_xpstts.vx_xpen && !vip_regs.vr_xpstts.vx_xpbsy_fb0 && !vip_regs.vr_xpstts.vx_xpbsy_fb1)
-		{
-			// Start drawing
-			if (draw_fb_index == 0)
-				vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
-			else
-				vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
-		}
-		*/
 	}
 	else if (scanner_usec == 17500 && vip_regs.vr_dpstts.vd_synce)
 	{
 		if (vip_regs.vr_dpstts.vd_disp)
 		{
-			if (draw_fb_index == 0)
+			if (disp_fb_index == 0)
+			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 0;
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display R:FB0 finish\n");
+			}
 			else
+			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 0;
+				if (trace_vip)
+					fprintf(stderr, "VIP: Display R:FB1 finish\n");
+			}
 
-			draw_fb_index = (draw_fb_index + 1) % 2;
+			// TODO: raise LFB_END
+			disp_fb_index = (disp_fb_index + 1) % 2;
 		}
-	}
-
-	if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
-	{
-		vip_draw(vip_vrm.vv_left0, vip_vrm.vv_right0);
-		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
-		vip_raise(VIP_XPEND);
-	}
-	else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
-	{
-		vip_draw(vip_vrm.vv_left1, vip_vrm.vv_right1);
-		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
-		vip_raise(VIP_XPEND);
 	}
 
 	if (scanner_usec == 19999)
@@ -2005,6 +2058,11 @@ vip_test(void)
 }
 
 /* VSU */
+struct vsu_ram
+{
+	u_int8_t vr_ram[0x280];
+};
+
 struct vsu_regs
 {
 	u_int8_t vr_regs[0x180];
@@ -2015,6 +2073,7 @@ struct vsu_regs
 	} vr_sstop;
 };
 
+static struct vsu_ram vsu_ram;
 static struct vsu_regs vsu_regs;
 
 bool
@@ -2048,7 +2107,9 @@ vsu_step(void)
 void *
 vsu_mem_emu2host(u_int32_t addr, size_t size)
 {
-	if (addr >= 0x01000400 && addr + size <= 0x01000581)
+	if (addr + size < 0x01000280)
+		return (u_int8_t *)&vsu_ram + (addr - 0x01000000);
+	else if (addr >= 0x01000400 && addr + size <= 0x01000581)
 		return (u_int8_t *)&vsu_regs + (addr - 0x01000400);
 	else
 		return NULL;
@@ -2063,7 +2124,11 @@ vsu_fini(void)
 /* NVC */
 struct nvc_regs
 {
-	u_int8_t nr_regs[0x28];
+	u_int8_t nr_regs[0x10];
+	u_int8_t nr_sdlr;
+	u_int8_t nr_regs2[3];
+	u_int8_t nr_sdhr;
+	u_int8_t nr_regs3[0x13];
 	struct
 	{
 		unsigned s_abt_dis : 1,
@@ -2170,7 +2235,7 @@ nvc_mem_emu2host(u_int32_t addr, size_t size)
 	};
 #endif // INTERFACE
 
-bool trace_cpu = false;
+FILE *cpu_trace_file = NULL;
 bool trace_vip = true;
 
 static EditLine *s_editline;
@@ -2247,8 +2312,10 @@ debug_format_binary(u_int n, u_int nbits)
 	return bin;
 }
 
-static const size_t debug_str_len = 64;
-typedef char debug_str_t[debug_str_len];
+#if INTERFACE
+	typedef char debug_str_t[64];
+# define debug_str_len sizeof(debug_str_t)
+#endif // INTERFACE
 
 static struct debug_symbol *
 debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
@@ -2283,19 +2350,19 @@ debug_format_addrsym(u_int32_t addr, struct debug_symbol *sym, debug_str_t s)
 	{
 		u_int32_t offset = addr - sym->ds_addr;
 		if (offset)
-			snprintf(human, sizeof(human), "<%s+%u>", sym->ds_name, offset);
+			snprintf(human, sizeof(human), " <%s+%u>", sym->ds_name, offset);
 		else
-			snprintf(human, sizeof(human), "<%s>", sym->ds_name);
+			snprintf(human, sizeof(human), " <%s>", sym->ds_name);
 	}
 	else
 		*human = '\0';
 
-	snprintf(s, debug_str_len, "0x%08x %-15s", addr, human);
+	snprintf(s, debug_str_len, "0x%08x%s", addr, human);
 
 	return s;
 }
 
-static const char *
+const char *
 debug_format_addr(u_int32_t addr, debug_str_t s)
 {
 	struct debug_symbol *match_sym;
@@ -2334,55 +2401,105 @@ debug_destroy_symbol(struct debug_symbol *debug_sym)
 	free(debug_sym);
 }
 
+// TODO: Combine with below
 static void
-debug_disasm_i(debug_str_t dis, const union cpu_inst *inst, const char *mnemonic, const char *op, const cpu_regs_t regs)
+debug_disasm_i(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const char *op,
+		const cpu_regs_t regs)
 {
+	snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 	if (regs)
-		snprintf(dis, debug_str_len, "%s r%d, r%d\t\t; %i %s %i",
-				mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
-				regs[inst->ci_i.i_reg1], op, regs[inst->ci_i.i_reg2]);
-	else
-		snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+		snprintf(decomp, debug_str_len, "%i %s %i", regs[inst->ci_i.i_reg2], op, regs[inst->ci_i.i_reg1]);
 }
 
 static void
-debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemonic, const cpu_regs_t regs)
+debug_disasm_i_fmt(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const char *decomp_fmt,
+		const cpu_regs_t regs)
 {
-	snprintf(dis, debug_str_len, "%s %hd[r%u], r%u",
+	snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+	if (regs)
+		snprintf(decomp, debug_str_len, decomp_fmt,
+				inst->ci_i.i_reg1,
+				regs[inst->ci_i.i_reg1],
+				inst->ci_i.i_reg2,
+				regs[inst->ci_i.i_reg2]);
+}
+
+static void
+debug_disasm_ii(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const char *decomp_fmt,
+		const cpu_regs_t regs)
+{
+	snprintf(decode, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
+	if (regs)
+		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_ii.ii_imm5, regs[inst->ci_ii.ii_reg2]);
+}
+
+static void
+debug_disasm_v(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const char *decomp_fmt,
+		const cpu_regs_t regs)
+{
+	snprintf(decode, debug_str_len, "%s %hd, r%d, r%d",
+			mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+	if (regs)
+		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_v.v_imm16, regs[inst->ci_v.v_reg1], inst->ci_v.v_reg2);
+}
+
+static void
+debug_disasm_vi(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const cpu_regs_t regs)
+{
+	snprintf(decode, debug_str_len, "%s %hd[r%u], r%u",
 			mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
 	if (regs)
 	{
 		u_int32_t addr = regs[inst->ci_vi.vi_reg1] + inst->ci_vi.vi_disp16;
-		size_t dislen = strlen(dis);
 		debug_str_t addr_s;
 		debug_format_addr(addr, addr_s);
 		switch (inst->ci_vi.vi_opcode)
 		{
 			case OP_CAXI:
-				snprintf(dis + dislen, debug_str_len - dislen,
-						"\t; [%s] <- r30 if oldval = r%u", addr_s, inst->ci_vi.vi_reg2);
+				snprintf(decomp, debug_str_len,
+						"[%s] <- r30 if oldval = r%u", addr_s, inst->ci_vi.vi_reg2);
 				break;
 			case OP_LD_B:
 			case OP_LD_H:
 			case OP_LD_W:
-				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] -> r%u", addr_s, inst->ci_vi.vi_reg2);
+				snprintf(decomp, debug_str_len, "[%s] -> r%u", addr_s, inst->ci_vi.vi_reg2);
 				break;
 			case OP_ST_B:
 			{
 				u_int8_t value = regs[inst->ci_vi.vi_reg2] & 0xff;
-				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] <- 0x%02hhx", addr_s, value);
+				snprintf(decomp, debug_str_len, "[%s] <- 0x%02hhx", addr_s, value);
 				break;
 			}
 			case OP_ST_H:
 			{
 				u_int16_t value = regs[inst->ci_vi.vi_reg2] & 0xffff;
-				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] <- 0x%04hx", addr_s, value);
+				snprintf(decomp, debug_str_len, "[%s] <- 0x%04hx", addr_s, value);
 				break;
 			}
 			case OP_ST_W:
 			{
 				u_int32_t value = regs[inst->ci_vi.vi_reg2];
-				snprintf(dis + dislen, debug_str_len - dislen, "\t; [%s] <- 0x%08x", addr_s, value);
+				snprintf(decomp, debug_str_len, "[%s] <- 0x%08x", addr_s, value);
 				break;
 			}
 		}
@@ -2392,6 +2509,7 @@ debug_disasm_vi(debug_str_t dis, const union cpu_inst *inst, const char *mnemoni
 static char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, debug_str_t dis)
 {
+	debug_str_t decode, decomp = {0};
 	const char *mnemonic = "???";
 	switch (inst->ci_i.i_opcode)
 	{
@@ -2410,13 +2528,11 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			break;
 		case OP_RETI: mnemonic = "RETI"; break;
 		case OP_JMP: mnemonic = "JMP"; break;
-		case OP_SHL2: mnemonic = "SHL"; break;
 		case OP_SAR:
 		case OP_SAR2:
 			mnemonic = "SAR";
 			break;
 		case OP_MUL: mnemonic = "MUL"; break;
-		case OP_DIV: mnemonic = "DIV"; break;
 		case OP_OR: mnemonic = "OR"; break;
 		case OP_AND: mnemonic = "AND"; break;
 		case OP_XOR: mnemonic = "XOR"; break;
@@ -2462,166 +2578,185 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 	switch (inst->ci_i.i_opcode)
 	{
 		case OP_MUL:
+			snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			if (regs)
-				snprintf(dis, debug_str_len, "%s r%d, r%d\t; %i * %i",
-						mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
+				snprintf(decomp, debug_str_len, "%i * %i",
 						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1]);
-			else
-				snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			break;
 		case OP_SUB:
+			snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			if (regs)
-				snprintf(dis, debug_str_len, "%s r%d, r%d ; %i - %i | 0x%08x - 0x%08x",
-						mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2,
+				snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
 						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1],
 						regs[inst->ci_i.i_reg2], regs[inst->ci_i.i_reg1]);
-			else
-				snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			break;
 		case OP_ADD:
-			debug_disasm_i(dis, inst, "ADD", "+", regs);
+			debug_disasm_i(decode, decomp, inst, "ADD", "+", regs);
 			break;
 		case OP_CMP:
-			debug_disasm_i(dis, inst, "CMP", "<=>", regs);
+			debug_disasm_i(decode, decomp, inst, "CMP", "<=>", regs);
+			break;
+		case OP_DIV:
+			debug_disasm_i(decode, decomp, inst, "DIV", "/", regs);
+			break;
+		case OP_XOR:
+			debug_disasm_i(decode, decomp, inst, "XOR", "^", regs);
+			break;
+		case OP_SHL:
+			debug_disasm_i(decode, decomp, inst, "SHL", "<<", regs);
+			break;
+		case OP_SHR:
+			debug_disasm_i(decode, decomp, inst, "SHR", ">>", regs);
+			break;
+		case OP_SAR:
+			debug_disasm_i(decode, decomp, inst, "SAR", ">>>", regs);
+			break;
+		case OP_AND:
+			debug_disasm_i(decode, decomp, inst, "AND", "&", regs);
+			break;
+		case OP_OR:
+			debug_disasm_i_fmt(decode, decomp, inst, "OR", "0x%4$08x | 0x%2$08x", regs);
 			break;
 		case OP_MOV:
-		case OP_SHL:
-		case OP_SHR:
-		case OP_SAR:
-		case OP_DIV:
+			debug_disasm_i_fmt(decode, decomp, inst, "MOV", "r%3$u <- 0x%2$08x", regs);
+			break;
 		case OP_MULU:
 		case OP_DIVU:
-		case OP_OR:
-		case OP_AND:
-		case OP_XOR:
 		case OP_NOT:
-			snprintf(dis, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
 			break;
 		case OP_JMP:
+			snprintf(decode, debug_str_len, "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			if (regs)
 			{
 				debug_str_t addr_s;
-				snprintf(dis, debug_str_len, "%s [r%u]\t\t; pc <- %s",
-						mnemonic, inst->ci_i.i_reg1, debug_format_addr(regs[inst->ci_i.i_reg1], addr_s));
+				snprintf(decomp, debug_str_len, "pc <- %s",
+						debug_format_addr(regs[inst->ci_i.i_reg1], addr_s));
 			}
-			else
-				snprintf(dis, debug_str_len, "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
 			break;
 		case OP_ADD2:
 		{
 			int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
+			snprintf(decode, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			if (regs)
-				snprintf(dis, debug_str_len, "%s %hi, r%u\t\t; %d + %hi",
-						mnemonic, imm, inst->ci_ii.ii_reg2, regs[inst->ci_ii.ii_reg2], imm);
-			else
-				snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+				snprintf(decomp, debug_str_len, "%d + %hi", regs[inst->ci_ii.ii_reg2], imm);
 			break;
 		}
 		case OP_MOV2:
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
-			snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			snprintf(decode, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			break;
 		}
 		case OP_CMP2:
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
+			snprintf(decode, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
 			if (regs)
-				snprintf(dis, debug_str_len, "%s %hi, r%u\t\t; %d <=> %hi",
-						mnemonic, imm, inst->ci_ii.ii_reg2, regs[inst->ci_ii.ii_reg2], imm);
-			else
-				snprintf(dis, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+				snprintf(decomp, debug_str_len, "%d <=> %hi", regs[inst->ci_ii.ii_reg2], imm);
 			break;
 		}
-		case OP_CLI:
 		case OP_RETI:
+			snprintf(decode, debug_str_len, "%s", "RETI");
+			snprintf(decomp, debug_str_len, "pc <- 0x%08x, psw <- 0x%08x",
+					(cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc,
+					(cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepsw.psw_word : cpu_state.cs_eipsw.psw_word);
+			break;
+		case OP_CLI:
 		case OP_SEI:
-			snprintf(dis, debug_str_len, "%s", mnemonic);
+			snprintf(decode, debug_str_len, "%s", mnemonic);
 			break;
 		case OP_SHL2:
+			debug_disasm_ii(decode, decomp, inst, "SHL", "0x%2$08x << %1$hu", regs);
+			break;
+		case OP_SHR2:
+			debug_disasm_ii(decode, decomp, inst, "SHR", "0x%2$08x >> %1$hu", regs);
+			break;
 		case OP_SAR2:
+			debug_disasm_ii(decode, decomp, inst, "SAR", "0x%2$08x >>> %1$hu", regs);
+			break;
 		case OP_LDSR:
-			snprintf(dis, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
+			snprintf(decode, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
 			break;
 		case OP_JR:
 		case OP_JAL:
 		{
 			u_int32_t disp = cpu_inst_disp26(inst);
+			snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
 			if (pc)
-			{
-				debug_str_t addr_s;
-				snprintf(dis, debug_str_len, "%s %i\t\t; %s", mnemonic, disp, debug_format_addr(pc + disp, addr_s));
-			}
-			else
-				snprintf(dis, debug_str_len, "%s %i", mnemonic, disp);
+				debug_format_addr(pc + disp, decomp);
 			break;
 		}
+		case OP_ORI:
+			debug_disasm_v(decode, decomp, inst, "ORI", "0x%08x | 0x%04hx", regs);
+			break;
 		case OP_MOVEA:
 		case OP_MOVHI:
-		case OP_ORI:
 		case OP_ANDI:
-			snprintf(dis, debug_str_len, "%s %hXh, r%d, r%d",
+			snprintf(decode, debug_str_len, "%s %hXh, r%d, r%d",
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
 			break;
 		case OP_ADDI:
-			snprintf(dis, debug_str_len, "%s %hd, r%d, r%d",
+			snprintf(decode, debug_str_len, "%s %hd, r%d, r%d",
 					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
 			break;
 		case OP_CAXI:
-			debug_disasm_vi(dis, inst, "CAXI", regs);
+			debug_disasm_vi(decode, decomp, inst, "CAXI", regs);
 			break;
 		case OP_IN_B:
-			debug_disasm_vi(dis, inst, "IN.B", regs);
+			debug_disasm_vi(decode, decomp, inst, "IN.B", regs);
 			break;
 		case OP_IN_H:
-			debug_disasm_vi(dis, inst, "IN.H", regs);
+			debug_disasm_vi(decode, decomp, inst, "IN.H", regs);
 			break;
 		case OP_IN_W:
-			debug_disasm_vi(dis, inst, "IN.W", regs);
+			debug_disasm_vi(decode, decomp, inst, "IN.W", regs);
 			break;
 		case OP_LD_B:
-			debug_disasm_vi(dis, inst, "LD.B", regs);
+			debug_disasm_vi(decode, decomp, inst, "LD.B", regs);
 			break;
 		case OP_LD_H:
-			debug_disasm_vi(dis, inst, "LD.H", regs);
+			debug_disasm_vi(decode, decomp, inst, "LD.H", regs);
 			break;
 		case OP_LD_W:
-			debug_disasm_vi(dis, inst, "LD.W", regs);
+			debug_disasm_vi(decode, decomp, inst, "LD.W", regs);
 			break;
 		case OP_OUT_B:
-			debug_disasm_vi(dis, inst, "OUT.B", regs);
+			debug_disasm_vi(decode, decomp, inst, "OUT.B", regs);
 			break;
 		case OP_OUT_H:
-			debug_disasm_vi(dis, inst, "OUT.H", regs);
+			debug_disasm_vi(decode, decomp, inst, "OUT.H", regs);
 			break;
 		case OP_OUT_W:
-			debug_disasm_vi(dis, inst, "OUT.W", regs);
+			debug_disasm_vi(decode, decomp, inst, "OUT.W", regs);
 			break;
 		case OP_ST_B:
-			debug_disasm_vi(dis, inst, "ST.B", regs);
+			debug_disasm_vi(decode, decomp, inst, "ST.B", regs);
 			break;
 		case OP_ST_H:
-			debug_disasm_vi(dis, inst, "ST.H", regs);
+			debug_disasm_vi(decode, decomp, inst, "ST.H", regs);
 			break;
 		case OP_ST_W:
-			debug_disasm_vi(dis, inst, "ST.W", regs);
+			debug_disasm_vi(decode, decomp, inst, "ST.W", regs);
 			break;
 		default:
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
 			{
 				u_int32_t disp = cpu_extend9(inst->ci_iii.iii_disp9);
+				snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
 				if (pc)
 				{
 					debug_str_t addr_s;
-					snprintf(dis, debug_str_len, "%s %i\t\t; pc <- %s",
-							mnemonic, disp, debug_format_addr(pc + disp, addr_s));
+					snprintf(decomp, debug_str_len, "pc <- %s", debug_format_addr(pc + disp, addr_s));
 				}
-				else
-					snprintf(dis, debug_str_len, "%s %i", mnemonic, disp);
 				break;
 			}
-			snprintf(dis, debug_str_len, "TODO: %s", mnemonic);
+			snprintf(decode, debug_str_len, "TODO: %s", mnemonic);
 	}
+	if (*decomp)
+		snprintf(dis, debug_str_len, "%-20s; %s", decode, decomp);
+	else
+		snprintf(dis, debug_str_len, "%s", decode);
 	return dis;
 }
 
@@ -3135,14 +3270,6 @@ debug_run(void)
 	debugging = false;
 }
 
-void
-debug_trace(const union cpu_inst *inst)
-{
-	debug_str_t addr_s;
-	printf("%s: %s\n",
-			debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(inst, cpu_state.cs_pc, cpu_state.cs_r));
-}
-
 /* MAIN */
 bool
 main_init(void)
@@ -3187,13 +3314,6 @@ main_exit(void)
 	s_running = false;
 }
 
-static int
-main_usage(void)
-{
-	fprintf(stderr, "usage: %s [-d] { <file.vb> | <file.isx> }\n", getprogname());
-	return EX_USAGE;
-}
-
 static void
 main_noop(int sig)
 {
@@ -3204,25 +3324,42 @@ main(int ac, char * const *av)
 {
 	int ch;
 	extern int optind;
+	bool help = false;
 	bool debug_boot = false;
 	bool self_test = false;
-	while ((ch = getopt(ac, av, "dt")) != -1)
+	static const char *usage_fmt = "usage: %s [-dt] [-T <cpu.out> ] { <file.vb> | <file.isx> }\n";
+	while ((ch = getopt(ac, av, "dtT:")) != -1)
 		switch (ch)
 		{
 			case '?':
-				return main_usage();
+				help = true;
 			case 'd':
 				debug_boot = true;
 				break;
 			case 't':
 				self_test = true;
 				break;
+			case 'T':
+				if (!strcmp(optarg, "-"))
+					cpu_trace_file = stdout;
+				else
+				{
+					cpu_trace_file = fopen(optarg, "w");
+					if (!cpu_trace_file)
+						err(EX_CANTCREAT, "Can't open CPU trace file %s", optarg);
+					if (setlinebuf(cpu_trace_file) != 0)
+						err(EX_OSERR, "Can't set CPU trace line-buffered");
+				}
+				break;
 		}
 	ac-= optind;
 	av+= optind;
 
-	if (ac != 1)
-		return main_usage();
+	if (ac != 1 || help)
+	{
+		fprintf(stderr, usage_fmt, getprogname());
+		return EX_USAGE;
+	}
 
 	if (!rom_load(av[0]))
 		return EX_NOINPUT;
@@ -3272,4 +3409,7 @@ main(int ac, char * const *av)
 
 	rom_unload();
 	main_fini();
+
+	if (cpu_trace_file != NULL && cpu_trace_file != stdout)
+		fclose(cpu_trace_file);
 }
