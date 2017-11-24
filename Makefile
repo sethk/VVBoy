@@ -22,7 +22,7 @@ endif
 
 OBJS := $(SRCS:%.c=%.o)
 
-all: $(TARGET)
+all: .depend $(TARGET) tags
 
 vvboy: $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
@@ -30,8 +30,8 @@ vvboy: $(OBJS)
 clean::
 	rm -f $(TARGET) $(OBJS) .depend tags
 
-main.h tk_sdl.h: vendor/makeheaders/makeheaders $(SRCS)
-	vendor/makeheaders/makeheaders $(SRCS)
+%.h : vendor/makeheaders/makeheaders %.c
+	$^
 
 $(OBJS): .depend
 
