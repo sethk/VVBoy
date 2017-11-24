@@ -925,8 +925,19 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_i.i_reg2] = result & 0xffffffff;
 			break;
 		}
+		case OP_DIV:
+		{
+			int64_t left = (int32_t)cpu_state.cs_r[inst.ci_i.i_reg2],
+					right = (int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			int64_t result = left / right;
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+			cpu_state.cs_psw.psw_flags.f_ov = (left < 0 && right < 0 && cpu_state.cs_psw.psw_flags.f_s);
+			cpu_state.cs_r[30] = left % right;
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
 			 /*
-	OP_DIV   = 0b001001,
 	OP_MULU  = 0b001010,
 	OP_DIVU  = 0b001011,
 	*/
@@ -1312,13 +1323,13 @@ cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 {
 	union cpu_inst inst;
 	inst.ci_v.v_opcode = OP_ADD;
-	cpu_state.cs_r[2] = left;
-	inst.ci_v.v_reg2 = 2;
-	cpu_state.cs_r[1] = right;
-	inst.ci_v.v_reg1 = 1;
+	cpu_state.cs_r[7] = left;
+	inst.ci_v.v_reg2 = 7;
+	cpu_state.cs_r[6] = right;
+	inst.ci_v.v_reg1 = 6;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 2, result);
+	cpu_assert_reg(dis, 7, result);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_carry(dis, carry);
 	cpu_assert_zero(dis, zero);
@@ -1329,13 +1340,13 @@ cpu_test_sub(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 {
 	union cpu_inst inst;
 	inst.ci_i.i_opcode = OP_SUB;
-	cpu_state.cs_r[2] = left;
-	inst.ci_i.i_reg2 = 2;
-	cpu_state.cs_r[1] = right;
-	inst.ci_i.i_reg1 = 1;
+	cpu_state.cs_r[7] = left;
+	inst.ci_i.i_reg2 = 7;
+	cpu_state.cs_r[6] = right;
+	inst.ci_i.i_reg1 = 6;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 2, result);
+	cpu_assert_reg(dis, 7, result);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_carry(dis, carry);
 }
@@ -1345,17 +1356,35 @@ cpu_test_mul(int32_t left, int32_t right, u_int32_t result, bool overflow, bool 
 {
 	union cpu_inst inst;
 	inst.ci_i.i_opcode = OP_MUL;
-	cpu_state.cs_r[1] = left;
-	inst.ci_i.i_reg1 = 1;
-	cpu_state.cs_r[2] = right;
-	inst.ci_i.i_reg2 = 2;
+	cpu_state.cs_r[7] = left;
+	inst.ci_i.i_reg2 = 7;
+	cpu_state.cs_r[6] = right;
+	inst.ci_i.i_reg1 = 6;
 	cpu_state.cs_r[30] = 0xdeadc0de;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 2, result);
+	cpu_assert_reg(dis, 7, result);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_sign(dis, sign);
 	cpu_assert_reg(dis, 30, carry);
+}
+
+static void
+cpu_test_div(int32_t left, int32_t right, u_int32_t result, u_int32_t rem, bool overflow, bool sign)
+{
+	union cpu_inst inst;
+	inst.ci_i.i_opcode = OP_DIV;
+	cpu_state.cs_r[7] = left;
+	inst.ci_i.i_reg2 = 7;
+	cpu_state.cs_r[6] = right;
+	inst.ci_i.i_reg1 = 6;
+	cpu_state.cs_r[30] = 0xdeadc0de;
+	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
+	cpu_exec(inst);
+	cpu_assert_reg(dis, 7, result);
+	cpu_assert_reg(dis, 30, rem);
+	cpu_assert_overflow(dis, overflow);
+	cpu_assert_sign(dis, sign);
 }
 
 void
@@ -1393,6 +1422,15 @@ cpu_test(void)
 	cpu_test_mul(-1, 1, -1, false, true, 0xffffffff);
 	cpu_test_mul(0x7fffffff, 0x7fffffff, 1, true, false, 0x3fffffff);
 	cpu_test_mul(0x40000000, 4, 0, true, false, 1);
+
+	cpu_test_div(0x80000000, 0xffffffff, 0x80000000, 0, true, true);
+	cpu_test_div(0x80000001, 0xffffffff, 0x7fffffff, 0, false, false);
+	cpu_test_div(1, 1, 1, 0, false, false);
+	cpu_test_div(2, 1, 2, 0, false, false);
+	cpu_test_div(1, 2, 0, 1, false, false);
+	cpu_test_div(1000, 500, 2, 0, false, false);
+	cpu_test_div(1001, 500, 2, 1, false, false);
+	cpu_test_div(-500, 2, -250, 0, false, true);
 
 	cpu_reset();
 }
