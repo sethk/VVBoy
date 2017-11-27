@@ -8,7 +8,7 @@ else
 endif
 TARGET = vvboy
 SRCS = main.c
-HEADERS = main.h
+HEADERS = main.h tk_sdl.h
 LDLIBS = -ledit
 CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
 
@@ -30,7 +30,7 @@ vvboy: $(OBJS)
 clean::
 	rm -f $(TARGET) $(OBJS) .depend tags
 
-%.h : vendor/makeheaders/makeheaders %.c
+main.h tk_sdl.h: vendor/makeheaders/makeheaders $(SRCS)
 	$^
 
 $(OBJS): .depend
