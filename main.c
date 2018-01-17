@@ -910,9 +910,24 @@ cpu_exec(const union cpu_inst inst)
 		case OP_JMP:
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
-			/*
-	OP_SAR   = 0b000111,
-	*/
+		case OP_SAR:
+		{
+			u_int32_t start = cpu_state.cs_r[inst.ci_i.i_reg2];
+			u_int32_t shift = cpu_state.cs_r[inst.ci_i.i_reg1] & 0x1f;
+			u_int32_t result = start >> shift;
+			cpu_state.cs_psw.psw_flags.f_cy = ((start >> (shift - 1)) & 1);
+			cpu_state.cs_psw.psw_flags.f_ov = 0;
+			if ((start & sign_bit32) == sign_bit32)
+			{
+				result|= (0xffffffff << (32 - shift));
+				cpu_state.cs_psw.psw_flags.f_s = 1;
+			}
+			else
+				cpu_state.cs_psw.psw_flags.f_s = 0;
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
 		case OP_MUL:
 		{
 			int64_t result = (int64_t)(int32_t)cpu_state.cs_r[inst.ci_i.i_reg2] *
@@ -962,9 +977,13 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
 			break;
 		}
-	/*
-	OP_NOT   = 0b001111,
-	*/
+		case OP_NOT:
+		{
+			u_int32_t result = ~cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_setfl_zs0(result);
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
 		case OP_MOV2:
 		{
 			u_int32_t imm = inst.ci_ii.ii_imm5;
@@ -1040,7 +1059,6 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
 			}
 			break;
-
 			 /*
 	OP_TRAP  = 0b011000,
 	*/
@@ -1090,9 +1108,17 @@ cpu_exec(const union cpu_inst inst)
 					return false;
 			}
 			break;
-			 /*
-	OP_STSR  = 0b011101,
-	*/
+		case OP_STSR:
+			switch (inst.ci_ii.ii_imm5)
+			{
+				case REGID_PSW:
+					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_psw.psw_word;
+					break;
+				default:
+					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
+					debug_intr();
+					return false;
+			}
 		case OP_SEI:
 			cpu_state.cs_psw.psw_flags.f_id = 1;
 			break;
@@ -1145,9 +1171,13 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
 			break;
 		}
-			 /*
-	OP_XORI  = 0b101110,
-	*/
+		case OP_XORI:
+		{
+			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] ^ inst.ci_v.v_imm16;
+			cpu_setfl_zs0(result);
+			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			break;
+		}
 		case OP_MOVHI:
 			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] | (inst.ci_v.v_imm16 << 16);
 			break;
@@ -1231,33 +1261,46 @@ cpu_exec(const union cpu_inst inst)
 					case BCOND_BZ:
 						branch = cpu_state.cs_psw.psw_flags.f_z;
 						break;
-					/*
-					BCOND_BNH = 0b0011,
-					BCOND_BN  = 0b0100,
-					BCOND_BR  = 0b0101,
-					*/
+					case BCOND_BNH:
+						branch = (cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
+						break;
+					case BCOND_BN:
+						branch = cpu_state.cs_psw.psw_flags.f_s;
+						break;
+					case BCOND_BR:
+						branch = true;
+						break;
 					case BCOND_BLT:
 						branch = cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov;
 						break;
+					case BCOND_BLE:
+						branch = ((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
+								cpu_state.cs_psw.psw_flags.f_z);
+						break;
 					/*
-					BCOND_BLE = 0b0111,
 					BCOND_BNV = 0b1000,
-					BCOND_BNC = 0b1001,
 					*/
+					case BCOND_BNC:
+						branch = !cpu_state.cs_psw.psw_flags.f_cy;
+						break;
 					case BCOND_BNZ:
 						branch = !cpu_state.cs_psw.psw_flags.f_z;
 						break;
-					  /*
-					BCOND_BH  = 0b1011,
-					BCOND_BP  = 0b1100,
-					BCOND_NOP = 0b1101,
-					*/
+					case BCOND_BH:
+						branch = !(cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
+						break;
+					case BCOND_BP:
+						branch = !cpu_state.cs_psw.psw_flags.f_z;
+						break;
+					case BCOND_NOP:
+						branch = false;
+						break;
 					case BCOND_BGE:
 						branch = !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov);
 						break;
 					case BCOND_BGT:
-						branch = !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) ||
-								cpu_state.cs_psw.psw_flags.f_z;
+						branch = !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
+								cpu_state.cs_psw.psw_flags.f_z);
 						break;
 					default:
 						fputs("Handle branch cond\n", stderr);
@@ -1282,8 +1325,8 @@ static void
 cpu_assert_reg(const char *dis, unsigned reg, u_int32_t value)
 {
 	if (cpu_state.cs_r[reg] != value)
-		fprintf(stderr, "*** Test failure: %s\n\tr%u (0x%08x) should be 0x%08x\n",
-				dis, reg, cpu_state.cs_r[reg], value);
+		fprintf(stderr, "*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x\n",
+				dis, debug_rnames[reg], cpu_state.cs_r[reg], value);
 }
 
 static void
@@ -2410,6 +2453,14 @@ debug_format_addr(u_int32_t addr, debug_str_t s)
 	return debug_format_addrsym(addr, match_sym, s);
 }
 
+const char *debug_rnames[32] =
+{
+	"r0", "r1", "hp", "sp", "gp", "tp", "r6", "r7",
+	"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+	"r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
+	"r24", "r25", "r26", "r27", "r28", "r29", "r30", "lp"
+};
+
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
@@ -2448,9 +2499,11 @@ debug_disasm_i(debug_str_t decode,
 		const char *op,
 		const cpu_regs_t regs)
 {
-	snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+	snprintf(decode, debug_str_len, "%s %s, %s",
+			mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 	if (regs)
-		snprintf(decomp, debug_str_len, "%i %s %i", regs[inst->ci_i.i_reg2], op, regs[inst->ci_i.i_reg1]);
+		snprintf(decomp, debug_str_len, "%i %s %i",
+				(int32_t)regs[inst->ci_i.i_reg2], op, (int32_t)regs[inst->ci_i.i_reg1]);
 }
 
 static void
@@ -2461,7 +2514,8 @@ debug_disasm_i_fmt(debug_str_t decode,
 		const char *decomp_fmt,
 		const cpu_regs_t regs)
 {
-	snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+	snprintf(decode, debug_str_len, "%s %s, %s",
+			mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt,
 				inst->ci_i.i_reg1,
@@ -2478,7 +2532,7 @@ debug_disasm_ii(debug_str_t decode,
 		const char *decomp_fmt,
 		const cpu_regs_t regs)
 {
-	snprintf(decode, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
+	snprintf(decode, debug_str_len, "%s %i, %s", mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_ii.ii_imm5, regs[inst->ci_ii.ii_reg2]);
 }
@@ -2491,8 +2545,8 @@ debug_disasm_v(debug_str_t decode,
 		const char *decomp_fmt,
 		const cpu_regs_t regs)
 {
-	snprintf(decode, debug_str_len, "%s %hd, r%d, r%d",
-			mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+	snprintf(decode, debug_str_len, "%s %hd, %s, %s",
+			mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_v.v_imm16, regs[inst->ci_v.v_reg1], inst->ci_v.v_reg2);
 }
@@ -2504,8 +2558,8 @@ debug_disasm_vi(debug_str_t decode,
 		const char *mnemonic,
 		const cpu_regs_t regs)
 {
-	snprintf(decode, debug_str_len, "%s %hd[r%u], r%u",
-			mnemonic, inst->ci_vi.vi_disp16, inst->ci_vi.vi_reg1, inst->ci_vi.vi_reg2);
+	snprintf(decode, debug_str_len, "%s %hd[%s], %s",
+			mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 	if (regs)
 	{
 		u_int32_t addr = regs[inst->ci_vi.vi_reg1] + inst->ci_vi.vi_disp16;
@@ -2515,12 +2569,12 @@ debug_disasm_vi(debug_str_t decode,
 		{
 			case OP_CAXI:
 				snprintf(decomp, debug_str_len,
-						"[%s] <- r30 if oldval = r%u", addr_s, inst->ci_vi.vi_reg2);
+						"[%s] <- r30 if oldval = %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 				break;
 			case OP_LD_B:
 			case OP_LD_H:
 			case OP_LD_W:
-				snprintf(decomp, debug_str_len, "[%s] -> r%u", addr_s, inst->ci_vi.vi_reg2);
+				snprintf(decomp, debug_str_len, "[%s] -> %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 				break;
 			case OP_ST_B:
 			{
@@ -2576,6 +2630,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_XOR: mnemonic = "XOR"; break;
 		case OP_CLI: mnemonic = "CLI"; break;
 		case OP_LDSR: mnemonic = "LDSR"; break;
+		case OP_STSR: mnemonic = "STSR"; break;
 		case OP_SEI: mnemonic = "SEI"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_MOVEA: mnemonic = "MOVEA"; break;
@@ -2584,6 +2639,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_JAL: mnemonic = "JAL"; break;
 		case OP_ORI: mnemonic = "ORI"; break;
 		case OP_ANDI: mnemonic = "ANDI"; break;
+		case OP_XORI: mnemonic = "XORI"; break;
 		default:
 		{
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
@@ -2599,6 +2655,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 					case BCOND_BLT: mnemonic = "BLT"; break;
 					case BCOND_BLE: mnemonic = "BLE"; break;
 					case BCOND_BNV: mnemonic = "BNV"; break;
+					case BCOND_BNC: mnemonic = "BNC"; break;
 					case BCOND_BNZ: mnemonic = "BNZ"; break;
 					case BCOND_BH: mnemonic = "BH"; break;
 					case BCOND_BP: mnemonic = "BP"; break;
@@ -2616,13 +2673,15 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 	switch (inst->ci_i.i_opcode)
 	{
 		case OP_MUL:
-			snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			snprintf(decode, debug_str_len, "%s %s, %s",
+					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (regs)
-				snprintf(decomp, debug_str_len, "%i * %i",
-						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1]);
+				snprintf(decomp, debug_str_len, "%i × %i",
+						(int32_t)regs[inst->ci_i.i_reg1], (int32_t)regs[inst->ci_i.i_reg2]);
 			break;
 		case OP_SUB:
-			snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			snprintf(decode, debug_str_len, "%s %s, %s",
+					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (regs)
 				snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
 						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1],
@@ -2661,10 +2720,11 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_MULU:
 		case OP_DIVU:
 		case OP_NOT:
-			snprintf(decode, debug_str_len, "%s r%d, r%d", mnemonic, inst->ci_i.i_reg1, inst->ci_i.i_reg2);
+			snprintf(decode, debug_str_len, "%s %s, %s",
+					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			break;
 		case OP_JMP:
-			snprintf(decode, debug_str_len, "%s [r%d]", mnemonic, inst->ci_i.i_reg1);
+			snprintf(decode, debug_str_len, "%s [%s]", mnemonic, debug_rnames[inst->ci_i.i_reg1]);
 			if (regs)
 			{
 				debug_str_t addr_s;
@@ -2675,7 +2735,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_ADD2:
 		{
 			int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
-			snprintf(decode, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			if (regs)
 				snprintf(decomp, debug_str_len, "%d + %hi", regs[inst->ci_ii.ii_reg2], imm);
 			break;
@@ -2683,13 +2743,13 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_MOV2:
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
-			snprintf(decode, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			break;
 		}
 		case OP_CMP2:
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
-			snprintf(decode, debug_str_len, "%s %hi, r%u", mnemonic, imm, inst->ci_ii.ii_reg2);
+			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			if (regs)
 				snprintf(decomp, debug_str_len, "%d <=> %hi", regs[inst->ci_ii.ii_reg2], imm);
 			break;
@@ -2714,7 +2774,9 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_ii(decode, decomp, inst, "SAR", "0x%2$08x >>> %1$hu", regs);
 			break;
 		case OP_LDSR:
-			snprintf(decode, debug_str_len, "%s %i, r%u", mnemonic, inst->ci_ii.ii_imm5, inst->ci_ii.ii_reg2);
+		case OP_STSR:
+			snprintf(decode, debug_str_len, "%s %i, %s",
+					mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
 			break;
 		case OP_JR:
 		case OP_JAL:
@@ -2731,12 +2793,13 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_MOVEA:
 		case OP_MOVHI:
 		case OP_ANDI:
-			snprintf(decode, debug_str_len, "%s %hXh, r%d, r%d",
-					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+		case OP_XORI:
+			snprintf(decode, debug_str_len, "%s %hXh, %s, %s",
+					mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 			break;
 		case OP_ADDI:
-			snprintf(decode, debug_str_len, "%s %hd, r%d, r%d",
-					mnemonic, inst->ci_v.v_imm16, inst->ci_v.v_reg1, inst->ci_v.v_reg2);
+			snprintf(decode, debug_str_len, "%s %hd, %s, %s",
+					mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 			break;
 		case OP_CAXI:
 			debug_disasm_vi(decode, decomp, inst, "CAXI", regs);
@@ -3105,9 +3168,7 @@ debug_run(void)
 					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
-						char rname[5];
-						snprintf(rname, sizeof(rname), "r%d", regIndex);
-						printf(fmt, rname, debug_format_addr(cpu_state.cs_r[regIndex], addr_s));
+						printf(fmt, debug_rnames[regIndex], debug_format_addr(cpu_state.cs_r[regIndex], addr_s));
 						printf(" (%11i)", cpu_state.cs_r[regIndex]);
 						if (regIndex % 2 == 1)
 							putchar('\n');
