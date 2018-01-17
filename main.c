@@ -1489,11 +1489,10 @@ cpu_step(void)
 	}
 	u_int32_t old_pc = cpu_state.cs_pc;
 
-	if (cpu_trace_file)
+	if (debug_trace_cpu)
 	{
 		debug_str_t addr_s;
-		fprintf(cpu_trace_file, "@%07d %-26s: %s\n",
-				nvc_usec,
+		debug_tracef("cpu", "%-26s: %s\n",
 				debug_format_addr(cpu_state.cs_pc, addr_s),
 				debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
 	}
@@ -1512,10 +1511,10 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 	{
 		if (level >= cpu_state.cs_psw.psw_flags.f_i)
 		{
-			if (cpu_trace_file)
+			if (debug_trace_cpu)
 			{
 				debug_str_t addr_s;
-				fprintf(cpu_trace_file, "%-26s: Interrupt level=%d\n",
+				debug_tracef("cpu", "%-26s: Interrupt level=%d\n",
 						debug_format_addr(cpu_state.cs_pc, addr_s), level);
 			}
 
@@ -1897,10 +1896,11 @@ vip_draw_finish(u_int fb_index)
 	{
 		struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
 
-		if (trace_vip)
+		if (debug_trace_vip)
 		{
-			printf("WORLD_ATT[%u]: ", world_index);
-			debug_print_world_att(vwa);
+			char buf[1024];
+			debug_format_world_att(buf, sizeof(buf), vwa);
+			debug_tracef("vip", "WORLD_ATT[%u]: %s", world_index, buf);
 		}
 
 		if (vwa->vwa_end)
@@ -2314,10 +2314,14 @@ nvc_mem_emu2host(u_int32_t addr, size_t size)
 		struct debug_symbol *ds_next;
 		enum isx_symbol_type ds_type;
 	};
+
+	extern bool debug_trace_cpu;
+	extern bool debug_trace_vip;
 #endif // INTERFACE
 
-FILE *cpu_trace_file = NULL;
-bool trace_vip = true;
+bool debug_trace_cpu = false;
+bool debug_trace_vip = false;
+FILE *debug_trace_file = NULL;
 
 static EditLine *s_editline;
 static History *s_history;
@@ -3102,10 +3106,11 @@ debug_print_bgsc(struct vip_bgsc *vb)
 }
 
 void
-debug_print_world_att(const struct vip_world_att *vwa)
+debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa)
 {
 	debug_str_t flags_s;
-	printf("(%s) BGM=%u, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
+	size_t bufoff = 0;
+	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%u, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
 			debug_format_flags(flags_s,
 				"LON", vwa->vwa_lon,
 				"RON", vwa->vwa_ron,
@@ -3282,7 +3287,9 @@ debug_run(void)
 								struct vip_world_att att;
 								if (!debug_mem_read(addr, &att, sizeof(att)))
 									break;
-								debug_print_world_att(&att);
+								char buf[1024];
+								debug_format_world_att(buf, sizeof(buf), &att);
+								fputs(buf, stdout);
 								addr+= sizeof(att);
 							}
 							else
@@ -3426,8 +3433,8 @@ main(int ac, char * const *av)
 	bool help = false;
 	bool debug_boot = false;
 	bool self_test = false;
-	static const char *usage_fmt = "usage: %s [-dt] [-T <cpu.out> ] { <file.vb> | <file.isx> }\n";
-	while ((ch = getopt(ac, av, "dtT:")) != -1)
+	static const char *usage_fmt = "usage: %s [-dtCV] [-T <trace.log> ] { <file.vb> | <file.isx> }\n";
+	while ((ch = getopt(ac, av, "dtCVT:")) != -1)
 		switch (ch)
 		{
 			case '?':
@@ -3438,17 +3445,18 @@ main(int ac, char * const *av)
 			case 't':
 				self_test = true;
 				break;
+			case 'C':
+				debug_trace_cpu = true;
+				break;
+			case 'V':
+				debug_trace_vip = true;
+				break;
 			case 'T':
-				if (!strcmp(optarg, "-"))
-					cpu_trace_file = stdout;
-				else
-				{
-					cpu_trace_file = fopen(optarg, "w");
-					if (!cpu_trace_file)
-						err(EX_CANTCREAT, "Can't open CPU trace file %s", optarg);
-					if (setlinebuf(cpu_trace_file) != 0)
-						err(EX_OSERR, "Can't set CPU trace line-buffered");
-				}
+				debug_trace_file = fopen(optarg, "w");
+				if (!debug_trace_file)
+					err(EX_CANTCREAT, "Can't open trace file %s", optarg);
+				if (setlinebuf(debug_trace_file) != 0)
+					err(EX_OSERR, "Can't set trace line-buffered");
 				break;
 		}
 	ac-= optind;
@@ -3509,6 +3517,8 @@ main(int ac, char * const *av)
 	rom_unload();
 	main_fini();
 
-	if (cpu_trace_file != NULL && cpu_trace_file != stdout)
-		fclose(cpu_trace_file);
+	if (debug_trace_file != NULL)
+		fclose(debug_trace_file);
+
+	return 0;
 }
