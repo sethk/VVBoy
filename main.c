@@ -1317,6 +1317,13 @@ cpu_exec(const union cpu_inst inst)
 			debug_intr();
 			return false;
 	}
+	//assert(!cpu_state.cs_r[0]);
+	if (cpu_state.cs_r[0])
+	{
+		fputs("r0 written to with non-zero value\n", stderr);
+		cpu_state.cs_r[0] = 0;
+		//debug_intr();
+	}
 	return true;
 }
 
