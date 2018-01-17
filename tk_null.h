@@ -1,8 +1,9 @@
+/* This file was automatically generated.  Do not edit! */
 #include <sys/types.h>
 #include <stdbool.h>
-
-enum tk_keys
-{
+void tk_fini(void);
+void tk_fini(void);
+enum tk_keys {
 	KEY_PWR = (1 << 0),
 	KEY_SGN = (1 << 1),
 	KEY_A = (1 << 2),
@@ -20,11 +21,12 @@ enum tk_keys
 	KEY_RL = (1 << 14),
 	KEY_RD = (1 << 15)
 };
-
-extern bool tk_init(void);
-extern void tk_step(void);
-extern void tk_blit(const u_int8_t *fb, bool right);
-extern void tk_debug_draw(u_int x, u_int y, u_int32_t argb);
-extern void tk_debug_flip(void);
-extern enum tk_keys tk_poll(void);
-extern void tk_fini(void);
+typedef enum tk_keys tk_keys;
+enum tk_keys tk_poll(void);
+enum tk_keys tk_poll(void);
+void tk_blit(const u_int8_t *fb,bool right);
+void tk_blit(const u_int8_t *fb,bool right);
+void tk_step(void);
+void tk_step(void);
+bool tk_init(void);
+bool tk_init(void);

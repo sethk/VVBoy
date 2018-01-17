@@ -8,7 +8,7 @@ else
 endif
 TARGET = vvboy
 SRCS = main.c
-HEADERS = main.h tk_sdl.h
+HEADERS = tk.h
 LDLIBS = -ledit
 CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
 
@@ -18,29 +18,26 @@ ifeq ($(USE_SDL),yes)
     SRCS+= tk_sdl.c
     CFLAGS+= `sdl2-config --cflags`
     LDLIBS+= `sdl2-config --libs`
+else
+    SRCS+= tk_null.c
 endif
 
 OBJS := $(SRCS:%.c=%.o)
+GEN_HEADERS := $(SRCS:%.c=%.h)
 
-all: .depend $(TARGET) tags
+all: $(TARGET) tags
 
-vvboy: $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+.headers-stamp: $(SRCS) $(HEADERS)
+	vendor/makeheaders/makeheaders $(SRCS) $(HEADERS)
+	touch .headers-stamp
+
+$(TARGET): .headers-stamp $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LDLIBS)
 
 clean::
-	rm -f $(TARGET) $(OBJS) .depend tags
+	rm -f $(TARGET) $(OBJS) $(GEN_HEADERS) .headers-stamp tags
 
-main.h tk_sdl.h: vendor/makeheaders/makeheaders $(SRCS)
-	$^
-
-$(OBJS): .depend
-
-.depend: $(SRCS)
-	mkdep $(CFLAGS) $^
-
--include .depend
-
-tags:: $(SRCS) $(HEADERS)
+tags:: $(SRCS)
 	ctags --c-kinds=+p $^
 
 lint: $(SRCS)
