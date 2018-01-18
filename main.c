@@ -1565,24 +1565,24 @@ static struct vip_vrm vip_vrm;
 		unsigned vb_bhflp : 1 __attribute__((packed));
 		unsigned vb_gplts : 2 __attribute__((packed));
 	};
+
+	struct vip_oam
+	{
+		int16_t vo_jx;
+		unsigned vo_jp : 14 __attribute__((packed));
+		unsigned vo_jron : 1 __attribute__((packed));
+		unsigned vo_jlon : 1 __attribute__((packed));
+		int16_t vo_jy;
+		unsigned vo_jca : 11 __attribute__((packed));
+		unsigned vo_rfu1 : 1 __attribute__((packed));
+		unsigned vo_jvflp : 1 __attribute__((packed));
+		unsigned vo_jhflp : 1 __attribute__((packed));
+		unsigned vo_jplts : 2 __attribute__((packed));
+	};
 #endif // INTERFACE
 
 static const u_int vip_bgseg_width = 64, vip_bgseg_height = 64;
 typedef struct vip_bgsc vip_bgseg_t[vip_bgseg_width * vip_bgseg_height];
-
-struct vip_oam
-{
-	int16_t vo_jx;
-	unsigned vo_jp : 14;
-	unsigned vo_jron : 1;
-	unsigned vo_jlon : 1;
-	int16_t vo_jy;
-	unsigned vo_jca : 11;
-	unsigned vo_rfu1 : 1;
-	unsigned vo_jvflp : 1;
-	unsigned vo_jhflp : 1;
-	unsigned vo_jplts : 2;
-} __attribute__((packed));
 
 #if INTERFACE
 	enum vip_world_bgm
@@ -1804,9 +1804,32 @@ vip_clear_finish(u_int fb_index)
 	}
 }
 
-static u_int8_t
-vip_chr_read(const struct vip_chr *vc, u_int x, u_int y)
+static struct vip_chr *
+vip_chr_find(u_int chrno)
 {
+	if (chrno < 512)
+		return &(vip_vrm.vv_chr0[chrno]);
+	else if (chrno < 1024)
+		return &(vip_vrm.vv_chr1[chrno - 512]);
+	else if (chrno < 1536)
+		return &(vip_vrm.vv_chr2[chrno - 1024]);
+	else if (chrno < 2048)
+		return &(vip_vrm.vv_chr3[chrno - 1536]);
+	else
+	{
+		fprintf(stderr, "VIP: Invalid CHR No. %u\n", chrno);
+		assert(chrno < 2048);
+		return NULL;
+	}
+}
+
+static u_int8_t
+vip_chr_read(const struct vip_chr *vc, u_int x, u_int y, bool hflip, bool vflip)
+{
+	if (hflip)
+		x = 7 - x;
+	if (vflip)
+		y = 7 - y;
 	return (vc->vc_rows[y] >> (x * 2)) & 0b11;
 }
 
@@ -1868,20 +1891,8 @@ vip_draw_start(u_int fb_index)
 static u_int8_t
 vip_bgsc_read(struct vip_bgsc *vb, u_int chr_x, u_int chr_y)
 {
-	struct vip_chr *vc;
-	if (vb->vb_chrno < 512)
-		vc = &(vip_vrm.vv_chr0[vb->vb_chrno]);
-	else if (vb->vb_chrno < 1024)
-		vc = &(vip_vrm.vv_chr1[vb->vb_chrno - 512]);
-	else if (vb->vb_chrno < 1536)
-		vc = &(vip_vrm.vv_chr2[vb->vb_chrno - 1024]);
-	else
-		vc = &(vip_vrm.vv_chr3[vb->vb_chrno - 1536]);
-	if (vb->vb_bhflp)
-		chr_x = 7 - chr_x;
-	if (vb->vb_bvflp)
-		chr_y = 7 - chr_y;
-	return vip_chr_read(vc, chr_x, chr_y);
+	struct vip_chr *vc = vip_chr_find(vb->vb_chrno);
+	return vip_chr_read(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
 }
 
 static u_int8_t
@@ -1909,6 +1920,7 @@ vip_draw_finish(u_int fb_index)
 	u_int8_t *left_fb = (fb_index) ? vip_vrm.vv_left1 : vip_vrm.vv_left0;
 	u_int8_t *right_fb = (fb_index) ? vip_vrm.vv_right1 : vip_vrm.vv_right0;
 
+	int obj_group = 3;
 	u_int world_index = 31;
 	do
 	{
@@ -1954,10 +1966,54 @@ vip_draw_finish(u_int fb_index)
 				// TODO: Draw BG
 				break;
 			case WORLD_BGM_OBJ:
-				// TODO: Draw OBJ
+			{
+				if (obj_group < 0)
+				{
+					fprintf(stderr, "VIP already searched 4 OBJ groups for worlds\n");
+					break;
+				}
+
+				int start_index;
+				if (obj_group > 0)
+					start_index = (vip_regs.vr_spt[obj_group - 1] + 1) % 1024;
+				else
+					start_index = 0;
+
+				for (int obj_index = vip_regs.vr_spt[obj_group]; obj_index >= start_index; --obj_index)
+				{
+					assert(obj_index >= 0 && obj_index < 1024);
+					struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
+
+					if (debug_trace_vip)
+					{
+						debug_str_t oamstr;
+						debug_format_oam(oamstr, obj);
+						debug_tracef("vip", "OBJ[%u]: %s\n", obj->vo_jca, oamstr);
+					}
+
+					if (!obj->vo_jlon && !obj->vo_jron)
+						continue;
+
+					int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
+					struct vip_chr *vc = vip_chr_find(obj->vo_jca);
+					for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+						for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+						{
+							u_int8_t pixel = vip_chr_read(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
+							if (pixel)
+							{
+								if (obj->vo_jlon)
+									vip_fb_write(left_fb, scr_l_x + chr_x, obj->vo_jy + chr_y, pixel);
+								if (obj->vo_jron)
+									vip_fb_write(right_fb, scr_r_x + chr_x, obj->vo_jy + chr_y, pixel);
+							}
+						}
+					// TODO PLTS
+				}
+				--obj_group;
 				break;
+			}
 		}
-		// TODO: Draw BG or OBJ
 	} while (--world_index > 0);
 
 	if (debug_trace_vip)
@@ -3269,6 +3325,15 @@ debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa
 	}
 }
 
+void
+debug_format_oam(debug_str_t s, const struct vip_oam *vop)
+{
+	snprintf(s, debug_str_len, "JX=%hd, JP=%d, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
+			", JVFLP=%u, JHFLP=%u, JPLTS=%u\n",
+			vop->vo_jx, vop->vo_jp, vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
+			vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
+}
+
 static void
 debug_draw(u_int x, u_int y, u_int8_t pixel)
 {
@@ -3418,10 +3483,9 @@ debug_run(void)
 								struct vip_oam oam;
 								if (!debug_mem_read(addr, &oam, sizeof(oam)))
 									break;
-								printf("JX=%hd, JP=%d, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
-										", JVFLP=%u, JHFLP=%u, JPLTS=%u\n",
-										oam.vo_jx, oam.vo_jp, oam.vo_jron, oam.vo_jlon, oam.vo_jy, oam.vo_jca,
-										oam.vo_jvflp, oam.vo_jhflp, oam.vo_jplts);
+								debug_str_t oam_str;
+								debug_format_oam(oam_str, &oam);
+								puts(oam_str);
 								addr+= sizeof(oam);
 							}
 							else if (!strcmp(format, "B"))
@@ -3563,7 +3627,8 @@ debug_run(void)
 							{
 								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-										debug_draw(x * 8 + chr_x, y * 8 + chr_y, vip_chr_read(vc, chr_x, chr_y));
+										debug_draw(x * 8 + chr_x, y * 8 + chr_y,
+												vip_chr_read(vc, chr_x, chr_y, false, false));
 								++vc;
 							}
 						tk_debug_flip();

@@ -7,3 +7,5 @@
 .depend
 /vendor/makeheaders/makeheaders
 /main.plist/
+/.headers-stamp
+/trace.out
