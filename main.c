@@ -832,6 +832,8 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 }
 
 static const u_int32_t sign_bit32 = 0x80000000;
+static const u_int64_t sign_bit64 = 0x8000000000000000;
+static const u_int64_t sign_bits32to64 = 0xffffffff80000000;
 
 extern inline u_int32_t
 cpu_extend9(u_int32_t s9)
@@ -934,15 +936,16 @@ cpu_exec(const union cpu_inst inst)
 			int64_t result = (int64_t)(int32_t)cpu_state.cs_r[inst.ci_i.i_reg2] *
 					(int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_psw.psw_flags.f_s = ((result & 0x8000000000000000) == 0x8000000000000000);
-			u_int64_t signbits = result & 0xffffffff80000000;
-			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != 0xffffffff80000000);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit64) == sign_bit64);
+			u_int64_t signbits = result & sign_bits32to64;
+			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != sign_bits32to64);
 			cpu_state.cs_r[30] = (u_int64_t)result >> 32;
 			cpu_state.cs_r[inst.ci_i.i_reg2] = result & 0xffffffff;
 			break;
 		}
 		case OP_DIV:
 		{
+			// TODO: Divide by zero exception
 			int64_t left = (int32_t)cpu_state.cs_r[inst.ci_i.i_reg2],
 					right = (int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
 			int64_t result = left / right;
@@ -953,10 +956,31 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
 			break;
 		}
-			 /*
-	OP_MULU  = 0b001010,
-	OP_DIVU  = 0b001011,
-	*/
+		case OP_MULU:
+		{
+			u_int64_t result = (u_int64_t)cpu_state.cs_r[inst.ci_i.i_reg2] *
+					(u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit64) == sign_bit64);
+			u_int64_t signbits = result & sign_bits32to64;
+			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != sign_bits32to64);
+			cpu_state.cs_r[30] = result >> 32;
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result & 0xffffffff;
+			break;
+		}
+		case OP_DIVU:
+		{
+			// TODO: Divide by zero exception
+			u_int64_t left = (u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg2],
+					right = (u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int64_t result = left / right;
+			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+			cpu_state.cs_psw.psw_flags.f_ov = 0;
+			cpu_state.cs_r[30] = left % right;
+			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			break;
+		}
 		case OP_OR:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] | cpu_state.cs_r[inst.ci_i.i_reg1];
@@ -1088,6 +1112,18 @@ cpu_exec(const union cpu_inst inst)
 		case OP_LDSR:
 			switch (inst.ci_ii.ii_imm5)
 			{
+				case REGID_EIPC:
+					cpu_state.cs_eipc = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					break;
+				case REGID_EIPSW:
+					cpu_state.cs_eipsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					break;
+				case REGID_FEPC:
+					cpu_state.cs_fepc = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					break;
+				case REGID_FEPSW:
+					cpu_state.cs_fepsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					break;
 				case REGID_PSW:
 					cpu_state.cs_psw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
 					break;
@@ -2717,9 +2753,9 @@ debug_disasm_i_fmt(debug_str_t decode,
 			mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt,
-				inst->ci_i.i_reg1,
+				debug_rnames[inst->ci_i.i_reg1],
 				regs[inst->ci_i.i_reg1],
-				inst->ci_i.i_reg2,
+				debug_rnames[inst->ci_i.i_reg2],
 				regs[inst->ci_i.i_reg2]);
 }
 
@@ -2917,7 +2953,11 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_i_fmt(decode, decomp, inst, "MOV", "r%3$u <- 0x%2$08x", regs);
 			break;
 		case OP_MULU:
+			debug_disasm_i_fmt(decode, decomp, inst, "MULU", "%4$u × %2$u", regs);
+			break;
 		case OP_DIVU:
+			debug_disasm_i_fmt(decode, decomp, inst, "DIVU", "%4$u ÷ %2$u", regs);
+			break;
 		case OP_NOT:
 			snprintf(decode, debug_str_len, "%s %s, %s",
 					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
