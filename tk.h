@@ -22,7 +22,9 @@ enum tk_keys
 };
 
 extern bool tk_init(void);
-extern void tk_step(void);
+extern u_int32_t tk_get_ticks(void);
+extern void tk_delay(u_int ticks);
+extern void tk_main(void);
 extern void tk_blit(const u_int8_t *fb, bool right);
 extern void tk_debug_draw(u_int x, u_int y, u_int32_t argb);
 extern void tk_debug_flip(void);

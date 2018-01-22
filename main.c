@@ -593,6 +593,8 @@ rom_unload(void)
 
 /* CPU */
 #if INTERFACE
+#	define CPU_INST_PER_USEC (1) //(20)
+
 	typedef u_int32_t cpu_regs_t[32];
 
 	union cpu_inst
@@ -1324,6 +1326,7 @@ cpu_exec(const union cpu_inst inst)
 		cpu_state.cs_r[0] = 0;
 		//debug_intr();
 	}
+	++main_stats.ms_insts;
 	return true;
 }
 
@@ -1484,14 +1487,14 @@ cpu_test(void)
 	cpu_reset();
 }
 
-void
+bool
 cpu_step(void)
 {
 	union cpu_inst inst;
 	if (!cpu_fetch(cpu_state.cs_pc, &inst))
 	{
 		fprintf(stderr, "TODO: bus error fetching inst from PC 0x%08x\n", cpu_state.cs_pc);
-		return;
+		return false;
 	}
 	u_int32_t old_pc = cpu_state.cs_pc;
 
@@ -1504,10 +1507,12 @@ cpu_step(void)
 	}
 
 	if (!cpu_exec(inst))
-		return;
+		return false;
 
 	if (cpu_state.cs_pc == old_pc)
 		cpu_state.cs_pc+= cpu_inst_size(&inst);
+
+	return true;
 }
 
 void
@@ -1532,6 +1537,8 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 			cpu_state.cs_psw.psw_flags.f_ae = 0;
 			cpu_state.cs_psw.psw_flags.f_i = MIN(level + 1, 15);
 			cpu_state.cs_pc = cpu_state.cs_ecr.ecr_eicc;
+
+			++main_stats.ms_intrs;
 		}
 	}
 }
@@ -2219,6 +2226,7 @@ vip_step(void)
 
 			// TODO: raise LFB_END
 			vip_disp_index = (vip_disp_index + 1) % 2;
+			++main_stats.ms_frames;
 		}
 	}
 
@@ -2384,8 +2392,6 @@ struct nvc_regs
 };
 
 #if INTERFACE
-	extern u_int nvc_usec;
-
 	enum nvc_intlevel
 	{
 		NVC_INTKEY = 0,
@@ -2396,14 +2402,11 @@ struct nvc_regs
 	};
 #endif // INTERFACE
 
-u_int nvc_usec;
 static struct nvc_regs nvc_regs;
 
 bool
 nvc_init(void)
 {
-	nvc_usec = 0;
-
 	debug_create_symbol("SCR", 0x02000028);
 	debug_create_symbol("WCR", 0x02000024);
 	debug_create_symbol("TCR", 0x02000020);
@@ -2444,12 +2447,12 @@ nvc_test(void)
 	assert(nvc_mem_emu2host(0x02000014, 1) == &(nvc_regs.nr_sdhr));
 }
 
-void
+bool
 nvc_step(void)
 {
 	if (nvc_regs.nr_scr.s_hw_si)
 	{
-		if ((nvc_usec % 512) == 0) // takes about 512 µs to read the controller data
+		if ((main_usec % 512) == 0) // takes about 512 µs to read the controller data
 		{
 			nvc_regs.nr_scr.s_si_stat = 1;
 
@@ -2460,11 +2463,11 @@ nvc_step(void)
 			nvc_regs.nr_scr.s_si_stat = 0;
 		}
 	}
-	for (u_int x = 0; x < 20; ++x)
-		cpu_step();
+	for (u_int x = 0; x < CPU_INST_PER_USEC; ++x)
+		if (!cpu_step())
+			return false;
 
-	if (++nvc_usec == 10000000)
-		nvc_usec = 0;
+	return true;
 }
 
 void *
@@ -3661,7 +3664,7 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	va_start(ap, fmt);
 	char trace[2048];
 	size_t offset;
-	offset = snprintf(trace, sizeof(trace), "@%07d [%s] ", nvc_usec, tag);
+	offset = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
 	vsnprintf(trace + offset, sizeof(trace) - offset, fmt, ap);
 	fputs(trace, stdout);
 	if (debug_trace_file)
@@ -3670,6 +3673,19 @@ debug_tracef(const char *tag, const char *fmt, ...)
 }
 
 /* MAIN */
+#if INTERFACE
+	struct main_stats_t
+	{
+		u_int32_t ms_start_ticks;
+		u_int ms_frames;
+		u_int ms_insts;
+		u_int ms_intrs;
+	};
+#endif // INTERFACE
+
+u_int32_t main_usec;
+struct main_stats_t main_stats;
+
 bool
 main_init(void)
 {
@@ -3688,34 +3704,82 @@ main_fini(void)
 	sram_fini();
 }
 
+static void
+main_restart_clock(void)
+{
+	u_int32_t ticks = tk_get_ticks();
+	if (main_stats.ms_insts > 0)
+	{
+		u_int32_t delta = ticks - main_stats.ms_start_ticks;
+		float fps = (float)main_stats.ms_frames / ((float)delta / 1000);
+		debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts\n",
+				main_stats.ms_frames, delta, fps,
+				main_stats.ms_insts,
+				main_stats.ms_intrs);
+	}
+
+	main_stats.ms_start_ticks = ticks;
+	main_stats.ms_frames = 0;
+	main_stats.ms_insts = 0;
+	main_stats.ms_intrs = 0;
+
+	main_usec = 0;
+}
+
 void
 main_reset(void)
 {
+	main_restart_clock();
+
 	vip_reset();
 	vsu_reset();
 	nvc_reset();
 }
 
-void
+bool
 main_step(void)
 {
 	vip_step();
 	vsu_step();
-	nvc_step();
-	tk_step();
-}
+	if (!nvc_step())
+		return false;
 
-static bool s_running = false;
+	if (++main_usec == 1000000)
+		main_restart_clock();
 
-void
-main_exit(void)
-{
-	s_running = false;
+	return true;
 }
 
 static void
 main_noop(int sig)
 {
+}
+
+void
+main_frame(void)
+{
+	while (main_step() && (main_usec % 20000) != 0)
+		;
+
+	// Check SIGINT -> Debugger
+	sigset_t sigpend;
+	sigpending(&sigpend);
+	if (sigismember(&sigpend, SIGINT))
+	{
+		sigprocmask(SIG_UNBLOCK, &sigpend, NULL);
+		signal(SIGINT, SIG_DFL);
+
+		putchar('\n');
+		debug_run();
+		signal(SIGINT, main_noop);
+		sigprocmask(SIG_BLOCK, &sigpend, NULL);
+	}
+}
+
+void
+main_exit(void)
+{
+	tk_running = false;
 }
 
 int
@@ -3769,7 +3833,7 @@ main(int ac, char * const *av)
 
 	main_reset();
 
-	s_running = true;
+	tk_running = true;
 
 	if (self_test)
 	{
@@ -3788,23 +3852,7 @@ main(int ac, char * const *av)
 	signal(SIGINT, main_noop);
 
 	sigprocmask(SIG_BLOCK, &sigset, NULL);
-	while (s_running)
-	{
-		main_step();
-
-		sigset_t sigpend;
-		sigpending(&sigpend);
-		if (sigismember(&sigpend, SIGINT))
-		{
-			sigprocmask(SIG_UNBLOCK, &sigpend, NULL);
-			signal(SIGINT, SIG_DFL);
-
-			putchar('\n');
-			debug_run();
-			signal(SIGINT, main_noop);
-			sigprocmask(SIG_BLOCK, &sigpend, NULL);
-		}
-	}
+	tk_main();
 	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
 	rom_unload();

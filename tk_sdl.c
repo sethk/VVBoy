@@ -2,6 +2,8 @@
 
 #include <SDL.h>
 
+bool tk_running = false;
+
 static SDL_Window *sdl_window;
 static SDL_Renderer *sdl_renderer;
 static SDL_Texture *sdl_texture;
@@ -14,15 +16,23 @@ static u_int32_t sdl_debug_frame[512 * 512];
 bool
 tk_init(void)
 {
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0)
 	{
 		fprintf(stderr, "SDL: Failed to initialize: %s", SDL_GetError());
 		return false;
 	}
 
-	if (SDL_CreateWindowAndRenderer(384 * 2, 224 * 2, 0, &sdl_window, &sdl_renderer) < 0)
+	if (!(sdl_window = SDL_CreateWindow("VVBoy",
+					SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+					384 * 2, 224 * 2,
+					0)))
 	{
-		fprintf(stderr, "SDL: Couldn't create window and renderer: %s", SDL_GetError());
+		fprintf(stderr, "SDL: Couldn't create window: %s", SDL_GetError());
+		return false;
+	}
+	if (!(sdl_renderer = SDL_CreateRenderer(sdl_window, -1, SDL_RENDERER_PRESENTVSYNC)))
+	{
+		fprintf(stderr, "SDL: Couldn't create renderer: %s", SDL_GetError());
 		return false;
 	}
 
@@ -39,13 +49,79 @@ tk_init(void)
 	return true;
 }
 
+u_int32_t
+tk_get_ticks(void)
+{
+	return SDL_GetTicks();
+}
+
+/*
 void
-tk_step(void)
+tk_delay(u_int ticks)
+{
+	SDL_Delay(ticks);
+}
+*/
+
+static Uint32
+tk_frame_tick(Uint32 interval, void *param)
 {
 	SDL_Event event;
-    while (SDL_PollEvent(&event))
+	SDL_UserEvent userevent;
+
+	userevent.type = SDL_USEREVENT;
+	userevent.code = 0;
+	userevent.data1 = NULL;
+	userevent.data2 = NULL;
+
+	event.type = SDL_USEREVENT;
+	event.user = userevent;
+
+	SDL_PushEvent(&event);
+
+	return 0;
+}
+
+void
+tk_frame(void)
+{
+	static Uint32 last_ticks = 0;
+	static float smooth_interval = 20;
+	static float smooth_jitter = 0;
+	Uint32 now = SDL_GetTicks();
+	if (last_ticks)
+	{
+		//static u_int trace = 0;
+		Sint32 jitter = 20 - (now - last_ticks);
+#define JITTER_LPF (0.1)
+		smooth_jitter = smooth_jitter * (1.0 - JITTER_LPF) + (float)jitter * JITTER_LPF;
+		smooth_interval = fminf(fmaxf(smooth_interval + smooth_jitter, 10), 25);
+
+		/*
+		if ((++trace % 20) == 0)
+			debug_tracef("sdl", "tk_frame_tick() smooth_interval = %g, jitter %d, smooth_jitter %g\n",
+					smooth_interval, jitter, smooth_jitter);
+					*/
+	}
+	last_ticks = now;
+
+	SDL_AddTimer(lroundf(smooth_interval), tk_frame_tick, NULL);
+
+	main_frame();
+}
+
+void
+tk_main(void)
+{
+	SDL_AddTimer(20, tk_frame_tick, NULL);
+
+	SDL_Event event;
+	while (tk_running && SDL_WaitEvent(&event))
 		switch (event.type)
 		{
+			case SDL_USEREVENT:
+				tk_frame();
+				break;
 			case SDL_QUIT:
 				main_exit();
 				break;
@@ -93,7 +169,8 @@ tk_blit(const u_int8_t *fb, bool right)
 			sdl_frame[y * 384 + x] = vip_fb_read_argb(fb, x, y);
 	SDL_UpdateTexture(sdl_texture, NULL, sdl_frame, 384 * sizeof(*sdl_frame));
 	SDL_RenderCopy(sdl_renderer, sdl_texture, NULL, NULL);
-	SDL_RenderPresent(sdl_renderer);
+	if (right)
+		SDL_RenderPresent(sdl_renderer);
 }
 
 void
