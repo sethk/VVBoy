@@ -55,14 +55,6 @@ tk_get_ticks(void)
 	return SDL_GetTicks();
 }
 
-/*
-void
-tk_delay(u_int ticks)
-{
-	SDL_Delay(ticks);
-}
-*/
-
 static Uint32
 tk_frame_tick(Uint32 interval, void *param)
 {
@@ -91,13 +83,13 @@ tk_frame(void)
 	Uint32 now = SDL_GetTicks();
 	if (last_ticks)
 	{
-		//static u_int trace = 0;
 		Sint32 jitter = 20 - (now - last_ticks);
 #define JITTER_LPF (0.1)
 		smooth_jitter = smooth_jitter * (1.0 - JITTER_LPF) + (float)jitter * JITTER_LPF;
 		smooth_interval = fminf(fmaxf(smooth_interval + smooth_jitter, 10), 25);
 
 		/*
+		//static u_int trace = 0;
 		if ((++trace % 20) == 0)
 			debug_tracef("sdl", "tk_frame_tick() smooth_interval = %g, jitter %d, smooth_jitter %g\n",
 					smooth_interval, jitter, smooth_jitter);
@@ -126,8 +118,26 @@ tk_main(void)
 				main_exit();
 				break;
 			case SDL_KEYDOWN:
+			case SDL_KEYUP:
+			{
+				bool state = (event.type == SDL_KEYUP);
 				switch (event.key.keysym.sym)
 				{
+					case SDLK_LSHIFT: nvc_input(KEY_LT, state); break;
+					case SDLK_w: nvc_input(KEY_LU, state); break;
+					case SDLK_a: nvc_input(KEY_LL, state); break;
+					case SDLK_s: nvc_input(KEY_LD, state); break;
+					case SDLK_d: nvc_input(KEY_LR, state); break;
+					case SDLK_QUOTE: nvc_input(KEY_SEL, state); break;
+					case SDLK_RETURN: nvc_input(KEY_STA, state); break;
+					case SDLK_RSHIFT: nvc_input(KEY_RT, state); break;
+					case SDLK_UP: nvc_input(KEY_RU, state); break;
+					case SDLK_LEFT: nvc_input(KEY_RL, state); break;
+					case SDLK_DOWN: nvc_input(KEY_RD, state); break;
+					case SDLK_RIGHT: nvc_input(KEY_RR, state); break;
+					case SDLK_RALT: nvc_input(KEY_A, state); break;
+					case SDLK_RGUI: nvc_input(KEY_B, state); break;
+
 					case SDLK_ESCAPE: debug_intr(); break;
 					case SDLK_F1: vip_toggle_world(31); break;
 					case SDLK_F2: vip_toggle_world(30); break;
@@ -142,23 +152,8 @@ tk_main(void)
 					case SDLK_F11: vip_toggle_world(21); break;
 					case SDLK_F12: vip_toggle_world(20); break;
 				}
+			}
 		}
-}
-
-enum tk_keys
-tk_poll(void)
-{
-	const Uint8 *sdl_keys = SDL_GetKeyboardState(NULL);
-	enum tk_keys tk_keys = 0;
-
-	if (sdl_keys[SDL_SCANCODE_LSHIFT])
-		tk_keys|= KEY_LT;
-	if (sdl_keys[SDL_SCANCODE_RSHIFT])
-		tk_keys|= KEY_RT;
-	if (sdl_keys[SDL_SCANCODE_RETURN])
-		tk_keys|= KEY_STA;
-
-	return tk_keys;
 }
 
 void

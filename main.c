@@ -2469,6 +2469,7 @@ nvc_reset(void)
 	nvc_regs.nr_scr.s_hw_si = 1;
 	nvc_regs.nr_scr.s_rfu1 = 1;
 	nvc_regs.nr_scr.s_rfu2 = 1;
+	nvc_keys = KEY_SGN;
 	// TODO: Initialize other NVC interval registers
 	cpu_reset();
 }
@@ -2486,24 +2487,35 @@ nvc_test(void)
 bool
 nvc_step(void)
 {
-	if (nvc_regs.nr_scr.s_hw_si)
-	{
-		if ((main_usec % 512) == 0) // takes about 512 µs to read the controller data
-		{
-			nvc_regs.nr_scr.s_si_stat = 1;
-
-			u_int16_t key_state = tk_poll() | KEY_PWR | KEY_SGN;
-			nvc_regs.nr_sdlr = key_state & 0xff;
-			nvc_regs.nr_sdhr = key_state >> 8;
-
-			nvc_regs.nr_scr.s_si_stat = 0;
-		}
-	}
 	for (u_int x = 0; x < CPU_INST_PER_USEC; ++x)
 		if (!cpu_step())
 			return false;
 
 	return true;
+}
+
+u_int16_t nvc_keys;
+
+void
+nvc_input(/*enum*/ tk_keys key, bool state)
+{
+	if (state)
+		nvc_keys|= key;
+	else
+		nvc_keys&= ~key;
+
+	//if ((main_usec % 512) == 0) // takes about 512 µs to read the controller data
+	if (nvc_regs.nr_scr.s_hw_si)
+	{
+		nvc_regs.nr_scr.s_si_stat = 1;
+
+		nvc_regs.nr_sdlr = nvc_keys & 0xff;
+		nvc_regs.nr_sdhr = nvc_keys >> 8;
+
+		nvc_regs.nr_scr.s_si_stat = 0;
+	}
+	//
+	// else TODO INTKEY
 }
 
 void *
