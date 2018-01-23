@@ -684,6 +684,26 @@ struct cpu_state
 
 static struct cpu_state cpu_state;
 
+enum cpu_bcond
+{
+	  BCOND_BV  = 0b0000,
+	  BCOND_BL  = 0b0001,
+	  BCOND_BZ  = 0b0010,
+	  BCOND_BNH = 0b0011,
+	  BCOND_BN  = 0b0100,
+	  BCOND_BR  = 0b0101,
+	  BCOND_BLT = 0b0110,
+	  BCOND_BLE = 0b0111,
+	  BCOND_BNV = 0b1000,
+	  BCOND_BNC = 0b1001,
+	  BCOND_BNZ = 0b1010,
+	  BCOND_BH  = 0b1011,
+	  BCOND_BP  = 0b1100,
+	  BCOND_NOP = 0b1101,
+	  BCOND_BGE = 0b1110,
+	  BCOND_BGT = 0b1111,
+};
+
 enum cpu_opcode
 {
 	OP_MOV   = 0b000000,
@@ -718,22 +738,6 @@ enum cpu_opcode
 	OP_SEI   = 0b011110,
 	OP_BSTR  = 0b011111,
 	OP_BCOND = 0b100,
-	  BCOND_BV  = 0b0000,
-	  BCOND_BL  = 0b0001,
-	  BCOND_BZ  = 0b0010,
-	  BCOND_BNH = 0b0011,
-	  BCOND_BN  = 0b0100,
-	  BCOND_BR  = 0b0101,
-	  BCOND_BLT = 0b0110,
-	  BCOND_BLE = 0b0111,
-	  BCOND_BNV = 0b1000,
-	  BCOND_BNC = 0b1001,
-	  BCOND_BNZ = 0b1010,
-	  BCOND_BH  = 0b1011,
-	  BCOND_BP  = 0b1100,
-	  BCOND_NOP = 0b1101,
-	  BCOND_BGE = 0b1110,
-	  BCOND_BGT = 0b1111,
 	OP_MOVEA = 0b101000,
 	OP_ADDI  = 0b101001,
 	OP_JR    = 0b101010,
@@ -761,12 +765,17 @@ enum cpu_opcode
 
 enum cpu_regid
 {
+	REGID_EIPC = 0,
+	REGID_EIPSW = 1,
+	REGID_FEPC = 2,
+	REGID_FEPSW = 3,
 	REGID_PSW = 5,
 	REGID_CHCW = 24
 };
 
 enum cpu_chcw_flags
 {
+	CPU_CHCW_ICC = (1 << 0),
 	CPU_CHCW_ICE = (1 << 1)
 };
 
@@ -851,6 +860,54 @@ cpu_extend5to16(u_int16_t s5)
 	return s5;
 }
 
+static bool
+cpu_getfl(enum cpu_bcond cond)
+{
+	switch (cond)
+	{
+		/*
+		BCOND_BV  = 0b0000,
+		*/
+		case BCOND_BL:
+			return cpu_state.cs_psw.psw_flags.f_cy;
+		case BCOND_BZ:
+			return cpu_state.cs_psw.psw_flags.f_z;
+		case BCOND_BNH:
+			return (cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
+		case BCOND_BN:
+			return cpu_state.cs_psw.psw_flags.f_s;
+		case BCOND_BR:
+			return true;
+		case BCOND_BLT:
+			return cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov;
+		case BCOND_BLE:
+			return ((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
+					cpu_state.cs_psw.psw_flags.f_z);
+		/*
+		BCOND_BNV = 0b1000,
+		*/
+		case BCOND_BNC:
+			return !cpu_state.cs_psw.psw_flags.f_cy;
+		case BCOND_BNZ:
+			return !cpu_state.cs_psw.psw_flags.f_z;
+		case BCOND_BH:
+			return !(cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
+		case BCOND_BP:
+			return !cpu_state.cs_psw.psw_flags.f_z;
+		case BCOND_NOP:
+			return false;
+		case BCOND_BGE:
+			return !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov);
+		case BCOND_BGT:
+			return !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
+					cpu_state.cs_psw.psw_flags.f_z);
+		default:
+			fputs("Handle branch cond\n", stderr);
+			debug_intr();
+			return false;
+	}
+}
+
 static void
 cpu_setfl_zs0(u_int32_t result)
 {
@@ -887,6 +944,46 @@ cpu_sub(u_int32_t left, u_int32_t right)
 	return result;
 }
 
+static u_int32_t
+cpu_shift_left(u_int32_t start, u_int32_t shift)
+{
+	u_int32_t result;
+	if (shift > 0)
+	{
+		result = start << shift;
+		cpu_state.cs_psw.psw_flags.f_cy = ((start >> (31 - shift)) & 1);
+	}
+	else
+	{
+		result = start;
+		cpu_state.cs_psw.psw_flags.f_cy = 0;
+	}
+	cpu_state.cs_psw.psw_flags.f_ov = 0;
+	cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+	return result;
+}
+
+static u_int32_t
+cpu_shift_right(u_int32_t start, u_int32_t shift)
+{
+	u_int32_t result;
+	if (shift)
+	{
+		result = start >> shift;
+		cpu_state.cs_psw.psw_flags.f_cy = ((start << (31 - shift)) & 1);
+	}
+	else
+	{
+		result = start;
+		cpu_state.cs_psw.psw_flags.f_cy = 0;
+	}
+	cpu_state.cs_psw.psw_flags.f_ov = 0;
+	cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
+	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+	return result;
+}
+
 static bool
 cpu_exec(const union cpu_inst inst)
 {
@@ -906,10 +1003,14 @@ cpu_exec(const union cpu_inst inst)
 		case OP_CMP:
 			cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
 			break;
-			/*
-	OP_SHL   = 0b000100,
-	OP_SHR   = 0b000101,
-	*/
+		case OP_SHL:
+			cpu_state.cs_r[inst.ci_i.i_reg2] =
+					cpu_shift_left(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1] & 0x1f);
+			break;
+		case OP_SHR:
+			cpu_state.cs_r[inst.ci_i.i_reg2] =
+					cpu_shift_right(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1] & 0x1f);
+			break;
 		case OP_JMP:
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
@@ -1025,9 +1126,11 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_add(cpu_state.cs_r[inst.ci_ii.ii_reg2], imm);
 			break;
 		}
-		/*
-	OP_SETF  = 0b010010,
-	*/
+		case OP_SETF:
+		{
+			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_getfl(inst.ci_ii.ii_imm5);
+			break;
+		}
 		case OP_CMP2:
 		{
 			u_int32_t imm = inst.ci_ii.ii_imm5;
@@ -1037,30 +1140,11 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 		case OP_SHL2:
-			if (inst.ci_ii.ii_imm5)
-			{
-				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
-				u_int32_t shift = inst.ci_ii.ii_imm5;
-				u_int32_t result = start << shift;
-				cpu_state.cs_psw.psw_flags.f_cy = ((start >> (31 - shift)) & 1);
-				cpu_state.cs_psw.psw_flags.f_ov = 0;
-				cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
-				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
-			}
+			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_shift_left(cpu_state.cs_r[inst.ci_ii.ii_reg2], inst.ci_ii.ii_imm5);
 			break;
 		case OP_SHR2:
-			if (inst.ci_ii.ii_imm5)
-			{
-				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
-				u_int32_t shift = inst.ci_ii.ii_imm5;
-				u_int32_t result = start >> shift;
-				cpu_state.cs_psw.psw_flags.f_cy = ((start << (31 - shift)) & 1);
-				cpu_state.cs_psw.psw_flags.f_ov = 0;
-				cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
-				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
-			}
+			cpu_state.cs_r[inst.ci_ii.ii_reg2] =
+					cpu_shift_right(cpu_state.cs_r[inst.ci_ii.ii_reg2], inst.ci_ii.ii_imm5);
 			break;
 		case OP_CLI:
 			cpu_state.cs_psw.psw_flags.f_id = 0;
@@ -1130,13 +1214,13 @@ cpu_exec(const union cpu_inst inst)
 				case REGID_CHCW:
 				{
 					u_int32_t chcw = cpu_state.cs_r[inst.ci_ii.ii_reg2];
-					if (chcw & ~CPU_CHCW_ICE)
+					if (chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE))
 					{
-						warnx("Unsupported CHCW commands");
-						debug_intr();
-						return false;
+						warnx("Unsupported CHCW commands 0x%x", chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE));
+						//debug_intr();
+						//return false;
 					}
-					cpu_state.cs_chcw = chcw;
+					cpu_state.cs_chcw = chcw & CPU_CHCW_ICE;
 					break;
 				}
 				default:
@@ -1148,6 +1232,15 @@ cpu_exec(const union cpu_inst inst)
 		case OP_STSR:
 			switch (inst.ci_ii.ii_imm5)
 			{
+				case REGID_EIPC:
+					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_eipc;
+					break;
+				case REGID_EIPSW:
+					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_eipsw.psw_word;
+					break;
+				case REGID_FEPC:
+					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_fepc;
+					break;
 				case REGID_PSW:
 					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_psw.psw_word;
 					break;
@@ -1219,6 +1312,7 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] | (inst.ci_v.v_imm16 << 16);
 			break;
 		case OP_LD_B:
+		case OP_IN_B:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int8_t value;
@@ -1231,6 +1325,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 		case OP_LD_H:
+		case OP_IN_H:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int16_t value;
@@ -1243,6 +1338,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 		case OP_LD_W:
+		case OP_IN_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r)))
@@ -1250,6 +1346,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 		case OP_ST_B:
+		case OP_OUT_B:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xff;
@@ -1258,6 +1355,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 		case OP_ST_H:
+		case OP_OUT_H:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xffff;
@@ -1266,6 +1364,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 		case OP_ST_W:
+		case OP_OUT_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
 			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2];
@@ -1274,76 +1373,13 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		}
 			 /*
-	OP_IN_B  = 0b111000,
-	OP_IN_H  = 0b111001,
 	OP_CAXI  = 0b111010,
-	OP_IN_W  = 0b111011,
-	OP_OUT_B = 0b111100,
-	OP_OUT_H = 0b111101,
 	OP_FLOAT = 0b111110,
-	OP_OUT_W = 0b111111
 	*/
 		default:
 			if (inst.ci_iii.iii_opcode == OP_BCOND)
 			{
-				bool branch;
-				switch (inst.ci_iii.iii_cond)
-				{
-					/*
-					BCOND_BV  = 0b0000,
-					*/
-					case BCOND_BL:
-						branch = cpu_state.cs_psw.psw_flags.f_cy;
-						break;
-					case BCOND_BZ:
-						branch = cpu_state.cs_psw.psw_flags.f_z;
-						break;
-					case BCOND_BNH:
-						branch = (cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
-						break;
-					case BCOND_BN:
-						branch = cpu_state.cs_psw.psw_flags.f_s;
-						break;
-					case BCOND_BR:
-						branch = true;
-						break;
-					case BCOND_BLT:
-						branch = cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov;
-						break;
-					case BCOND_BLE:
-						branch = ((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
-								cpu_state.cs_psw.psw_flags.f_z);
-						break;
-					/*
-					BCOND_BNV = 0b1000,
-					*/
-					case BCOND_BNC:
-						branch = !cpu_state.cs_psw.psw_flags.f_cy;
-						break;
-					case BCOND_BNZ:
-						branch = !cpu_state.cs_psw.psw_flags.f_z;
-						break;
-					case BCOND_BH:
-						branch = !(cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
-						break;
-					case BCOND_BP:
-						branch = !cpu_state.cs_psw.psw_flags.f_z;
-						break;
-					case BCOND_NOP:
-						branch = false;
-						break;
-					case BCOND_BGE:
-						branch = !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov);
-						break;
-					case BCOND_BGT:
-						branch = !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
-								cpu_state.cs_psw.psw_flags.f_z);
-						break;
-					default:
-						fputs("Handle branch cond\n", stderr);
-						debug_intr();
-						return false;
-				}
+				bool branch = cpu_getfl(inst.ci_iii.iii_cond);
 				if (branch)
 				{
 					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
@@ -2795,7 +2831,10 @@ debug_disasm_v(debug_str_t decode,
 	snprintf(decode, debug_str_len, "%s %hd, %s, %s",
 			mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 	if (regs)
-		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_v.v_imm16, regs[inst->ci_v.v_reg1], inst->ci_v.v_reg2);
+		snprintf(decomp, debug_str_len, decomp_fmt,
+				inst->ci_v.v_imm16,
+				regs[inst->ci_v.v_reg1],
+				debug_rnames[inst->ci_v.v_reg2]);
 }
 
 static void
@@ -2845,6 +2884,30 @@ debug_disasm_vi(debug_str_t decode,
 	}
 }
 
+static void
+debug_disasm_vi_fmt(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const char *decomp_fmt,
+		const cpu_regs_t regs)
+{
+	snprintf(decode, debug_str_len, "%s %hd[%s], %s",
+			mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
+	if (regs)
+	{
+		u_int32_t addr = regs[inst->ci_vi.vi_reg1] + inst->ci_vi.vi_disp16;
+		debug_str_t addr_s;
+		debug_format_addr(addr, addr_s);
+		snprintf(decomp, debug_str_len, decomp_fmt,
+				addr_s,
+				debug_rnames[inst->ci_vi.vi_reg1],
+				regs[inst->ci_vi.vi_reg1],
+				debug_rnames[inst->ci_vi.vi_reg2],
+				regs[inst->ci_vi.vi_reg2]);
+	}
+}
+
 static char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, debug_str_t dis)
 {
@@ -2880,7 +2943,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_STSR: mnemonic = "STSR"; break;
 		case OP_SEI: mnemonic = "SEI"; break;
 		case OP_MOVHI: mnemonic = "MOVHI"; break;
-		case OP_MOVEA: mnemonic = "MOVEA"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
 		case OP_JR: mnemonic = "JR"; break;
 		case OP_JAL: mnemonic = "JAL"; break;
@@ -2962,7 +3024,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_i_fmt(decode, decomp, inst, "OR", "0x%4$08x | 0x%2$08x", regs);
 			break;
 		case OP_MOV:
-			debug_disasm_i_fmt(decode, decomp, inst, "MOV", "r%3$u <- 0x%2$08x", regs);
+			debug_disasm_i_fmt(decode, decomp, inst, "MOV", "%3$s <- 0x%2$08x", regs);
 			break;
 		case OP_MULU:
 			debug_disasm_i_fmt(decode, decomp, inst, "MULU", "%4$u × %2$u", regs);
@@ -2989,6 +3051,30 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			if (regs)
 				snprintf(decomp, debug_str_len, "%d + %hi", regs[inst->ci_ii.ii_reg2], imm);
+			break;
+		}
+		case OP_SETF:
+		{
+			switch (inst->ci_ii.ii_imm5)
+			{
+				case BCOND_BV: mnemonic = "V"; break;
+				case BCOND_BL: mnemonic = "C/L"; break;
+				case BCOND_BZ: mnemonic = "Z"; break;
+				case BCOND_BNH: mnemonic = "NH"; break;
+				case BCOND_BN: mnemonic = "S/N"; break;
+				case BCOND_BR: mnemonic = "T"; break;
+				case BCOND_BLT: mnemonic = "LT"; break;
+				case BCOND_BLE: mnemonic = "LE"; break;
+				case BCOND_BNV: mnemonic = "NV"; break;
+				case BCOND_BNC: mnemonic = "NC/NL"; break;
+				case BCOND_BNZ: mnemonic = "NZ"; break;
+				case BCOND_BH: mnemonic = "H"; break;
+				case BCOND_BP: mnemonic = "NS/P"; break;
+				case BCOND_NOP: mnemonic = "F"; break;
+				case BCOND_BGE: mnemonic = "GE"; break;
+				case BCOND_BGT: mnemonic = "GT"; break;
+			}
+			debug_disasm_ii(decode, decomp, inst, "SETF", mnemonic, regs);
 			break;
 		}
 		case OP_MOV2:
@@ -3039,11 +3125,15 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			break;
 		}
 		case OP_ORI:
-			debug_disasm_v(decode, decomp, inst, "ORI", "0x%08x | 0x%04hx", regs);
+			debug_disasm_v(decode, decomp, inst, "ORI", "0x%2$08x | 0x%1$04hx", regs);
 			break;
 		case OP_MOVEA:
-		case OP_MOVHI:
+			debug_disasm_v(decode, decomp, inst, "MOVEA", "%3$s <- 0x%2$08x + extend(0x%1$04hx)", regs);
+			break;
 		case OP_ANDI:
+			debug_disasm_v(decode, decomp, inst, "ANDI", "0x%2$08x & 0x%1$04hx", regs);
+			break;
+		case OP_MOVHI:
 		case OP_XORI:
 			snprintf(decode, debug_str_len, "%s %hXh, %s, %s",
 					mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
@@ -3056,10 +3146,10 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_vi(decode, decomp, inst, "CAXI", regs);
 			break;
 		case OP_IN_B:
-			debug_disasm_vi(decode, decomp, inst, "IN.B", regs);
+			debug_disasm_vi_fmt(decode, decomp, inst, "IN.B", "%4$s <- 0x%3$04hhx", regs);
 			break;
 		case OP_IN_H:
-			debug_disasm_vi(decode, decomp, inst, "IN.H", regs);
+			debug_disasm_vi_fmt(decode, decomp, inst, "IN.H", "%4$s <- [%1$s]", regs);
 			break;
 		case OP_IN_W:
 			debug_disasm_vi(decode, decomp, inst, "IN.W", regs);
@@ -3439,7 +3529,7 @@ debug_run(void)
 					cpu_step();
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
-					static const char *fmt = "\t%5s: %s";
+					static const char *fmt = "\t%5s: %-26s";
 					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
