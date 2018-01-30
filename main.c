@@ -2508,6 +2508,7 @@ struct vsu_regs
 		unsigned vs_stop : 1 __attribute__((packed));
 		unsigned vs_unused : 7 __attribute__((packed));
 	} vr_sstop;
+	u_int8_t vr_regs2[0x7f];
 };
 
 static struct vsu_ram vsu_ram;
@@ -2516,6 +2517,8 @@ static struct vsu_regs vsu_regs;
 bool
 vsu_init(void)
 {
+	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80);
+	debug_create_symbol("SNDMOD", 0x01000280);
 	debug_create_symbol("SSTOP", 0x01000580);
 	// TODO
 	return true;
