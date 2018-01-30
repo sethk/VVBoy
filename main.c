@@ -2147,11 +2147,11 @@ vip_draw_finish(u_int fb_index)
 
 				int start_index;
 				if (obj_group > 0)
-					start_index = (vip_regs.vr_spt[obj_group - 1] + 1) % 1024;
+					start_index = (vip_regs.vr_spt[obj_group - 1] + 1) & 0x3ff;
 				else
 					start_index = 0;
 
-				for (int obj_index = vip_regs.vr_spt[obj_group]; obj_index >= start_index; --obj_index)
+				for (int obj_index = vip_regs.vr_spt[obj_group] & 0x3ff; obj_index >= start_index; --obj_index)
 				{
 					assert(obj_index >= 0 && obj_index < 1024);
 					struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
