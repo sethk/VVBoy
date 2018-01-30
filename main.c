@@ -1655,6 +1655,13 @@ cpu_test(void)
 bool
 cpu_step(void)
 {
+	if (!debugging && debug_break != 0xffffffff && cpu_state.cs_pc == debug_break)
+	{
+		fprintf(stderr, "Stopped at breakpoint\n");
+		debug_intr();
+		return false;
+	}
+
 	union cpu_inst inst;
 	if (!cpu_fetch(cpu_state.cs_pc, &inst))
 	{
@@ -2722,9 +2729,11 @@ nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	extern bool debug_trace_vip;
 #endif // INTERFACE
 
+bool debugging = false;
 bool debug_trace_cpu = false;
 bool debug_trace_vip = false;
 FILE *debug_trace_file = NULL;
+u_int32_t debug_break = 0xffffffff; //0x07001b40;
 
 static EditLine *s_editline;
 static History *s_history;
@@ -3533,8 +3542,6 @@ debug_disasm_at(u_int32_t *addrp)
 	*addrp+= cpu_inst_size(&inst);
 	return true;
 }
-
-static bool debugging = false;
 
 void
 debug_intr(void)
