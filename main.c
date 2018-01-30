@@ -605,7 +605,7 @@ rom_unload(void)
 #if INTERFACE
 #	define CPU_INST_PER_USEC (1) //(20)
 
-	typedef u_int32_t cpu_regs_t[32];
+	typedef union {u_int32_t u; int32_t s; float f;} cpu_regs_t[32];
 
 	union cpu_inst
 	{
@@ -792,7 +792,7 @@ enum cpu_chcw_flags
 bool
 cpu_init(void)
 {
-	cpu_state.cs_r[0] = 0; // Read-only
+	cpu_state.cs_r[0].u = 0; // Read-only
 
 	return true;
 }
@@ -1003,31 +1003,31 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_i.i_reg2] = cpu_state.cs_r[inst.ci_i.i_reg1];
 			break;
 		case OP_ADD:
-			cpu_state.cs_r[inst.ci_i.i_reg2] =
-					cpu_add(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
+			cpu_state.cs_r[inst.ci_i.i_reg2].u =
+					cpu_add(cpu_state.cs_r[inst.ci_i.i_reg2].u, cpu_state.cs_r[inst.ci_i.i_reg1].u);
 			break;
 		case OP_SUB:
-			cpu_state.cs_r[inst.ci_i.i_reg2] =
-					cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
+			cpu_state.cs_r[inst.ci_i.i_reg2].u =
+					cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2].u, cpu_state.cs_r[inst.ci_i.i_reg1].u);
 			break;
 		case OP_CMP:
-			cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1]);
+			cpu_sub(cpu_state.cs_r[inst.ci_i.i_reg2].u, cpu_state.cs_r[inst.ci_i.i_reg1].u);
 			break;
 		case OP_SHL:
-			cpu_state.cs_r[inst.ci_i.i_reg2] =
-					cpu_shift_left(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1] & 0x1f);
+			cpu_state.cs_r[inst.ci_i.i_reg2].u =
+					cpu_shift_left(cpu_state.cs_r[inst.ci_i.i_reg2].u, cpu_state.cs_r[inst.ci_i.i_reg1].u & 0x1f);
 			break;
 		case OP_SHR:
-			cpu_state.cs_r[inst.ci_i.i_reg2] =
-					cpu_shift_right(cpu_state.cs_r[inst.ci_i.i_reg2], cpu_state.cs_r[inst.ci_i.i_reg1] & 0x1f);
+			cpu_state.cs_r[inst.ci_i.i_reg2].u =
+					cpu_shift_right(cpu_state.cs_r[inst.ci_i.i_reg2].u, cpu_state.cs_r[inst.ci_i.i_reg1].u & 0x1f);
 			break;
 		case OP_JMP:
-			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1];
+			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			break;
 		case OP_SAR:
 		{
-			u_int32_t start = cpu_state.cs_r[inst.ci_i.i_reg2];
-			u_int32_t shift = cpu_state.cs_r[inst.ci_i.i_reg1] & 0x1f;
+			u_int32_t start = cpu_state.cs_r[inst.ci_i.i_reg2].u;
+			u_int32_t shift = cpu_state.cs_r[inst.ci_i.i_reg1].u & 0x1f;
 			u_int32_t result = start >> shift;
 			cpu_state.cs_psw.psw_flags.f_cy = ((start >> (shift - 1)) & 1);
 			cpu_state.cs_psw.psw_flags.f_ov = 0;
@@ -1039,85 +1039,84 @@ cpu_exec(const union cpu_inst inst)
 			else
 				cpu_state.cs_psw.psw_flags.f_s = 0;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_MUL:
 		{
-			int64_t result = (int64_t)(int32_t)cpu_state.cs_r[inst.ci_i.i_reg2] *
-					(int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			int64_t result = (int64_t)cpu_state.cs_r[inst.ci_i.i_reg2].s * cpu_state.cs_r[inst.ci_i.i_reg1].s;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit64) == sign_bit64);
 			u_int64_t signbits = result & sign_bits32to64;
 			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != sign_bits32to64);
-			cpu_state.cs_r[30] = (u_int64_t)result >> 32;
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result & 0xffffffff;
+			cpu_state.cs_r[30].u = (u_int64_t)result >> 32;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result & 0xffffffff;
 			break;
 		}
 		case OP_DIV:
 		{
 			// TODO: Divide by zero exception
-			int64_t left = (int32_t)cpu_state.cs_r[inst.ci_i.i_reg2],
-					right = (int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			int64_t left = cpu_state.cs_r[inst.ci_i.i_reg2].s,
+					right = cpu_state.cs_r[inst.ci_i.i_reg1].s;
 			int64_t result = left / right;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 			cpu_state.cs_psw.psw_flags.f_ov = (left < 0 && right < 0 && cpu_state.cs_psw.psw_flags.f_s);
-			cpu_state.cs_r[30] = left % right;
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[30].u = left % right;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_MULU:
 		{
-			u_int64_t result = (u_int64_t)cpu_state.cs_r[inst.ci_i.i_reg2] *
-					(u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int64_t result = (u_int64_t)cpu_state.cs_r[inst.ci_i.i_reg2].u *
+					(u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit64) == sign_bit64);
 			u_int64_t signbits = result & sign_bits32to64;
 			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != sign_bits32to64);
-			cpu_state.cs_r[30] = result >> 32;
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result & 0xffffffff;
+			cpu_state.cs_r[30].u = result >> 32;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result & 0xffffffff;
 			break;
 		}
 		case OP_DIVU:
 		{
 			// TODO: Divide by zero exception
-			u_int64_t left = (u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg2],
-					right = (u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int64_t left = cpu_state.cs_r[inst.ci_i.i_reg2].u,
+					right = cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			u_int64_t result = left / right;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
 			cpu_state.cs_psw.psw_flags.f_ov = 0;
-			cpu_state.cs_r[30] = left % right;
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[30].u = left % right;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_OR:
 		{
-			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] | cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2].u | cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_AND:
 		{
-			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] & cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2].u & cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_XOR:
 		{
-			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2] ^ cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int32_t result = cpu_state.cs_r[inst.ci_i.i_reg2].u ^ cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_NOT:
 		{
-			u_int32_t result = ~cpu_state.cs_r[inst.ci_i.i_reg1];
+			u_int32_t result = ~cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_i.i_reg2] = result;
+			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
 			break;
 		}
 		case OP_MOV2:
@@ -1125,7 +1124,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t imm = inst.ci_ii.ii_imm5;
 			if ((imm & 0b10000) == 0b10000)
 				imm|= 0xffffffe0;
-			cpu_state.cs_r[inst.ci_ii.ii_reg2] = imm;
+			cpu_state.cs_r[inst.ci_ii.ii_reg2].u = imm;
 			break;
 		}
 		case OP_ADD2:
@@ -1133,12 +1132,12 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t imm = inst.ci_ii.ii_imm5;
 			if ((imm & 0b10000) == 0b10000)
 				imm|= 0xffffffe0;
-			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_add(cpu_state.cs_r[inst.ci_ii.ii_reg2], imm);
+			cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_add(cpu_state.cs_r[inst.ci_ii.ii_reg2].u, imm);
 			break;
 		}
 		case OP_SETF:
 		{
-			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_getfl(inst.ci_ii.ii_imm5);
+			cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_getfl(inst.ci_ii.ii_imm5);
 			break;
 		}
 		case OP_CMP2:
@@ -1146,15 +1145,16 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t imm = inst.ci_ii.ii_imm5;
 			if ((imm & 0b10000) == 0b10000)
 				imm|= 0xffffffe0;
-			cpu_sub(cpu_state.cs_r[inst.ci_ii.ii_reg2], imm);
+			cpu_sub(cpu_state.cs_r[inst.ci_ii.ii_reg2].u, imm);
 			break;
 		}
 		case OP_SHL2:
-			cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_shift_left(cpu_state.cs_r[inst.ci_ii.ii_reg2], inst.ci_ii.ii_imm5);
+			cpu_state.cs_r[inst.ci_ii.ii_reg2].u =
+					cpu_shift_left(cpu_state.cs_r[inst.ci_ii.ii_reg2].u, inst.ci_ii.ii_imm5);
 			break;
 		case OP_SHR2:
-			cpu_state.cs_r[inst.ci_ii.ii_reg2] =
-					cpu_shift_right(cpu_state.cs_r[inst.ci_ii.ii_reg2], inst.ci_ii.ii_imm5);
+			cpu_state.cs_r[inst.ci_ii.ii_reg2].u =
+					cpu_shift_right(cpu_state.cs_r[inst.ci_ii.ii_reg2].u, inst.ci_ii.ii_imm5);
 			break;
 		case OP_CLI:
 			cpu_state.cs_psw.psw_flags.f_id = 0;
@@ -1162,7 +1162,7 @@ cpu_exec(const union cpu_inst inst)
 		case OP_SAR2:
 			if (inst.ci_ii.ii_imm5)
 			{
-				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+				u_int32_t start = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 				u_int32_t shift = inst.ci_ii.ii_imm5;
 				u_int32_t result = start >> shift;
 				cpu_state.cs_psw.psw_flags.f_cy = ((start >> (shift - 1)) & 1);
@@ -1175,7 +1175,7 @@ cpu_exec(const union cpu_inst inst)
 				else
 					cpu_state.cs_psw.psw_flags.f_s = 0;
 				cpu_state.cs_psw.psw_flags.f_z = (result == 0);
-				cpu_state.cs_r[inst.ci_ii.ii_reg2] = result;
+				cpu_state.cs_r[inst.ci_ii.ii_reg2].u = result;
 			}
 			break;
 			 /*
@@ -1207,23 +1207,23 @@ cpu_exec(const union cpu_inst inst)
 			switch (inst.ci_ii.ii_imm5)
 			{
 				case REGID_EIPC:
-					cpu_state.cs_eipc = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_eipc = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					break;
 				case REGID_EIPSW:
-					cpu_state.cs_eipsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_eipsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					break;
 				case REGID_FEPC:
-					cpu_state.cs_fepc = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_fepc = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					break;
 				case REGID_FEPSW:
-					cpu_state.cs_fepsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_fepsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					break;
 				case REGID_PSW:
-					cpu_state.cs_psw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					cpu_state.cs_psw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					break;
 				case REGID_CHCW:
 				{
-					u_int32_t chcw = cpu_state.cs_r[inst.ci_ii.ii_reg2];
+					u_int32_t chcw = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					if (chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE))
 					{
 						warnx("Unsupported CHCW commands 0x%x", chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE));
@@ -1243,16 +1243,16 @@ cpu_exec(const union cpu_inst inst)
 			switch (inst.ci_ii.ii_imm5)
 			{
 				case REGID_EIPC:
-					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_eipc;
+					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_eipc;
 					break;
 				case REGID_EIPSW:
-					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_eipsw.psw_word;
+					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_eipsw.psw_word;
 					break;
 				case REGID_FEPC:
-					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_fepc;
+					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_fepc;
 					break;
 				case REGID_PSW:
-					cpu_state.cs_r[inst.ci_ii.ii_reg2] = cpu_state.cs_psw.psw_word;
+					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_psw.psw_word;
 					break;
 				default:
 					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
@@ -1270,7 +1270,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t imm = inst.ci_v.v_imm16;
 			if ((imm & 0x8000) == 0x8000)
 				imm|= 0xffff0000;
-			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] + imm;
+			cpu_state.cs_r[inst.ci_v.v_reg2].s = cpu_state.cs_r[inst.ci_v.v_reg1].s + imm;
 			break;
 		}
 		case OP_ADDI:
@@ -1278,7 +1278,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t imm = inst.ci_v.v_imm16;
 			if ((imm & 0x8000) == 0x8000)
 				imm|= 0xffff0000;
-			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_add(cpu_state.cs_r[inst.ci_v.v_reg1], imm);
+			cpu_state.cs_r[inst.ci_v.v_reg2].u = cpu_add(cpu_state.cs_r[inst.ci_v.v_reg1].u, imm);
 			break;
 		}
 		/*
@@ -1293,64 +1293,65 @@ cpu_exec(const union cpu_inst inst)
 		case OP_JAL:
 		{
 			u_int32_t disp = cpu_inst_disp26(&inst);
-			cpu_state.cs_r[31] = cpu_state.cs_pc + 4;
+			cpu_state.cs_r[31].u = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
 			break;
 		}
 		case OP_ORI:
 		{
-			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] | inst.ci_v.v_imm16;
+			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u | inst.ci_v.v_imm16;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
 		}
 		case OP_ANDI:
 		{
-			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] & inst.ci_v.v_imm16;
+			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u & inst.ci_v.v_imm16;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
 		}
 		case OP_XORI:
 		{
-			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1] ^ inst.ci_v.v_imm16;
+			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u ^ inst.ci_v.v_imm16;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_v.v_reg2] = result;
+			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
 		}
 		case OP_MOVHI:
-			cpu_state.cs_r[inst.ci_v.v_reg2] = cpu_state.cs_r[inst.ci_v.v_reg1] | (inst.ci_v.v_imm16 << 16);
+			cpu_state.cs_r[inst.ci_v.v_reg2].u = cpu_state.cs_r[inst.ci_v.v_reg1].u | (inst.ci_v.v_imm16 << 16);
 			break;
 		case OP_LD_B:
 		case OP_IN_B:
 		{
-			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int8_t value;
 			if (!mem_read(addr, &value, sizeof(value)))
 				return false;
 			if ((value & 0x80) == 0x80)
-				cpu_state.cs_r[inst.ci_vi.vi_reg2] = 0xffffff00 | value;
+				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffffff00 | value;
 			else
-				cpu_state.cs_r[inst.ci_vi.vi_reg2] = value;
+				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
 			break;
 		}
 		case OP_LD_H:
 		case OP_IN_H:
 		{
-			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int16_t value;
 			if (!mem_read(addr, &value, sizeof(value)))
 				return false;
+			// TODO: Use (int16_t) here
 			if ((value & 0x8000) == 0x8000)
-				cpu_state.cs_r[inst.ci_vi.vi_reg2] = 0xffff0000 | value;
+				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffff0000 | value;
 			else
-				cpu_state.cs_r[inst.ci_vi.vi_reg2] = value;
+				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
 			break;
 		}
 		case OP_LD_W:
 		case OP_IN_W:
 		{
-			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r)))
 				return false;
 			break;
@@ -1358,8 +1359,8 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ST_B:
 		case OP_OUT_B:
 		{
-			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
-			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xff;
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
+			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xff;
 			if (!mem_write(addr, &value, sizeof(value)))
 				return false;
 			break;
@@ -1367,8 +1368,8 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ST_H:
 		case OP_OUT_H:
 		{
-			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
-			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2] & 0xffff;
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
+			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xffff;
 			if (!mem_write(addr, &value, sizeof(value)))
 				return false;
 			break;
@@ -1376,8 +1377,8 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ST_W:
 		case OP_OUT_W:
 		{
-			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1] + inst.ci_vi.vi_disp16;
-			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2];
+			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
+			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u;
 			if (!mem_write(addr, &value, sizeof(value)))
 				return false;
 			break;
@@ -1401,11 +1402,11 @@ cpu_exec(const union cpu_inst inst)
 			debug_intr();
 			return false;
 	}
-	//assert(!cpu_state.cs_r[0]);
-	if (cpu_state.cs_r[0])
+	//assert(!cpu_state.cs_r[0].u);
+	if (cpu_state.cs_r[0].s)
 	{
 		fputs("r0 written to with non-zero value\n", stderr);
-		cpu_state.cs_r[0] = 0;
+		cpu_state.cs_r[0].s = 0;
 		//debug_intr();
 	}
 	++main_stats.ms_insts;
@@ -1415,9 +1416,9 @@ cpu_exec(const union cpu_inst inst)
 static void
 cpu_assert_reg(const char *dis, unsigned reg, u_int32_t value)
 {
-	if (cpu_state.cs_r[reg] != value)
+	if (cpu_state.cs_r[reg].u != value)
 		fprintf(stderr, "*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x\n",
-				dis, debug_rnames[reg], cpu_state.cs_r[reg], value);
+				dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value);
 }
 
 static void
@@ -1457,9 +1458,9 @@ cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 {
 	union cpu_inst inst;
 	inst.ci_v.v_opcode = OP_ADD;
-	cpu_state.cs_r[7] = left;
+	cpu_state.cs_r[7].s = left;
 	inst.ci_v.v_reg2 = 7;
-	cpu_state.cs_r[6] = right;
+	cpu_state.cs_r[6].s = right;
 	inst.ci_v.v_reg1 = 6;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
@@ -1474,9 +1475,9 @@ cpu_test_sub(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 {
 	union cpu_inst inst;
 	inst.ci_i.i_opcode = OP_SUB;
-	cpu_state.cs_r[7] = left;
+	cpu_state.cs_r[7].s = left;
 	inst.ci_i.i_reg2 = 7;
-	cpu_state.cs_r[6] = right;
+	cpu_state.cs_r[6].s = right;
 	inst.ci_i.i_reg1 = 6;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
@@ -1490,11 +1491,11 @@ cpu_test_mul(int32_t left, int32_t right, u_int32_t result, bool overflow, bool 
 {
 	union cpu_inst inst;
 	inst.ci_i.i_opcode = OP_MUL;
-	cpu_state.cs_r[7] = left;
+	cpu_state.cs_r[7].s = left;
 	inst.ci_i.i_reg2 = 7;
-	cpu_state.cs_r[6] = right;
+	cpu_state.cs_r[6].s = right;
 	inst.ci_i.i_reg1 = 6;
-	cpu_state.cs_r[30] = 0xdeadc0de;
+	cpu_state.cs_r[30].u = 0xdeadc0de;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
 	cpu_assert_reg(dis, 7, result);
@@ -1508,11 +1509,11 @@ cpu_test_div(int32_t left, int32_t right, u_int32_t result, u_int32_t rem, bool 
 {
 	union cpu_inst inst;
 	inst.ci_i.i_opcode = OP_DIV;
-	cpu_state.cs_r[7] = left;
+	cpu_state.cs_r[7].s = left;
 	inst.ci_i.i_reg2 = 7;
-	cpu_state.cs_r[6] = right;
+	cpu_state.cs_r[6].s = right;
 	inst.ci_i.i_reg1 = 6;
-	cpu_state.cs_r[30] = 0xdeadc0de;
+	cpu_state.cs_r[30].u = 0xdeadc0de;
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
 	cpu_assert_reg(dis, 7, result);
@@ -2819,7 +2820,7 @@ debug_disasm_i(debug_str_t decode,
 			mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, "%i %s %i",
-				(int32_t)regs[inst->ci_i.i_reg2], op, (int32_t)regs[inst->ci_i.i_reg1]);
+				regs[inst->ci_i.i_reg2].s, op, regs[inst->ci_i.i_reg1].s);
 }
 
 static void
@@ -2881,7 +2882,7 @@ debug_disasm_vi(debug_str_t decode,
 			mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 	if (regs)
 	{
-		u_int32_t addr = regs[inst->ci_vi.vi_reg1] + inst->ci_vi.vi_disp16;
+		u_int32_t addr = regs[inst->ci_vi.vi_reg1].u + inst->ci_vi.vi_disp16;
 		debug_str_t addr_s;
 		debug_format_addr(addr, addr_s);
 		switch (inst->ci_vi.vi_opcode)
@@ -2897,19 +2898,19 @@ debug_disasm_vi(debug_str_t decode,
 				break;
 			case OP_ST_B:
 			{
-				u_int8_t value = regs[inst->ci_vi.vi_reg2] & 0xff;
+				u_int8_t value = regs[inst->ci_vi.vi_reg2].u & 0xff;
 				snprintf(decomp, debug_str_len, "[%s] <- 0x%02hhx", addr_s, value);
 				break;
 			}
 			case OP_ST_H:
 			{
-				u_int16_t value = regs[inst->ci_vi.vi_reg2] & 0xffff;
+				u_int16_t value = regs[inst->ci_vi.vi_reg2].u & 0xffff;
 				snprintf(decomp, debug_str_len, "[%s] <- 0x%04hx", addr_s, value);
 				break;
 			}
 			case OP_ST_W:
 			{
-				u_int32_t value = regs[inst->ci_vi.vi_reg2];
+				u_int32_t value = regs[inst->ci_vi.vi_reg2].u;
 				snprintf(decomp, debug_str_len, "[%s] <- 0x%08x", addr_s, value);
 				break;
 			}
@@ -2929,15 +2930,15 @@ debug_disasm_vi_fmt(debug_str_t decode,
 			mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 	if (regs)
 	{
-		u_int32_t addr = regs[inst->ci_vi.vi_reg1] + inst->ci_vi.vi_disp16;
+		u_int32_t addr = regs[inst->ci_vi.vi_reg1].u + inst->ci_vi.vi_disp16;
 		debug_str_t addr_s;
 		debug_format_addr(addr, addr_s);
 		snprintf(decomp, debug_str_len, decomp_fmt,
 				addr_s,
 				debug_rnames[inst->ci_vi.vi_reg1],
-				regs[inst->ci_vi.vi_reg1],
+				regs[inst->ci_vi.vi_reg1].u,
 				debug_rnames[inst->ci_vi.vi_reg2],
-				regs[inst->ci_vi.vi_reg2]);
+				regs[inst->ci_vi.vi_reg2].u);
 	}
 }
 
@@ -3019,15 +3020,16 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (regs)
 				snprintf(decomp, debug_str_len, "%i × %i",
-						(int32_t)regs[inst->ci_i.i_reg1], (int32_t)regs[inst->ci_i.i_reg2]);
+						regs[inst->ci_i.i_reg1].s, regs[inst->ci_i.i_reg2].s);
 			break;
 		case OP_SUB:
 			snprintf(decode, debug_str_len, "%s %s, %s",
 					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (regs)
+				// TODO: use positional parameters
 				snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
-						(int32_t)regs[inst->ci_i.i_reg2], (int32_t)regs[inst->ci_i.i_reg1],
-						regs[inst->ci_i.i_reg2], regs[inst->ci_i.i_reg1]);
+						regs[inst->ci_i.i_reg2].s, regs[inst->ci_i.i_reg1].s,
+						regs[inst->ci_i.i_reg2].u, regs[inst->ci_i.i_reg1].u);
 			break;
 		case OP_ADD:
 			debug_disasm_i(decode, decomp, inst, "ADD", "+", regs);
@@ -3075,7 +3077,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			{
 				debug_str_t addr_s;
 				snprintf(decomp, debug_str_len, "pc <- %s",
-						debug_format_addr(regs[inst->ci_i.i_reg1], addr_s));
+						debug_format_addr(regs[inst->ci_i.i_reg1].u, addr_s));
 			}
 			break;
 		case OP_ADD2:
@@ -3083,7 +3085,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
 			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			if (regs)
-				snprintf(decomp, debug_str_len, "%d + %hi", regs[inst->ci_ii.ii_reg2], imm);
+				snprintf(decomp, debug_str_len, "%d + %hi", regs[inst->ci_ii.ii_reg2].s, imm);
 			break;
 		}
 		case OP_SETF:
@@ -3121,7 +3123,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
 			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			if (regs)
-				snprintf(decomp, debug_str_len, "%d <=> %hi", regs[inst->ci_ii.ii_reg2], imm);
+				snprintf(decomp, debug_str_len, "%d <=> %hi", regs[inst->ci_ii.ii_reg2].s, imm);
 			break;
 		}
 		case OP_RETI:
@@ -3314,7 +3316,7 @@ static bool
 debug_parse_addr(const char *s, u_int32_t *addrp)
 {
 	size_t len = strlen(s);
-	int base, disp = 0;
+	u_int32_t base, disp = 0;
 	int reg_num;
 	int nparsed;
 
@@ -3323,8 +3325,8 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		base = cpu_state.cs_pc;
 	else if ((sscanf(s, "%i[r%2d]%n", &disp, &reg_num, &nparsed) == 2 && nparsed == len) ||
 			(sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
-		base = cpu_state.cs_r[reg_num & 0x1f];
-	else if (sscanf(s, "%i%n", &base, &nparsed) == 1 && nparsed == len)
+		base = cpu_state.cs_r[reg_num & 0x1f].u;
+	else if (sscanf(s, "%u%n", &base, &nparsed) == 1 && nparsed == len)
 		disp = 0;
 	else
 	{
@@ -3566,8 +3568,8 @@ debug_run(void)
 					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
-						printf(fmt, debug_rnames[regIndex], debug_format_addr(cpu_state.cs_r[regIndex], addr_s));
-						printf(" (%11i)", cpu_state.cs_r[regIndex]);
+						printf(fmt, debug_rnames[regIndex], debug_format_addr(cpu_state.cs_r[regIndex].u, addr_s));
+						printf(" (%11i, %g)", cpu_state.cs_r[regIndex].s, cpu_state.cs_r[regIndex].f);
 						if (regIndex % 2 == 1)
 							putchar('\n');
 					}
