@@ -695,6 +695,14 @@ rom_unload(void)
 			u_int vi_opcode : 6;
 			int16_t vi_disp16;
 		} ci_vi;
+		struct
+		{
+			u_int vii_reg1 : 5;
+			u_int vii_reg2 : 5;
+			u_int vii_opcode : 6;
+			u_int vii_rfu : 10;
+			u_int vii_subop : 6;
+		};
 	};
 #endif // INTERFACE
 
@@ -740,26 +748,6 @@ struct cpu_state
 };
 
 static struct cpu_state cpu_state;
-
-enum cpu_bcond
-{
-	  BCOND_BV  = 0b0000,
-	  BCOND_BL  = 0b0001,
-	  BCOND_BZ  = 0b0010,
-	  BCOND_BNH = 0b0011,
-	  BCOND_BN  = 0b0100,
-	  BCOND_BR  = 0b0101,
-	  BCOND_BLT = 0b0110,
-	  BCOND_BLE = 0b0111,
-	  BCOND_BNV = 0b1000,
-	  BCOND_BNC = 0b1001,
-	  BCOND_BNZ = 0b1010,
-	  BCOND_BH  = 0b1011,
-	  BCOND_BP  = 0b1100,
-	  BCOND_NOP = 0b1101,
-	  BCOND_BGE = 0b1110,
-	  BCOND_BGT = 0b1111,
-};
 
 enum cpu_opcode
 {
@@ -816,8 +804,27 @@ enum cpu_opcode
 	OP_OUT_B = 0b111100,
 	OP_OUT_H = 0b111101,
 	OP_FLOAT = 0b111110,
-	// TODO: Nintendo extra instructions
 	OP_OUT_W = 0b111111
+};
+
+enum cpu_bcond
+{
+	  BCOND_BV  = 0b0000,
+	  BCOND_BL  = 0b0001,
+	  BCOND_BZ  = 0b0010,
+	  BCOND_BNH = 0b0011,
+	  BCOND_BN  = 0b0100,
+	  BCOND_BR  = 0b0101,
+	  BCOND_BLT = 0b0110,
+	  BCOND_BLE = 0b0111,
+	  BCOND_BNV = 0b1000,
+	  BCOND_BNC = 0b1001,
+	  BCOND_BNZ = 0b1010,
+	  BCOND_BH  = 0b1011,
+	  BCOND_BP  = 0b1100,
+	  BCOND_NOP = 0b1101,
+	  BCOND_BGE = 0b1110,
+	  BCOND_BGT = 0b1111,
 };
 
 enum cpu_regid
@@ -834,6 +841,20 @@ enum cpu_chcw_flags
 {
 	CPU_CHCW_ICC = (1 << 0),
 	CPU_CHCW_ICE = (1 << 1)
+};
+
+enum float_subop
+{
+	FLOAT_CMPF_S =  0b000000,
+	FLOAT_CVT_WS =  0b000010,
+	FLOAT_CVT_SW =  0b000011,
+	FLOAT_ADDF_S =  0b000100,
+	FLOAT_SUBF_S =  0b000101,
+	FLOAT_MULF_S =  0b000110,
+	FLOAT_DIVF_S =  0b000111,
+	FLOAT_XB =      0b001000,
+	FLOAT_XH =      0b001001,
+	FLOAT_TRNC_SW = 0b001011,
 };
 
 bool
@@ -1432,8 +1453,21 @@ cpu_exec(const union cpu_inst inst)
 		}
 			 /*
 	OP_CAXI  = 0b111010,
-	OP_FLOAT = 0b111110,
 	*/
+		case OP_FLOAT:
+			switch (inst.vii_subop)
+			{
+				case FLOAT_CVT_WS:
+					cpu_state.cs_r[inst.vii_reg2].f = (float)cpu_state.cs_r[inst.vii_reg1].s;
+					if ((int32_t)cpu_state.cs_r[inst.vii_reg2].f != cpu_state.cs_r[inst.vii_reg1].s)
+						cpu_state.cs_psw.psw_flags.f_fpr = 1;
+					break;
+				default:
+					fputs("TODO: execute instruction\n", stderr);
+					debug_intr();
+					return false;
+			}
+			break;
 		default:
 			if (inst.ci_iii.iii_opcode == OP_BCOND)
 			{
@@ -3002,6 +3036,35 @@ debug_disasm_vi_fmt(debug_str_t decode,
 	}
 }
 
+static void
+debug_disasm_vii(debug_str_t decode,
+		debug_str_t decomp,
+		const union cpu_inst *inst,
+		const char *mnemonic,
+		const char *decomp_fmt,
+		const cpu_regs_t regs)
+{
+	const char *fmt;
+	switch (inst->vii_subop)
+	{
+		default:
+			fmt = "%s %s, %s";
+			break;
+		case FLOAT_XB:
+		case FLOAT_XH:
+			fmt = "%s %3$s";
+			break;
+	}
+
+	snprintf(decode, debug_str_len, fmt, mnemonic, debug_rnames[inst->vii_reg1], debug_rnames[inst->vii_reg2]);
+	if (regs)
+		snprintf(decomp, debug_str_len, decomp_fmt,
+				debug_rnames[inst->vii_reg1],
+				regs[inst->vii_reg1].f,
+				debug_rnames[inst->vii_reg2],
+				regs[inst->vii_reg2].f);
+}
+
 static char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, debug_str_t dis)
 {
@@ -3276,6 +3339,45 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_ST_W:
 			debug_disasm_vi(decode, decomp, inst, "ST.W", regs);
 			break;
+		case OP_FLOAT:
+		{
+			switch (inst->vii_subop)
+			{
+				case FLOAT_CMPF_S:
+					debug_disasm_vii(decode, decomp, inst, "CMPF.S", "%4$g <=> %2$g", regs);
+					break;
+				case FLOAT_CVT_WS:
+					debug_disasm_vii(decode, decomp, inst, "CVT.WS", "%3$s <- (float)%2$g", regs);
+					break;
+				case FLOAT_CVT_SW:
+					debug_disasm_vii(decode, decomp, inst, "CVT.SW", "%3$s <- lround(%2$g)", regs);
+					break;
+				case FLOAT_ADDF_S:
+					debug_disasm_vii(decode, decomp, inst, "ADDF.S", "%4$g + %2$g", regs);
+					break;
+				case FLOAT_SUBF_S:
+					debug_disasm_vii(decode, decomp, inst, "SUBF.S", "%4$g - %2$g", regs);
+					break;
+				case FLOAT_MULF_S:
+					debug_disasm_vii(decode, decomp, inst, "MULF.S", "%4$g × %2$g", regs);
+					break;
+				case FLOAT_DIVF_S:
+					debug_disasm_vii(decode, decomp, inst, "DIVF.S", "%4$g ÷ %2$g", regs);
+					break;
+				case FLOAT_XB:
+					debug_disasm_vii(decode, decomp, inst, "XB", "%3$s[4,3,2,1] = %3$s[4,3,1,2]", regs);
+					break;
+				case FLOAT_XH:
+					debug_disasm_vii(decode, decomp, inst, "XH", "%3$s[4,3,2,1] = %3$s[2,1,4,3]", regs);
+					break;
+				case FLOAT_TRNC_SW:
+					debug_disasm_vii(decode, decomp, inst, "TRNC.SW", "%3$s <- (int32_t)%4$g", regs);
+					break;
+				default:
+					snprintf(decode, debug_str_len, "TODO: FLOAT %s", debug_format_binary(inst->vii_subop, 6));
+			}
+			break;
+		}
 		default:
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
 			{
@@ -3634,12 +3736,12 @@ debug_run(void)
 					cpu_step();
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
-					static const char *fmt = "\t%5s: %-26s";
+					static const char *fmt = "%5s: %-26s";
 					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
 						printf(fmt, debug_rnames[regIndex], debug_format_addr(cpu_state.cs_r[regIndex].u, addr_s));
-						printf(" (%11i, %g)", cpu_state.cs_r[regIndex].s, cpu_state.cs_r[regIndex].f);
+						printf(" (%11i, %11g)", cpu_state.cs_r[regIndex].s, cpu_state.cs_r[regIndex].f);
 						if (regIndex % 2 == 1)
 							putchar('\n');
 					}
