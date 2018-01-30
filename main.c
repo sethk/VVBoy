@@ -2675,13 +2675,16 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 	{
 		nvc_regs.nr_scr.s_si_stat = 1;
 
+		u_int32_t old_nvc_keys = (nvc_regs.nr_sdhr << 8) | nvc_regs.nr_sdlr;
+		bool raise_intr = state && !nvc_regs.nr_scr.s_k_int_inh && !(old_nvc_keys & key);
 		nvc_regs.nr_sdlr = nvc_keys & 0xff;
 		nvc_regs.nr_sdhr = nvc_keys >> 8;
 
 		nvc_regs.nr_scr.s_si_stat = 0;
+
+		if (raise_intr)
+			cpu_intr(NVC_INTKEY);
 	}
-	//
-	// else TODO INTKEY
 }
 
 void *
