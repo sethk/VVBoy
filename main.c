@@ -151,7 +151,7 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 	const void *src = NULL;
 
 	if (seg == MEM_SEG_VIP)
-		src = vip_mem_emu2host(addr, size);
+		src = vip_mem_emu2host(addr, size, false);
 	else if (seg == MEM_SEG_VSU)
 		src = vsu_mem_emu2host(addr, size);
 	else if (seg == MEM_SEG_NVC)
@@ -202,7 +202,7 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	void *dest = NULL;
 
 	if (seg == MEM_SEG_VIP)
-		dest = vip_mem_emu2host(addr, size);
+		dest = vip_mem_emu2host(addr, size, true);
 	else if (seg == MEM_SEG_VSU)
 		dest = vsu_mem_emu2host(addr, size);
 	else if (seg == MEM_SEG_NVC)
@@ -243,6 +243,16 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 		default:
 			bcopy(src, dest, size);
 			return true;
+	}
+}
+
+void
+mem_test_size(char *name, size_t size, size_t expected)
+{
+	if (expected != size)
+	{
+		fprintf(stderr, "sizeof(%s) is %lu but should be %lu\n", name, size, expected);
+		abort();
 	}
 }
 
@@ -2315,8 +2325,21 @@ vip_fini(void)
 }
 
 void *
-vip_mem_emu2host(u_int32_t addr, size_t size)
+vip_mem_emu2host(u_int32_t addr, size_t size, bool write)
 {
+	if (addr & 0x00f80000)
+	{
+		u_int32_t mirror = addr & 0x7ffff;
+		debug_tracef("vip", "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror);
+		addr = mirror;
+	}
+	else if (addr >= 0x40000 && addr < 0x60000 && (addr & 0x5ff00) != 0x5f800)
+	{
+		u_int32_t mirror = 0x5f800 | (addr & 0x7f);
+		debug_tracef("vip", "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror);
+		addr = mirror;
+	}
+
 	// TODO: Set read/write permissions
 	if (addr < 0x20000)
 		return (u_int8_t *)&vip_vrm + addr;
@@ -2326,14 +2349,24 @@ vip_mem_emu2host(u_int32_t addr, size_t size)
 	{
 		if (size & 1)
 		{
-			fprintf(stderr, "Invalid VIP access size %lu\n", size);
-			return NULL;
+			debug_tracef("vip", "Invalid VIP access size %lu\n", size);
+			//return NULL;
 		}
 		if (addr & 1)
 		{
 			fprintf(stderr, "VIP address alignment error at 0x%08x\n", addr);
-			return NULL;
+			//return NULL;
 		}
+
+		u_int reg_num = (addr & 0x7f) >> 1;
+		u_int16_t *regp = (u_int16_t *)&vip_regs + reg_num;
+		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (addr & 0x7e)));
+		if (write && (struct vip_dpctrl *)regp == &(vip_regs.vr_dpstts))
+		{
+			fprintf(stderr, "Cannot write DPSTTS reg\n");
+			return false;
+		}
+
 		return (u_int8_t *)&vip_regs + (addr & 0x7e);
 	}
 	else if (addr >= 0x78000 && addr < 0x7a000)
@@ -2358,14 +2391,14 @@ vip_test(void)
 	assert(sizeof(vip_dram) == 0x20000);
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
-	assert(vip_mem_emu2host(0x24000, 4) == &(vip_dram.vd_shared.s_bgsegs[2]));
-	assert(vip_mem_emu2host(0x3d800, 4) == &(vip_dram.vd_world_atts));
-	assert(vip_mem_emu2host(0x3e000, 8) == &(vip_dram.vd_oam));
-	assert(vip_mem_emu2host(0x5f800, 2) == &(vip_regs.vr_intpnd));
-	assert(vip_mem_emu2host(0x5f820, 2) == &(vip_regs.vr_dpstts));
-	assert(vip_mem_emu2host(0x5f870, 2) == &(vip_regs.vr_bkcol));
-	assert(vip_mem_emu2host(0x78000, 2) == &(vip_vrm.vv_chr0));
-	assert(vip_mem_emu2host(0x7e000, 2) == &(vip_vrm.vv_chr3));
+	assert(vip_mem_emu2host(0x24000, 4, true) == &(vip_dram.vd_shared.s_bgsegs[2]));
+	assert(vip_mem_emu2host(0x3d800, 4, true) == &(vip_dram.vd_world_atts));
+	assert(vip_mem_emu2host(0x3e000, 8, true) == &(vip_dram.vd_oam));
+	assert(vip_mem_emu2host(0x5f800, 2, true) == &(vip_regs.vr_intpnd));
+	assert(vip_mem_emu2host(0x5f820, 2, false) == &(vip_regs.vr_dpstts));
+	assert(vip_mem_emu2host(0x5f870, 2, true) == &(vip_regs.vr_bkcol));
+	assert(vip_mem_emu2host(0x78000, 2, true) == &(vip_vrm.vv_chr0));
+	assert(vip_mem_emu2host(0x7e000, 2, true) == &(vip_vrm.vv_chr3));
 }
 
 void
@@ -2560,8 +2593,8 @@ nvc_mem_emu2host(u_int32_t addr, size_t size)
 	// TODO: Set read/write permissions
 	if (size != 1)
 	{
-		fprintf(stderr, "Invalid NVC access size %lu\n", size);
-		return NULL;
+		fprintf(stderr, "Invalid NVC access size %lu @ 0x%08x\n", size, addr);
+		//return NULL;
 	}
 	if (addr <= 0x02000028)
 		return (u_int8_t *)&nvc_regs + (addr & 0xff);
