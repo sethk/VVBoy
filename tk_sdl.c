@@ -121,36 +121,39 @@ tk_main(void)
 			case SDL_KEYUP:
 			{
 				bool state = (event.type == SDL_KEYUP);
-				switch (event.key.keysym.sym)
+				switch (event.key.keysym.scancode)
 				{
-					case SDLK_LSHIFT: nvc_input(KEY_LT, state); break;
-					case SDLK_w: nvc_input(KEY_LU, state); break;
-					case SDLK_a: nvc_input(KEY_LL, state); break;
-					case SDLK_s: nvc_input(KEY_LD, state); break;
-					case SDLK_d: nvc_input(KEY_LR, state); break;
-					case SDLK_QUOTE: nvc_input(KEY_SEL, state); break;
-					case SDLK_RETURN: nvc_input(KEY_STA, state); break;
-					case SDLK_RSHIFT: nvc_input(KEY_RT, state); break;
-					case SDLK_UP: nvc_input(KEY_RU, state); break;
-					case SDLK_LEFT: nvc_input(KEY_RL, state); break;
-					case SDLK_DOWN: nvc_input(KEY_RD, state); break;
-					case SDLK_RIGHT: nvc_input(KEY_RR, state); break;
-					case SDLK_RALT: nvc_input(KEY_A, state); break;
-					case SDLK_RGUI: nvc_input(KEY_B, state); break;
+					case SDL_SCANCODE_LSHIFT: nvc_input(KEY_LT, state); break;
+					case SDL_SCANCODE_W: nvc_input(KEY_LU, state); break;
+					case SDL_SCANCODE_A: nvc_input(KEY_LL, state); break;
+					case SDL_SCANCODE_S: nvc_input(KEY_LD, state); break;
+					case SDL_SCANCODE_D: nvc_input(KEY_LR, state); break;
+					case SDL_SCANCODE_APOSTROPHE: nvc_input(KEY_SEL, state); break;
+					case SDL_SCANCODE_RETURN: nvc_input(KEY_STA, state); break;
+					case SDL_SCANCODE_RSHIFT: nvc_input(KEY_RT, state); break;
+					case SDL_SCANCODE_UP: nvc_input(KEY_RU, state); break;
+					case SDL_SCANCODE_LEFT: nvc_input(KEY_RL, state); break;
+					case SDL_SCANCODE_DOWN: nvc_input(KEY_RD, state); break;
+					case SDL_SCANCODE_RIGHT: nvc_input(KEY_RR, state); break;
+					case SDL_SCANCODE_RALT: nvc_input(KEY_A, state); break;
+					case SDL_SCANCODE_RGUI: nvc_input(KEY_B, state); break;
 
-					case SDLK_ESCAPE: debug_intr(); break;
-					case SDLK_F1: vip_toggle_world(31); break;
-					case SDLK_F2: vip_toggle_world(30); break;
-					case SDLK_F3: vip_toggle_world(29); break;
-					case SDLK_F4: vip_toggle_world(28); break;
-					case SDLK_F5: vip_toggle_world(27); break;
-					case SDLK_F6: vip_toggle_world(26); break;
-					case SDLK_F7: vip_toggle_world(25); break;
-					case SDLK_F8: vip_toggle_world(24); break;
-					case SDLK_F9: vip_toggle_world(23); break;
-					case SDLK_F10: vip_toggle_world(22); break;
-					case SDLK_F11: vip_toggle_world(21); break;
-					case SDLK_F12: vip_toggle_world(20); break;
+					case SDL_SCANCODE_ESCAPE: debug_intr(); break;
+					case SDL_SCANCODE_F1: vip_toggle_world(31); break;
+					case SDL_SCANCODE_F2: vip_toggle_world(30); break;
+					case SDL_SCANCODE_F3: vip_toggle_world(29); break;
+					case SDL_SCANCODE_F4: vip_toggle_world(28); break;
+					case SDL_SCANCODE_F5: vip_toggle_world(27); break;
+					case SDL_SCANCODE_F6: vip_toggle_world(26); break;
+					case SDL_SCANCODE_F7: vip_toggle_world(25); break;
+					case SDL_SCANCODE_F8: vip_toggle_world(24); break;
+					case SDL_SCANCODE_F9: vip_toggle_world(23); break;
+					case SDL_SCANCODE_F10: vip_toggle_world(22); break;
+					case SDL_SCANCODE_F11: vip_toggle_world(21); break;
+					case SDL_SCANCODE_F12: vip_toggle_world(20); break;
+
+					default:
+						;
 				}
 			}
 		}
