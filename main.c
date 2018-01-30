@@ -1253,8 +1253,9 @@ cpu_exec(const union cpu_inst inst)
 			if (!cpu_state.cs_psw.psw_flags.f_ep)
 			{
 				warnx("Tried to return from interrupt/exception while EP=0");
-				debug_intr();
-				return false;
+				//debug_intr();
+				//return false;
+				break;
 			}
 
 			if (cpu_state.cs_psw.psw_flags.f_np)
