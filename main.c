@@ -42,6 +42,7 @@
 		u_int8_t *ms_ptr;
 		u_int32_t ms_addrmask;
 		bool ms_is_mmap;
+		int ms_perms; // PROT_* from <sys/mman.h>
 	}
 #endif // INTERFACE
 
@@ -67,7 +68,7 @@ validate_seg_size(size_t size)
 }
 
 static bool
-mem_seg_alloc(/*enum*/ mem_segment seg, size_t size)
+mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
 {
 	assert(validate_seg_size(size));
 	mem_segs[seg].ms_ptr = malloc(size);
@@ -78,6 +79,7 @@ mem_seg_alloc(/*enum*/ mem_segment seg, size_t size)
 	}
 	mem_segs[seg].ms_size = size;
 	mem_segs[seg].ms_addrmask = size - 1;
+	mem_segs[seg].ms_perms = perms;
 
 	return true;
 }
@@ -144,18 +146,37 @@ ceil_seg_size(u_int32_t size)
 #define MEM_ADDR2OFF(a) ((a) & 0x00ffffff)
 
 static bool
-mem_read(u_int32_t addr, void *dest, size_t size)
+mem_check_perms(int perms, int mem_ops, u_int32_t addr)
+{
+	if ((perms & mem_ops) != mem_ops)
+	{
+		debug_str_t ops_s, perms_s;
+		fprintf(stderr, "Invalid memory operation at 0x%08x, mem ops = %s, prot = %s\n",
+				addr,
+				debug_format_perms(ops_s, mem_ops),
+				debug_format_perms(perms_s, perms));
+		return false;
+	}
+	return true;
+}
+
+static bool
+mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	const void *src = NULL;
+	const void *src;
+	int mem_ops = PROT_READ;
+	if (is_exec)
+		mem_ops|= PROT_EXEC;
+	int perms;
 
 	if (seg == MEM_SEG_VIP)
-		src = vip_mem_emu2host(addr, size, false);
+		src = vip_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_VSU)
-		src = vsu_mem_emu2host(addr, size);
+		src = vsu_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_NVC)
-		src = nvc_mem_emu2host(addr, size);
+		src = nvc_mem_emu2host(addr, size, &perms);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -168,11 +189,23 @@ mem_read(u_int32_t addr, void *dest, size_t size)
 		}
 
 		src = mem_segs[seg].ms_ptr + offset;
+		perms = mem_segs[seg].ms_perms;
+	}
+	else
+	{
+		src = NULL;
+		perms = 0;
 	}
 
 	if (!src)
 	{
 		warnx("Bus error at 0x%08x", addr);
+		debug_intr();
+		return false;
+	}
+
+	if (!mem_check_perms(perms, mem_ops, addr))
+	{
 		debug_intr();
 		return false;
 	}
@@ -200,13 +233,14 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
 	void *dest = NULL;
+	int perms;
 
 	if (seg == MEM_SEG_VIP)
-		dest = vip_mem_emu2host(addr, size, true);
+		dest = vip_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_VSU)
-		dest = vsu_mem_emu2host(addr, size);
+		dest = vsu_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_NVC)
-		dest = nvc_mem_emu2host(addr, size);
+		dest = nvc_mem_emu2host(addr, size, &perms);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -219,12 +253,24 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 		}
 
 		dest = mem_segs[seg].ms_ptr + offset;
+		perms = mem_segs[seg].ms_perms;
+	}
+	else
+	{
+		dest = NULL;
+		perms = 0;
 	}
 
 	if (!dest)
 	{
 		// TODO: SEGV
 		fprintf(stderr, "Bus error at 0x%08x\n", addr);
+		debug_intr();
+		return false;
+	}
+
+	if (!mem_check_perms(perms, PROT_WRITE, addr))
+	{
 		debug_intr();
 		return false;
 	}
@@ -332,6 +378,7 @@ rom_read(struct rom_file *file)
 
 	if (!mem_seg_mmap(MEM_SEG_ROM, file->rf_size, file->rf_fdesc))
 		return false;
+	mem_segs[MEM_SEG_ROM].ms_perms = PROT_READ | PROT_EXEC;
 
 	// TODO: check ROM info
 
@@ -446,7 +493,7 @@ rom_read_isx(struct rom_file *file)
 
 	rom_size = ceil_seg_size(rom_size);
 	rom_size = MAX(rom_size, ROM_MIN_SIZE);
-	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size))
+	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size, PROT_READ | PROT_EXEC))
 		return false;
 
 	memset(mem_segs[MEM_SEG_ROM].ms_ptr, 0xff, rom_size);
@@ -544,7 +591,7 @@ static bool
 sram_init(void)
 {
 	// TODO: load save file
-	return mem_seg_alloc(MEM_SEG_SRAM, 8 << 10);
+	return mem_seg_alloc(MEM_SEG_SRAM, 8 << 10, PROT_READ | PROT_WRITE);
 }
 
 static void
@@ -560,7 +607,7 @@ sram_fini(void)
 static bool
 wram_init(void)
 {
-	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE);
+	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, PROT_READ | PROT_WRITE);
 }
 
 static void
@@ -832,7 +879,7 @@ cpu_inst_disp26(const union cpu_inst *inst)
 static bool
 cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 {
-	if (!mem_read(addr, &(inst->ci_hwords[0]), 2))
+	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true))
 	{
 		printf("Could not read instruction at 0x%08x\n", addr);
 		return false;
@@ -840,7 +887,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
 	if (cpu_inst_size(inst) == 4)
 	{
-		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2))
+		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2, true))
 		{
 			printf("Could not read instruction at 0x%08x\n", addr + 2);
 			return false;
@@ -1326,7 +1373,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int8_t value;
-			if (!mem_read(addr, &value, sizeof(value)))
+			if (!mem_read(addr, &value, sizeof(value), false))
 				return false;
 			if ((value & 0x80) == 0x80)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffffff00 | value;
@@ -1339,7 +1386,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int16_t value;
-			if (!mem_read(addr, &value, sizeof(value)))
+			if (!mem_read(addr, &value, sizeof(value), false))
 				return false;
 			// TODO: Use (int16_t) here
 			if ((value & 0x8000) == 0x8000)
@@ -1352,7 +1399,7 @@ cpu_exec(const union cpu_inst inst)
 		case OP_IN_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
-			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r)))
+			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r), false))
 				return false;
 			break;
 		}
@@ -2326,8 +2373,11 @@ vip_fini(void)
 }
 
 void *
-vip_mem_emu2host(u_int32_t addr, size_t size, bool write)
+vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 {
+	// TODO: Set read/write permissions
+	*permsp = PROT_READ | PROT_WRITE;
+
 	if (addr & 0x00f80000)
 	{
 		u_int32_t mirror = addr & 0x7ffff;
@@ -2341,7 +2391,6 @@ vip_mem_emu2host(u_int32_t addr, size_t size, bool write)
 		addr = mirror;
 	}
 
-	// TODO: Set read/write permissions
 	if (addr < 0x20000)
 		return (u_int8_t *)&vip_vrm + addr;
 	else if (addr < 0x40000)
@@ -2362,11 +2411,8 @@ vip_mem_emu2host(u_int32_t addr, size_t size, bool write)
 		u_int reg_num = (addr & 0x7f) >> 1;
 		u_int16_t *regp = (u_int16_t *)&vip_regs + reg_num;
 		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (addr & 0x7e)));
-		if (write && (struct vip_dpctrl *)regp == &(vip_regs.vr_dpstts))
-		{
-			fprintf(stderr, "Cannot write DPSTTS reg\n");
-			return false;
-		}
+		if ((struct vip_dpctrl *)regp == &(vip_regs.vr_dpstts))
+			*permsp = PROT_READ;
 
 		return (u_int8_t *)&vip_regs + (addr & 0x7e);
 	}
@@ -2392,14 +2438,15 @@ vip_test(void)
 	assert(sizeof(vip_dram) == 0x20000);
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
-	assert(vip_mem_emu2host(0x24000, 4, true) == &(vip_dram.vd_shared.s_bgsegs[2]));
-	assert(vip_mem_emu2host(0x3d800, 4, true) == &(vip_dram.vd_world_atts));
-	assert(vip_mem_emu2host(0x3e000, 8, true) == &(vip_dram.vd_oam));
-	assert(vip_mem_emu2host(0x5f800, 2, true) == &(vip_regs.vr_intpnd));
-	assert(vip_mem_emu2host(0x5f820, 2, false) == &(vip_regs.vr_dpstts));
-	assert(vip_mem_emu2host(0x5f870, 2, true) == &(vip_regs.vr_bkcol));
-	assert(vip_mem_emu2host(0x78000, 2, true) == &(vip_vrm.vv_chr0));
-	assert(vip_mem_emu2host(0x7e000, 2, true) == &(vip_vrm.vv_chr3));
+	int perms;
+	assert(vip_mem_emu2host(0x24000, 4, &perms) == &(vip_dram.vd_shared.s_bgsegs[2]));
+	assert(vip_mem_emu2host(0x3d800, 4, &perms) == &(vip_dram.vd_world_atts));
+	assert(vip_mem_emu2host(0x3e000, 8, &perms) == &(vip_dram.vd_oam));
+	assert(vip_mem_emu2host(0x5f800, 2, &perms) == &(vip_regs.vr_intpnd));
+	assert(vip_mem_emu2host(0x5f820, 2, &perms) == &(vip_regs.vr_dpstts));
+	assert(vip_mem_emu2host(0x5f870, 2, &perms) == &(vip_regs.vr_bkcol));
+	assert(vip_mem_emu2host(0x78000, 2, &perms) == &(vip_vrm.vv_chr0));
+	assert(vip_mem_emu2host(0x7e000, 2, &perms) == &(vip_vrm.vv_chr3));
 }
 
 void
@@ -2443,8 +2490,9 @@ void
 vsu_test(void)
 {
 	fputs("Running VSU self-test\n", stderr);
-	assert(sizeof(vsu_regs) == 0x181);
-	assert(vsu_mem_emu2host(0x01000580, 1) == &(vsu_regs.vr_sstop));
+	mem_test_size("vsu_regs", sizeof(vsu_regs), 0x200);
+	int perms;
+	assert(vsu_mem_emu2host(0x01000580, 1, &perms) == &(vsu_regs.vr_sstop));
 }
 
 void
@@ -2460,11 +2508,20 @@ vsu_step(void)
 }
 
 void *
-vsu_mem_emu2host(u_int32_t addr, size_t size)
+vsu_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 {
+	// TODO: More granularity on perms
+	*permsp = PROT_READ | PROT_WRITE;
+
 	if (addr + size <= 0x01000300)
 		return (u_int8_t *)&vsu_ram + (addr - 0x01000000);
-	else if (addr >= 0x01000400 && addr + size <= 0x01000581)
+	else if (addr + size <= 0x01000400)
+	{
+		u_int32_t mirror = addr % 0x300;
+		fprintf(stderr, "Mirroring VSU RAM at 0x%08x -> 0x%x\n", addr, mirror);
+		return (u_int8_t *)&vsu_ram + mirror;
+	}
+	else if (addr >= 0x01000400 && addr + size <= 0x01000600)
 		return (u_int8_t *)&vsu_regs + (addr - 0x01000400);
 	else
 		return NULL;
@@ -2550,8 +2607,9 @@ nvc_test(void)
 	fputs("Running NVC self-test\n", stderr);
 
 	assert(sizeof(nvc_regs) == 0x29);
-	assert(nvc_mem_emu2host(0x02000010, 1) == &(nvc_regs.nr_sdlr));
-	assert(nvc_mem_emu2host(0x02000014, 1) == &(nvc_regs.nr_sdhr));
+	int perms;
+	assert(nvc_mem_emu2host(0x02000010, 1, &perms) == &(nvc_regs.nr_sdlr));
+	assert(nvc_mem_emu2host(0x02000014, 1, &perms) == &(nvc_regs.nr_sdhr));
 }
 
 bool
@@ -2589,9 +2647,11 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 }
 
 void *
-nvc_mem_emu2host(u_int32_t addr, size_t size)
+nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 {
 	// TODO: Set read/write permissions
+	*permsp = PROT_READ | PROT_WRITE;
+
 	if (size != 1)
 	{
 		fprintf(stderr, "Invalid NVC access size %lu @ 0x%08x\n", size, addr);
@@ -3293,7 +3353,7 @@ debug_usage(char ch)
 static bool
 debug_mem_read(u_int32_t addr, void *dest, size_t size)
 {
-	if (mem_read(addr, dest, size))
+	if (mem_read(addr, dest, size, false))
 		return true;
 	else
 	{
@@ -3390,6 +3450,16 @@ debug_format_flags(debug_str_t s, ...)
 	}
 	va_end(ap);
 	return s;
+}
+
+const char *
+debug_format_perms(debug_str_t s, int perms)
+{
+	return debug_format_flags(s,
+			"READ", (perms & PROT_READ),
+			"WRITE", (perms & PROT_WRITE),
+			"EXEC", (perms & PROT_EXEC),
+			NULL);
 }
 
 static void
