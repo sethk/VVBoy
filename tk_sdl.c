@@ -125,7 +125,9 @@ tk_main(void)
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
 			{
-				bool state = (event.type == SDL_KEYUP);
+				if (event.key.repeat)
+					break;
+				bool state = (event.type == SDL_KEYDOWN);
 				switch (event.key.keysym.scancode)
 				{
 					default: break;
