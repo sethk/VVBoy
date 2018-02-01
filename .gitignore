@@ -2,10 +2,13 @@
 /roms/
 /vvboy
 /doc/virtual_boy.pdf
-/main.h
+/vvboy.h
+/rom.h
+/common.h
 /tk_sdl.h
+/vvbdis.h
 .depend
 /vendor/makeheaders/makeheaders
-/main.plist/
 /.headers-stamp
 /trace.out
+/cmake-build-*/

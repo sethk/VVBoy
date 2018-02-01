@@ -1,9 +1,12 @@
+#if INTERFACE
+# include <stdbool.h>
+#endif // INTERFACE
+
 #include "tk_sdl.h"
 
 #include <SDL.h>
 
-bool tk_running = false;
-
+static bool tk_running = false;
 static SDL_Window *sdl_window;
 static SDL_Renderer *sdl_renderer;
 static SDL_Texture *sdl_texture;
@@ -105,6 +108,8 @@ tk_frame(void)
 void
 tk_main(void)
 {
+	tk_running = true;
+
 	SDL_AddTimer(20, tk_frame_tick, NULL);
 
 	SDL_Event event;
@@ -115,7 +120,7 @@ tk_main(void)
 				tk_frame();
 				break;
 			case SDL_QUIT:
-				main_exit();
+				tk_running = false;
 				break;
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
@@ -159,6 +164,12 @@ tk_main(void)
 					}
 			}
 		}
+}
+
+void
+tk_quit(void)
+{
+	tk_running = false;
 }
 
 void

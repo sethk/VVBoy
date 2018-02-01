@@ -2,12 +2,12 @@
 # include <sys/types.h>
 # include <stdbool.h>
 # include <stdio.h>
+# include <sys/mman.h>
 #endif // INTERFACE
 
-#include "main.h"
+#include "common.h"
 
 #include <sys/stat.h>
-#include <sys/mman.h>
 #include <sys/fcntl.h>
 #include <sys/errno.h>
 #include <sys/param.h>
@@ -17,14 +17,13 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <signal.h>
-#include <sysexits.h>
 #include <assert.h>
 #include <err.h>
 #include <histedit.h>
 
 /* MEM */
 #if INTERFACE
-	enum mem_segment
+enum mem_segment
 	{
 		MEM_SEG_VIP = 0,
 		MEM_SEG_VSU = 1,
@@ -43,22 +42,27 @@
 		u_int32_t ms_addrmask;
 		bool ms_is_mmap;
 		int ms_perms; // PROT_* from <sys/mman.h>
-	}
+	};
+
+# define MEM_ADDR2SEG(a) (((a) & 0x07000000) >> 24)
+# define MEM_ADDR2OFF(a) ((a) & 0x00ffffff)
+# define MEM_SEG2ADDR(s) ((s) << 24)
+
 #endif // INTERFACE
 
-static struct mem_seg_desc mem_segs[MEM_NSEGS];
+struct mem_seg_desc mem_segs[(enum mem_segment)MEM_NSEGS];
 
 static const char *mem_seg_names[MEM_NSEGS] =
-{
-	[MEM_SEG_VIP] = "VIP",
-	[MEM_SEG_VSU] = "VSU",
-	[MEM_SEG_NVC] = "NVC",
-	[3] = "Not Used (0x03000000-0x03ffffff)",
-	[MEM_SEG_CARTEX] = "CARTEX",
-	[MEM_SEG_WRAM] = "WRAM",
-	[MEM_SEG_SRAM] = "SRAM",
-	[MEM_SEG_ROM] = "ROM"
-};
+		{
+				[MEM_SEG_VIP] = "VIP",
+				[MEM_SEG_VSU] = "VSU",
+				[MEM_SEG_NVC] = "NVC",
+				[3] = "Not Used (0x03000000-0x03ffffff)",
+				[MEM_SEG_CARTEX] = "CARTEX",
+				[MEM_SEG_WRAM] = "WRAM",
+				[MEM_SEG_SRAM] = "SRAM",
+				[MEM_SEG_ROM] = "ROM"
+		};
 
 static bool
 validate_seg_size(size_t size)
@@ -67,7 +71,7 @@ validate_seg_size(size_t size)
 	return (remainder(log2size, 1.0) == 0.0);
 }
 
-static bool
+bool
 mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
 {
 	assert(validate_seg_size(size));
@@ -84,7 +88,7 @@ mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
 	return true;
 }
 
-static bool
+bool
 mem_seg_mmap(/*enum*/ mem_segment seg, size_t size, int fd)
 {
 	mem_segs[seg].ms_size = size;
@@ -115,7 +119,7 @@ mem_seg_realloc(/*enum*/ mem_segment seg, size_t size)
 	return true;
 }
 
-static void
+void
 mem_seg_free(/*enum*/ mem_segment seg)
 {
 	if (!mem_segs[seg].ms_is_mmap)
@@ -129,8 +133,8 @@ mem_seg_free(/*enum*/ mem_segment seg)
 	mem_segs[seg].ms_ptr = NULL;
 }
 
-static u_int32_t
-ceil_seg_size(u_int32_t size)
+u_int32_t
+mem_size_ceil(u_int32_t size)
 {
 	// http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2Float
 	--size;
@@ -142,9 +146,6 @@ ceil_seg_size(u_int32_t size)
 	return ++size;
 }
 
-#define MEM_ADDR2SEG(a) (((a) & 0x07000000) >> 24)
-#define MEM_ADDR2OFF(a) ((a) & 0x00ffffff)
-
 static bool
 mem_check_perms(int perms, int mem_ops, u_int32_t addr)
 {
@@ -152,9 +153,9 @@ mem_check_perms(int perms, int mem_ops, u_int32_t addr)
 	{
 		debug_str_t ops_s, perms_s;
 		fprintf(stderr, "Invalid memory operation at 0x%08x, mem ops = %s, prot = %s\n",
-				addr,
-				debug_format_perms(ops_s, mem_ops),
-				debug_format_perms(perms_s, perms));
+		        addr,
+		        debug_format_perms(ops_s, mem_ops),
+		        debug_format_perms(perms_s, perms));
 		return false;
 	}
 	return true;
@@ -183,7 +184,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 
 		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
 		{
-			if (!mem_seg_realloc(MEM_SEG_SRAM, ceil_seg_size(offset + size)))
+			if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
 				return false;
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
@@ -247,7 +248,7 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 
 		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
 		{
-			if (!mem_seg_realloc(MEM_SEG_SRAM, ceil_seg_size(offset + size)))
+			if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
 				return false;
 			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
 		}
@@ -302,299 +303,15 @@ mem_test_size(char *name, size_t size, size_t expected)
 	}
 }
 
-/* ROM */
-#if INTERFACE
-	enum isx_symbol_type
-	{
-		ISX_SYMBOL_CONST = 0,
-		ISX_SYMBOL_POINTER = 16,
-		ISX_SYMBOL_END = 214
-	};
-#endif // INTERFACE
-
-#define ROM_BASE_ADDR 0x07000000
-#define ROM_MIN_SIZE 1024lu
-#define ROM_MAX_SIZE 0x01000000
-
-#define IS_POWER_OF_2(n) (((n) & ((n) - 1)) == 0)
-
-struct rom_file
-{
-	int rf_fdesc;
-	off_t rf_size;
-	char *rf_path;
-};
-
-static void
-rom_close(struct rom_file *file)
-{
-	close(file->rf_fdesc);
-	if (file->rf_path)
-		free(file->rf_path);
-}
-
-static bool
-rom_open(const char *fn, struct rom_file *file)
-{
-	bzero(file, sizeof(*file));
-
-	file->rf_fdesc = open(fn, O_RDONLY);
-	if (file->rf_fdesc == -1)
-	{
-		warn("Could not open ‘%s’", fn);
-		return false;
-	}
-
-	struct stat st;
-	if (fstat(file->rf_fdesc, &st) == -1)
-	{
-		warn("stat() ‘%s’", fn);
-		rom_close(file);
-		return false;
-	}
-	file->rf_size = st.st_size;
-
-	file->rf_path = strdup(fn);
-	if (!file->rf_path)
-		err(EX_OSERR, "Alloc path");
-
-	return true;
-}
-
-static bool
-rom_read(struct rom_file *file)
-{
-	if (file->rf_size < ROM_MIN_SIZE)
-	{
-		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", file->rf_path, ROM_MIN_SIZE);
-		return false;
-	}
-
-	if (!IS_POWER_OF_2(file->rf_size))
-	{
-		warnx("Size of ROM file ‘%s’, 0x%llx, is not a power of 2", file->rf_path, file->rf_size);
-		return false;
-	}
-
-	if (!mem_seg_mmap(MEM_SEG_ROM, file->rf_size, file->rf_fdesc))
-		return false;
-	mem_segs[MEM_SEG_ROM].ms_perms = PROT_READ | PROT_EXEC;
-
-	// TODO: check ROM info
-
-	return true;
-}
-
-static bool
-rom_read_buffer(struct rom_file *file, void *buf, size_t size, const char *desc)
-{
-	ssize_t nread = read(file->rf_fdesc, buf, size);
-	if (nread == size)
-		return true;
-	else
-	{
-		warnx("Read %s from ‘%s’: %s", desc, file->rf_path, (nread == -1) ? strerror(errno) : "Unexpected EOF");
-		return false;
-	}
-}
-
-static bool
-rom_seek(struct rom_file *file, off_t off, int whence)
-{
-	if (lseek(file->rf_fdesc, off, whence) != -1)
-		return true;
-	else
-	{
-		warn("Seek ‘%s’", file->rf_path);
-		return false;
-	}
-}
-
-enum isx_tag
-{
-	ISX_TAG_LOAD = 0x11,
-	ISX_TAG_DEBUG = 0x14
-};
-
-struct isx_chunk_header
-{
-	u_char ich_tag;
-	int32_t ich_addr;
-	u_int32_t ich_size;
-} __attribute__((packed));
-
-static bool
-isx_is_eof(struct rom_file *file)
-{
-	return (lseek(file->rf_fdesc, 0, SEEK_CUR) == file->rf_size);
-}
-
-static bool
-isx_read_chunk_header(struct rom_file *file, struct isx_chunk_header *header)
-{
-	if (!rom_read_buffer(file, &(header->ich_tag), sizeof(header->ich_tag), "ISX chunk header tag"))
-		return false;
-
-	if (header->ich_tag == ISX_TAG_LOAD)
-		return rom_read_buffer(file,
-				(char *)header + sizeof(header->ich_tag),
-				sizeof(*header) - sizeof(header->ich_tag),
-				"ISX chunk header");
-	else
-		return true;
-}
-
-// TODO: memory leaks
-static bool
-rom_read_isx(struct rom_file *file)
-{
-	static const char ISX_MAGIC[] = {'I', 'S', 'X'};
-	char magic[sizeof(ISX_MAGIC)];
-	if (!rom_read_buffer(file, magic, sizeof(ISX_MAGIC), "ISX magic"))
-		return false;
-	if (bcmp(magic, ISX_MAGIC, sizeof(ISX_MAGIC)))
-	{
-		warnx("Invalid ISX magic in ‘%s’", file->rf_path);
-		return false;
-	}
-
-	// Seek over rest of header:
-	if (!rom_seek(file, 32, SEEK_SET))
-		return false;
-
-	u_int32_t rom_size = 0;
-	while (!isx_is_eof(file))
-	{
-		struct isx_chunk_header header;
-		if (!isx_read_chunk_header(file, &header))
-			return false;
-
-		if (header.ich_tag == ISX_TAG_LOAD)
-		{
-			if (header.ich_addr < 0)
-				rom_size+= -header.ich_addr;
-			else if (MEM_ADDR2SEG(header.ich_addr) == MEM_SEG_ROM)
-			{
-				size_t loaded_size = MEM_ADDR2OFF(header.ich_addr) + header.ich_size;
-				rom_size = MAX(rom_size, loaded_size);
-			}
-			else
-			{
-				warnx("Invalid chunk load addr 0x%08x in ISX file ‘%s’", (u_int32_t)header.ich_addr, file->rf_path);
-				return false;
-			}
-
-			if (!rom_seek(file, header.ich_size, SEEK_CUR))
-				return false;
-		}
-		else if (header.ich_tag == ISX_TAG_DEBUG)
-			break;
-	}
-
-	rom_size = ceil_seg_size(rom_size);
-	rom_size = MAX(rom_size, ROM_MIN_SIZE);
-	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size, PROT_READ | PROT_EXEC))
-		return false;
-
-	memset(mem_segs[MEM_SEG_ROM].ms_ptr, 0xff, rom_size);
-
-	if (!rom_seek(file, 32, SEEK_SET))
-		return false;
-
-	while (!isx_is_eof(file))
-	{
-		struct isx_chunk_header header;
-		if (!isx_read_chunk_header(file, &header))
-			return false;
-
-		if (header.ich_tag == ISX_TAG_LOAD)
-		{
-			size_t offset;
-			if (header.ich_addr < 0)
-				offset = rom_size + header.ich_addr;
-			else
-				offset = MEM_ADDR2OFF(header.ich_addr);
-
-			if (!rom_read_buffer(file, mem_segs[MEM_SEG_ROM].ms_ptr + offset, header.ich_size, "ISX chunk"))
-				return false;
-		}
-		else if (header.ich_tag == ISX_TAG_DEBUG)
-		{
-			u_int16_t num_syms;
-			if (!rom_read_buffer(file, &num_syms, sizeof(num_syms), "ISX debug num syms"))
-				return false;
-
-			while (num_syms)
-			{
-				u_int8_t symlen;
-				if (!rom_read_buffer(file, &symlen, sizeof(symlen), "ISX debug sym length"))
-					return false;
-
-				struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
-				if (!debug_sym)
-				{
-					warn("Could not alloc ISX debug sym");
-					return false;
-				}
-				debug_sym->ds_name = malloc(symlen + 1);
-				if (!debug_sym->ds_name)
-				{
-					warn("Could not alloc ISX debug sym name");
-					debug_destroy_symbol(debug_sym);
-					return false;
-				}
-
-				if (!rom_read_buffer(file, debug_sym->ds_name, symlen + 1, "ISX debug sym name"))
-				{
-					debug_destroy_symbol(debug_sym);
-					return false;
-				}
-
-				u_int8_t type;
-				if (!rom_read_buffer(file, &type, sizeof(type), "ISX debug sym type"))
-				{
-					debug_destroy_symbol(debug_sym);
-					return false;
-				}
-				debug_sym->ds_type = type;
-
-				if (!rom_read_buffer(file, &(debug_sym->ds_addr), sizeof(debug_sym->ds_addr), "ISX debug sym address"))
-					return false;
-
-				#if 0
-					fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhu\n", debug_sym->ds_name, debug_sym->ds_addr, type);
-				#endif // 0
-
-				debug_add_symbol(debug_sym);
-
-				num_syms--;
-			}
-
-			break;
-		}
-		else
-		{
-			fprintf(stderr, "ISX chunk type 0x%hhx @ 0x%08llx\n", header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
-			char *debug_info = malloc(2048);
-			if (!rom_read_buffer(file, debug_info, 2048, "ISX chunk data"))
-				return false;
-			raise(SIGTRAP);
-			free(debug_info);
-		}
-	}
-
-	return true;
-}
-
 /* SRAM */
-static bool
+bool
 sram_init(void)
 {
 	// TODO: load save file
 	return mem_seg_alloc(MEM_SEG_SRAM, 8 << 10, PROT_READ | PROT_WRITE);
 }
 
-static void
+void
 sram_fini(void)
 {
 	mem_seg_free(MEM_SEG_SRAM);
@@ -604,55 +321,23 @@ sram_fini(void)
 /* WRAM */
 #define WRAM_SIZE 0x1000000
 
-static bool
+bool
 wram_init(void)
 {
 	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, PROT_READ | PROT_WRITE);
 }
 
-static void
+void
 wram_fini(void)
 {
 	mem_seg_free(MEM_SEG_WRAM);
-}
-
-/* ROM */
-static bool
-rom_load(const char *fn)
-{
-	char *ext = strrchr(fn, '.');
-	bool is_isx = false;
-	if (ext && !strcasecmp(ext, ".ISX"))
-		is_isx = true;
-	else if (!ext || strcasecmp(ext, ".VB"))
-		warnx("Can‘t determine file type from ‘%s’, assuming ROM file", fn);
-
-	struct rom_file file;
-	if (!rom_open(fn, &file))
-		return false;
-
-	int status;
-	if (is_isx)
-		status = rom_read_isx(&file);
-	else
-		status = rom_read(&file);
-
-	rom_close(&file);
-
-	return status;
-}
-
-static void
-rom_unload(void)
-{
-	mem_seg_free(MEM_SEG_ROM);
 }
 
 /* CPU */
 #if INTERFACE
 #	define CPU_INST_PER_USEC (1) //(20)
 
-	typedef union {u_int32_t u; int32_t s; float f;} cpu_regs_t[32];
+	typedef union {u_int32_t u; int32_t s; float f; int16_t s16;} cpu_regs_t[32];
 
 	union cpu_inst
 	{
@@ -809,22 +494,22 @@ enum cpu_opcode
 
 enum cpu_bcond
 {
-	  BCOND_BV  = 0b0000,
-	  BCOND_BL  = 0b0001,
-	  BCOND_BZ  = 0b0010,
-	  BCOND_BNH = 0b0011,
-	  BCOND_BN  = 0b0100,
-	  BCOND_BR  = 0b0101,
-	  BCOND_BLT = 0b0110,
-	  BCOND_BLE = 0b0111,
-	  BCOND_BNV = 0b1000,
-	  BCOND_BNC = 0b1001,
-	  BCOND_BNZ = 0b1010,
-	  BCOND_BH  = 0b1011,
-	  BCOND_BP  = 0b1100,
-	  BCOND_NOP = 0b1101,
-	  BCOND_BGE = 0b1110,
-	  BCOND_BGT = 0b1111,
+	BCOND_BV  = 0b0000,
+	BCOND_BL  = 0b0001,
+	BCOND_BZ  = 0b0010,
+	BCOND_BNH = 0b0011,
+	BCOND_BN  = 0b0100,
+	BCOND_BR  = 0b0101,
+	BCOND_BLT = 0b0110,
+	BCOND_BLE = 0b0111,
+	BCOND_BNV = 0b1000,
+	BCOND_BNC = 0b1001,
+	BCOND_BNZ = 0b1010,
+	BCOND_BH  = 0b1011,
+	BCOND_BP  = 0b1100,
+	BCOND_NOP = 0b1101,
+	BCOND_BGE = 0b1110,
+	BCOND_BGT = 0b1111,
 };
 
 enum cpu_regid
@@ -855,6 +540,7 @@ enum float_subop
 	FLOAT_XB =      0b001000,
 	FLOAT_XH =      0b001001,
 	FLOAT_TRNC_SW = 0b001011,
+	FLOAT_MPYHW =   0b001100,
 };
 
 bool
@@ -960,10 +646,10 @@ cpu_getfl(enum cpu_bcond cond)
 			return cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov;
 		case BCOND_BLE:
 			return ((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
-					cpu_state.cs_psw.psw_flags.f_z);
-		/*
-		BCOND_BNV = 0b1000,
-		*/
+			        cpu_state.cs_psw.psw_flags.f_z);
+			/*
+			BCOND_BNV = 0b1000,
+			*/
 		case BCOND_BNC:
 			return !cpu_state.cs_psw.psw_flags.f_cy;
 		case BCOND_BNZ:
@@ -978,7 +664,7 @@ cpu_getfl(enum cpu_bcond cond)
 			return !(cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov);
 		case BCOND_BGT:
 			return !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
-					cpu_state.cs_psw.psw_flags.f_z);
+			         cpu_state.cs_psw.psw_flags.f_z);
 		default:
 			fputs("Handle branch cond\n", stderr);
 			debug_intr();
@@ -1137,7 +823,7 @@ cpu_exec(const union cpu_inst inst)
 		case OP_MULU:
 		{
 			u_int64_t result = (u_int64_t)cpu_state.cs_r[inst.ci_i.i_reg2].u *
-					(u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1].u;
+			                   (u_int32_t)cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit64) == sign_bit64);
 			u_int64_t signbits = result & sign_bits32to64;
@@ -1246,9 +932,9 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_ii.ii_reg2].u = result;
 			}
 			break;
-			 /*
-	OP_TRAP  = 0b011000,
-	*/
+			/*
+   OP_TRAP  = 0b011000,
+   */
 		case OP_RETI:
 			if (!cpu_state.cs_psw.psw_flags.f_ep)
 			{
@@ -1269,9 +955,9 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_psw = cpu_state.cs_eipsw;
 			}
 			break;
-			 /*
-	OP_HALT  = 0b011010,
-	*/
+			/*
+   OP_HALT  = 0b011010,
+   */
 		case OP_LDSR:
 			switch (inst.ci_ii.ii_imm5)
 			{
@@ -1323,6 +1009,9 @@ cpu_exec(const union cpu_inst inst)
 				case REGID_PSW:
 					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_psw.psw_word;
 					break;
+				case REGID_CHCW:
+					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_chcw;
+					break;
 				default:
 					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
 					debug_intr();
@@ -1331,9 +1020,9 @@ cpu_exec(const union cpu_inst inst)
 		case OP_SEI:
 			cpu_state.cs_psw.psw_flags.f_id = 1;
 			break;
-			 /*
-	OP_BSTR  = 0b011111,
-	*/
+			/*
+   OP_BSTR  = 0b011111,
+   */
 		case OP_MOVEA:
 		{
 			u_int32_t imm = inst.ci_v.v_imm16;
@@ -1350,9 +1039,9 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = cpu_add(cpu_state.cs_r[inst.ci_v.v_reg1].u, imm);
 			break;
 		}
-		/*
-	OP_JR    = 0b101010,
-	*/
+			/*
+		OP_JR    = 0b101010,
+		*/
 		case OP_JR:
 		{
 			u_int32_t disp = cpu_inst_disp26(&inst);
@@ -1452,9 +1141,9 @@ cpu_exec(const union cpu_inst inst)
 				return false;
 			break;
 		}
-			 /*
-	OP_CAXI  = 0b111010,
-	*/
+			/*
+   OP_CAXI  = 0b111010,
+   */
 		case OP_FLOAT:
 			switch (inst.vii_subop)
 			{
@@ -1462,6 +1151,11 @@ cpu_exec(const union cpu_inst inst)
 					cpu_state.cs_r[inst.vii_reg2].f = (float)cpu_state.cs_r[inst.vii_reg1].s;
 					if ((int32_t)cpu_state.cs_r[inst.vii_reg2].f != cpu_state.cs_r[inst.vii_reg1].s)
 						cpu_state.cs_psw.psw_flags.f_fpr = 1;
+					break;
+				case FLOAT_MPYHW:
+					// TODO: Are there really no flags set?
+					cpu_state.cs_r[inst.vii_reg2].s =
+							cpu_state.cs_r[inst.vii_reg1].s16 * cpu_state.cs_r[inst.vii_reg2].s16;
 					break;
 				default:
 					fputs("TODO: execute instruction\n", stderr);
@@ -1500,7 +1194,7 @@ cpu_assert_reg(const char *dis, unsigned reg, u_int32_t value)
 {
 	if (cpu_state.cs_r[reg].u != value)
 		fprintf(stderr, "*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x\n",
-				dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value);
+		        dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value);
 }
 
 static void
@@ -1508,7 +1202,7 @@ cpu_assert_flag(const char *dis, const char *name, bool flag, bool value)
 {
 	if (flag != value)
 		fprintf(stderr, "*** Test failure: %s\n\t%s flag (%d) should be %s\n",
-				dis, name, flag, (value) ? "set" : "reset");
+		        dis, name, flag, (value) ? "set" : "reset");
 }
 
 static void
@@ -1674,8 +1368,8 @@ cpu_step(void)
 	{
 		debug_str_t addr_s;
 		debug_tracef("cpu", "%-26s: %s\n",
-				debug_format_addr(cpu_state.cs_pc, addr_s),
-				debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
+		             debug_format_addr(cpu_state.cs_pc, addr_s),
+		             debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
 	}
 
 	if (!cpu_exec(inst))
@@ -1698,7 +1392,7 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 			{
 				debug_str_t addr_s;
 				debug_tracef("cpu", "%-26s: Interrupt level=%d\n",
-						debug_format_addr(cpu_state.cs_pc, addr_s), level);
+				             debug_format_addr(cpu_state.cs_pc, addr_s), level);
 			}
 
 			cpu_state.cs_eipc = cpu_state.cs_pc;
@@ -1736,7 +1430,7 @@ struct vip_vrm
 static struct vip_vrm vip_vrm;
 
 #if INTERFACE
-	struct vip_bgsc
+struct vip_bgsc
 	{
 		unsigned vb_chrno : 11 __attribute__((packed));
 		unsigned vb_rfu1 : 1 __attribute__((packed));
@@ -1764,7 +1458,7 @@ static const u_int vip_bgseg_width = 64, vip_bgseg_height = 64;
 typedef struct vip_bgsc vip_bgseg_t[vip_bgseg_width * vip_bgseg_height];
 
 #if INTERFACE
-	enum vip_world_bgm
+enum vip_world_bgm
 	{
 		WORLD_BGM_NORMAL = 0b00,
 		WORLD_BGM_H_BIAS = 0b01,
@@ -1812,7 +1506,7 @@ struct vip_dram
 static struct vip_dram vip_dram;
 
 #if INTERFACE
-	enum vip_intflag
+enum vip_intflag
 	{
 		VIP_SCANERR = (1 << 0),
 		VIP_LFBEND = (1 << 1),
@@ -1826,7 +1520,7 @@ static struct vip_dram vip_dram;
 #endif // INTERFACE
 
 static const enum vip_intflag vip_dpints =
-	VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
+		VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
 static const enum vip_intflag vip_xpints = VIP_XPEND | VIP_TIMEERR;
 
 struct vip_dpctrl
@@ -2078,9 +1772,9 @@ static u_int8_t
 vip_bgmap_read(struct vip_bgsc *bgmap_base, struct vip_world_att *vwa, u_int x, u_int y)
 {
 	u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width,
-		  height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height,
-		  bg_x = x / 8, bg_y = y / 8,
-		  chr_x = x % 8, chr_y = y % 8;
+			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height,
+			bg_x = x / 8, bg_y = y / 8,
+			chr_x = x % 8, chr_y = y % 8;
 	struct vip_bgsc *vb;
 	if (bg_x < width_chrs && bg_y < height_chrs)
 		vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
@@ -2589,18 +2283,18 @@ struct nvc_regs
 	struct
 	{
 		unsigned s_abt_dis : 1,
-				 s_si_stat : 1,
-				 s_hw_si : 1,
-				 s_rfu1 : 1,
-				 s_soft_ck : 1,
-				 s_para_si : 1,
-				 s_rfu2 : 1,
-				 s_k_int_inh : 1;
+				s_si_stat : 1,
+				s_hw_si : 1,
+				s_rfu1 : 1,
+				s_soft_ck : 1,
+				s_para_si : 1,
+				s_rfu2 : 1,
+				s_k_int_inh : 1;
 	} __attribute__((packed)) nr_scr;
 };
 
 #if INTERFACE
-	enum nvc_intlevel
+enum nvc_intlevel
 	{
 		NVC_INTKEY = 0,
 		NVC_INTTIM = 1,
@@ -2660,7 +2354,9 @@ nvc_test(void)
 bool
 nvc_step(void)
 {
-	for (u_int x = 0; x < CPU_INST_PER_USEC; ++x)
+	u_int inst_per_usec = (debugging) ? 1 : CPU_INST_PER_USEC;
+
+	for (u_int x = 0; x < inst_per_usec; ++x)
 		if (!cpu_step())
 			return false;
 
@@ -2686,6 +2382,7 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 		bool raise_intr = state && !nvc_regs.nr_scr.s_k_int_inh && !(old_nvc_keys & key);
 		nvc_regs.nr_sdlr = nvc_keys & 0xff;
 		nvc_regs.nr_sdhr = nvc_keys >> 8;
+		debug_tracef("nvc", "Serial data 0x%08x -> 0x%08x, raise intr = %d\n", old_nvc_keys, nvc_keys, raise_intr);
 
 		nvc_regs.nr_scr.s_si_stat = 0;
 
@@ -2717,7 +2414,7 @@ nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 
 /* DEBUG */
 #if INTERFACE
-	struct debug_symbol
+struct debug_symbol
 	{
 		char *ds_name;
 		u_int32_t ds_addr;
@@ -2810,7 +2507,7 @@ debug_format_binary(u_int n, u_int nbits)
 }
 
 #if INTERFACE
-	typedef char debug_str_t[64];
+typedef char debug_str_t[64];
 # define debug_str_len sizeof(debug_str_t)
 #endif // INTERFACE
 
@@ -2870,12 +2567,12 @@ debug_format_addr(u_int32_t addr, debug_str_t s)
 }
 
 const char *debug_rnames[32] =
-{
-	"r0", "r1", "hp", "sp", "gp", "tp", "r6", "r7",
-	"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-	"r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
-	"r24", "r25", "r26", "r27", "r28", "r29", "r30", "lp"
-};
+		{
+				"r0", "r1", "hp", "sp", "gp", "tp", "r6", "r7",
+				"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+				"r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
+				"r24", "r25", "r26", "r27", "r28", "r29", "r30", "lp"
+		};
 
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
@@ -2920,44 +2617,44 @@ debug_destroy_symbol(struct debug_symbol *debug_sym)
 // TODO: Combine with below
 static void
 debug_disasm_i(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const char *op,
-		const cpu_regs_t regs)
+               debug_str_t decomp,
+               const union cpu_inst *inst,
+               const char *mnemonic,
+               const char *op,
+               const cpu_regs_t regs)
 {
 	snprintf(decode, debug_str_len, "%s %s, %s",
-			mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, "%i %s %i",
-				regs[inst->ci_i.i_reg2].s, op, regs[inst->ci_i.i_reg1].s);
+		         regs[inst->ci_i.i_reg2].s, op, regs[inst->ci_i.i_reg1].s);
 }
 
 static void
 debug_disasm_i_fmt(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const char *decomp_fmt,
-		const cpu_regs_t regs)
+                   debug_str_t decomp,
+                   const union cpu_inst *inst,
+                   const char *mnemonic,
+                   const char *decomp_fmt,
+                   const cpu_regs_t regs)
 {
 	snprintf(decode, debug_str_len, "%s %s, %s",
-			mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt,
-				debug_rnames[inst->ci_i.i_reg1],
-				regs[inst->ci_i.i_reg1],
-				debug_rnames[inst->ci_i.i_reg2],
-				regs[inst->ci_i.i_reg2]);
+		         debug_rnames[inst->ci_i.i_reg1],
+		         regs[inst->ci_i.i_reg1],
+		         debug_rnames[inst->ci_i.i_reg2],
+		         regs[inst->ci_i.i_reg2]);
 }
 
 static void
 debug_disasm_ii(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const char *decomp_fmt,
-		const cpu_regs_t regs)
+                debug_str_t decomp,
+                const union cpu_inst *inst,
+                const char *mnemonic,
+                const char *decomp_fmt,
+                const cpu_regs_t regs)
 {
 	snprintf(decode, debug_str_len, "%s %i, %s", mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
 	if (regs)
@@ -2966,30 +2663,30 @@ debug_disasm_ii(debug_str_t decode,
 
 static void
 debug_disasm_v(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const char *decomp_fmt,
-		const cpu_regs_t regs)
+               debug_str_t decomp,
+               const union cpu_inst *inst,
+               const char *mnemonic,
+               const char *decomp_fmt,
+               const cpu_regs_t regs)
 {
 	snprintf(decode, debug_str_len, "%s %hd, %s, %s",
-			mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
+	         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt,
-				inst->ci_v.v_imm16,
-				regs[inst->ci_v.v_reg1],
-				debug_rnames[inst->ci_v.v_reg2]);
+		         inst->ci_v.v_imm16,
+		         regs[inst->ci_v.v_reg1],
+		         debug_rnames[inst->ci_v.v_reg2]);
 }
 
 static void
 debug_disasm_vi(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const cpu_regs_t regs)
+                debug_str_t decomp,
+                const union cpu_inst *inst,
+                const char *mnemonic,
+                const cpu_regs_t regs)
 {
 	snprintf(decode, debug_str_len, "%s %hd[%s], %s",
-			mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
+	         mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 	if (regs)
 	{
 		u_int32_t addr = regs[inst->ci_vi.vi_reg1].u + inst->ci_vi.vi_disp16;
@@ -2999,7 +2696,7 @@ debug_disasm_vi(debug_str_t decode,
 		{
 			case OP_CAXI:
 				snprintf(decomp, debug_str_len,
-						"[%s] <- r30 if oldval = %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
+				         "[%s] <- r30 if oldval = %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 				break;
 			case OP_LD_B:
 			case OP_LD_H:
@@ -3030,35 +2727,35 @@ debug_disasm_vi(debug_str_t decode,
 
 static void
 debug_disasm_vi_fmt(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const char *decomp_fmt,
-		const cpu_regs_t regs)
+                    debug_str_t decomp,
+                    const union cpu_inst *inst,
+                    const char *mnemonic,
+                    const char *decomp_fmt,
+                    const cpu_regs_t regs)
 {
 	snprintf(decode, debug_str_len, "%s %hd[%s], %s",
-			mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
+	         mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 	if (regs)
 	{
 		u_int32_t addr = regs[inst->ci_vi.vi_reg1].u + inst->ci_vi.vi_disp16;
 		debug_str_t addr_s;
 		debug_format_addr(addr, addr_s);
 		snprintf(decomp, debug_str_len, decomp_fmt,
-				addr_s,
-				debug_rnames[inst->ci_vi.vi_reg1],
-				regs[inst->ci_vi.vi_reg1].u,
-				debug_rnames[inst->ci_vi.vi_reg2],
-				regs[inst->ci_vi.vi_reg2].u);
+		         addr_s,
+		         debug_rnames[inst->ci_vi.vi_reg1],
+		         regs[inst->ci_vi.vi_reg1].u,
+		         debug_rnames[inst->ci_vi.vi_reg2],
+		         regs[inst->ci_vi.vi_reg2].u);
 	}
 }
 
 static void
 debug_disasm_vii(debug_str_t decode,
-		debug_str_t decomp,
-		const union cpu_inst *inst,
-		const char *mnemonic,
-		const char *decomp_fmt,
-		const cpu_regs_t regs)
+                 debug_str_t decomp,
+                 const union cpu_inst *inst,
+                 const char *mnemonic,
+                 const char *decomp_fmt,
+                 const cpu_regs_t regs)
 {
 	const char *fmt;
 	switch (inst->vii_subop)
@@ -3075,10 +2772,10 @@ debug_disasm_vii(debug_str_t decode,
 	snprintf(decode, debug_str_len, fmt, mnemonic, debug_rnames[inst->vii_reg1], debug_rnames[inst->vii_reg2]);
 	if (regs)
 		snprintf(decomp, debug_str_len, decomp_fmt,
-				debug_rnames[inst->vii_reg1],
-				regs[inst->vii_reg1].f,
-				debug_rnames[inst->vii_reg2],
-				regs[inst->vii_reg2].f);
+		         debug_rnames[inst->vii_reg1],
+		         regs[inst->vii_reg1].f,
+		         debug_rnames[inst->vii_reg2],
+		         regs[inst->vii_reg2].f);
 }
 
 static char *
@@ -3156,19 +2853,19 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 	{
 		case OP_MUL:
 			snprintf(decode, debug_str_len, "%s %s, %s",
-					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+			         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (regs)
 				snprintf(decomp, debug_str_len, "%i × %i",
-						regs[inst->ci_i.i_reg1].s, regs[inst->ci_i.i_reg2].s);
+				         regs[inst->ci_i.i_reg1].s, regs[inst->ci_i.i_reg2].s);
 			break;
 		case OP_SUB:
 			snprintf(decode, debug_str_len, "%s %s, %s",
-					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+			         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (regs)
 				// TODO: use positional parameters
 				snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
-						regs[inst->ci_i.i_reg2].s, regs[inst->ci_i.i_reg1].s,
-						regs[inst->ci_i.i_reg2].u, regs[inst->ci_i.i_reg1].u);
+				         regs[inst->ci_i.i_reg2].s, regs[inst->ci_i.i_reg1].s,
+				         regs[inst->ci_i.i_reg2].u, regs[inst->ci_i.i_reg1].u);
 			break;
 		case OP_ADD:
 			debug_disasm_i(decode, decomp, inst, "ADD", "+", regs);
@@ -3207,8 +2904,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_i_fmt(decode, decomp, inst, "DIVU", "%4$u ÷ %2$u", regs);
 			break;
 		case OP_NOT:
-			snprintf(decode, debug_str_len, "%s %s, %s",
-					mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+			debug_disasm_i_fmt(decode, decomp, inst, "NOT", "%3$s <- ~%2$u", regs);
 			break;
 		case OP_JMP:
 			snprintf(decode, debug_str_len, "%s [%s]", mnemonic, debug_rnames[inst->ci_i.i_reg1]);
@@ -3216,7 +2912,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			{
 				debug_str_t addr_s;
 				snprintf(decomp, debug_str_len, "pc <- %s",
-						debug_format_addr(regs[inst->ci_i.i_reg1].u, addr_s));
+				         debug_format_addr(regs[inst->ci_i.i_reg1].u, addr_s));
 			}
 			break;
 		case OP_ADD2:
@@ -3267,9 +2963,10 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		}
 		case OP_RETI:
 			snprintf(decode, debug_str_len, "%s", "RETI");
-			snprintf(decomp, debug_str_len, "pc <- 0x%08x, psw <- 0x%08x",
-					(cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc,
-					(cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepsw.psw_word : cpu_state.cs_eipsw.psw_word);
+			if (regs)
+				snprintf(decomp, debug_str_len, "pc <- 0x%08x, psw <- 0x%08x",
+				         (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc,
+				         (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepsw.psw_word : cpu_state.cs_eipsw.psw_word);
 			break;
 		case OP_CLI:
 		case OP_SEI:
@@ -3287,7 +2984,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_LDSR:
 		case OP_STSR:
 			snprintf(decode, debug_str_len, "%s %i, %s",
-					mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
+			         mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
 			break;
 		case OP_JR:
 		case OP_JAL:
@@ -3295,7 +2992,10 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			u_int32_t disp = cpu_inst_disp26(inst);
 			snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
 			if (pc)
-				debug_format_addr(pc + disp, decomp);
+			{
+				debug_str_t addr_s;
+				snprintf(decomp, debug_str_len, "%s", debug_format_addr(pc + disp, addr_s));
+			}
 			break;
 		}
 		case OP_ORI:
@@ -3310,11 +3010,11 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_MOVHI:
 		case OP_XORI:
 			snprintf(decode, debug_str_len, "%s %hXh, %s, %s",
-					mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
+			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 			break;
 		case OP_ADDI:
 			snprintf(decode, debug_str_len, "%s %hd, %s, %s",
-					mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
+			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 			break;
 		case OP_CAXI:
 			debug_disasm_vi(decode, decomp, inst, "CAXI", regs);
@@ -3389,6 +3089,9 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				case FLOAT_TRNC_SW:
 					debug_disasm_vii(decode, decomp, inst, "TRNC.SW", "%3$s <- (int32_t)%4$g", regs);
 					break;
+				case FLOAT_MPYHW:
+					debug_disasm_vii(decode, decomp, inst, "MPYHW", "%4$hi x %2$hi", regs);
+					break;
 				default:
 					snprintf(decode, debug_str_len, "TODO: FLOAT %s", debug_format_binary(inst->vii_subop, 6));
 			}
@@ -3428,24 +3131,24 @@ static const struct debug_help
 	const char *dh_usage;
 	const char *dh_desc;
 } debug_help[] =
-{
-	{'?', "", "Display this help (aliases: help)"},
-	{'q', "", "Quit the emulator (aliases: quit, exit)"},
-	{'c', "", "Continue execution (aliases: cont)"},
-	{'s', "", "Step into the next instruction (aliases: step)"},
-	{'i', "", "Show CPU info (aliases: info)"},
-	{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
-		"\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR), O (VIP OAM), B (VIP BGSC)\n"
-		"\t\t\tW (VIP WORLD_ATT)\n"
-		"\t\tSizes: b (byte), h (half-word), w (word)\n"
-		"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
-	{'r', "", "Reset the CPU (aliases: reset)"},
-	{'v', "", "Show VIP info (aliases: vip)"},
-	{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
-	{'S', "", "Show symbol table"},
-	{'W', "<index>", "Toggle drawing of world <index> (aliases: world)"},
-	{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"}
-};
+		{
+				{'?', "", "Display this help (aliases: help)"},
+				{'q', "", "Quit the emulator (aliases: quit, exit)"},
+				{'c', "", "Continue execution (aliases: cont)"},
+				{'s', "", "Step into the next instruction (aliases: step)"},
+				{'i', "", "Show CPU info (aliases: info)"},
+				{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
+						          "\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR), O (VIP OAM), B (VIP BGSC)\n"
+						          "\t\t\tW (VIP WORLD_ATT)\n"
+						          "\t\tSizes: b (byte), h (half-word), w (word)\n"
+						          "\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
+				{'r', "", "Reset the CPU (aliases: reset)"},
+				{'v', "", "Show VIP info (aliases: vip)"},
+				{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
+				{'S', "", "Show symbol table"},
+				{'W', "<index>", "Toggle drawing of world <index> (aliases: world)"},
+				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"}
+		};
 
 static void
 debug_print_help(const struct debug_help *help)
@@ -3499,10 +3202,10 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 	int nparsed;
 
 	if ((sscanf(s, "%i[pc]%n", &disp, &nparsed) == 1 && nparsed == len) ||
-			(sscanf(s, "[pc]%n", &nparsed) == 0 && nparsed == len))
+	    (sscanf(s, "[pc]%n", &nparsed) == 0 && nparsed == len))
 		base = cpu_state.cs_pc;
 	else if ((sscanf(s, "%i[r%2d]%n", &disp, &reg_num, &nparsed) == 2 && nparsed == len) ||
-			(sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
+	         (sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
 		base = cpu_state.cs_r[reg_num & 0x1f].u;
 	else if (sscanf(s, "%u%n", &base, &nparsed) == 1 && nparsed == len)
 		disp = 0;
@@ -3531,7 +3234,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 	return true;
 }
 
-static bool
+bool
 debug_disasm_at(u_int32_t *addrp)
 {
 	union cpu_inst inst;
@@ -3572,10 +3275,10 @@ const char *
 debug_format_perms(debug_str_t s, int perms)
 {
 	return debug_format_flags(s,
-			"READ", (perms & PROT_READ),
-			"WRITE", (perms & PROT_WRITE),
-			"EXEC", (perms & PROT_EXEC),
-			NULL);
+	                          "READ", (perms & PROT_READ),
+	                          "WRITE", (perms & PROT_WRITE),
+	                          "EXEC", (perms & PROT_EXEC),
+	                          NULL);
 }
 
 static void
@@ -3583,25 +3286,25 @@ debug_print_psw(union cpu_psw psw, const char *name)
 {
 	debug_str_t psw_s;
 	printf("\t%s: 0x%08x (%s) (interrupt level %d)",
-			name,
-			cpu_state.cs_psw.psw_word,
-			debug_format_flags(psw_s,
-				"Z", cpu_state.cs_psw.psw_flags.f_z,
-				"S", cpu_state.cs_psw.psw_flags.f_s,
-				"OV", cpu_state.cs_psw.psw_flags.f_ov,
-				"CY", cpu_state.cs_psw.psw_flags.f_cy,
-				"FPR", cpu_state.cs_psw.psw_flags.f_fpr,
-				"FUD", cpu_state.cs_psw.psw_flags.f_fud,
-				"FOV", cpu_state.cs_psw.psw_flags.f_fov,
-				"FZD", cpu_state.cs_psw.psw_flags.f_fzd,
-				"FIV", cpu_state.cs_psw.psw_flags.f_fiv,
-				"FRO", cpu_state.cs_psw.psw_flags.f_fro,
-				"ID", cpu_state.cs_psw.psw_flags.f_id,
-				"AE", cpu_state.cs_psw.psw_flags.f_ae,
-				"EP", cpu_state.cs_psw.psw_flags.f_ep,
-				"NP", cpu_state.cs_psw.psw_flags.f_np,
-				NULL),
-			cpu_state.cs_psw.psw_flags.f_i);
+	       name,
+	       cpu_state.cs_psw.psw_word,
+	       debug_format_flags(psw_s,
+	                          "Z", cpu_state.cs_psw.psw_flags.f_z,
+	                          "S", cpu_state.cs_psw.psw_flags.f_s,
+	                          "OV", cpu_state.cs_psw.psw_flags.f_ov,
+	                          "CY", cpu_state.cs_psw.psw_flags.f_cy,
+	                          "FPR", cpu_state.cs_psw.psw_flags.f_fpr,
+	                          "FUD", cpu_state.cs_psw.psw_flags.f_fud,
+	                          "FOV", cpu_state.cs_psw.psw_flags.f_fov,
+	                          "FZD", cpu_state.cs_psw.psw_flags.f_fzd,
+	                          "FIV", cpu_state.cs_psw.psw_flags.f_fiv,
+	                          "FRO", cpu_state.cs_psw.psw_flags.f_fro,
+	                          "ID", cpu_state.cs_psw.psw_flags.f_id,
+	                          "AE", cpu_state.cs_psw.psw_flags.f_ae,
+	                          "EP", cpu_state.cs_psw.psw_flags.f_ep,
+	                          "NP", cpu_state.cs_psw.psw_flags.f_np,
+	                          NULL),
+	       cpu_state.cs_psw.psw_flags.f_i);
 }
 
 static void
@@ -3609,17 +3312,17 @@ debug_print_intreg(u_int16_t intreg, const char *name)
 {
 	debug_str_t flags_str;
 	printf("%s: (%s)",
-			name,
-			debug_format_flags(flags_str,
-				"SCANERR", intreg & VIP_SCANERR,
-				"LFBEND", intreg & VIP_LFBEND,
-				"RFBEND", intreg & VIP_RFBEND,
-				"GAMESTART", intreg & VIP_GAMESTART,
-				"FRAMESTART", intreg & VIP_FRAMESTART,
-				"SBHIT", intreg & VIP_SBHIT,
-				"XPEND", intreg & VIP_XPEND,
-				"TIMEERR", intreg & VIP_TIMEERR,
-				NULL));
+	       name,
+	       debug_format_flags(flags_str,
+	                          "SCANERR", intreg & VIP_SCANERR,
+	                          "LFBEND", intreg & VIP_LFBEND,
+	                          "RFBEND", intreg & VIP_RFBEND,
+	                          "GAMESTART", intreg & VIP_GAMESTART,
+	                          "FRAMESTART", intreg & VIP_FRAMESTART,
+	                          "SBHIT", intreg & VIP_SBHIT,
+	                          "XPEND", intreg & VIP_XPEND,
+	                          "TIMEERR", intreg & VIP_TIMEERR,
+	                          NULL));
 }
 
 static void
@@ -3627,19 +3330,19 @@ debug_print_dpctrl(struct vip_dpctrl vd, const char *name)
 {
 	debug_str_t flags_str;
 	printf("%s: (%s)",
-			name,
-			debug_format_flags(flags_str,
-				"DISP", vd.vd_disp,
-				"DPBSY:L:FB0", vd.vd_dpbsy_l_fb0,
-				"DPBSY:R:FB0", vd.vd_dpbsy_r_fb0,
-				"DPBSY:L:FB1", vd.vd_dpbsy_l_fb1,
-				"DPBSY:R:FB1", vd.vd_dpbsy_r_fb1,
-				"SCANRDY", vd.vd_scanrdy,
-				"FCLK", vd.vd_fclk,
-				"RE", vd.vd_re,
-				"SYNCE", vd.vd_synce,
-				"LOCK", vd.vd_lock,
-				NULL));
+	       name,
+	       debug_format_flags(flags_str,
+	                          "DISP", vd.vd_disp,
+	                          "DPBSY:L:FB0", vd.vd_dpbsy_l_fb0,
+	                          "DPBSY:R:FB0", vd.vd_dpbsy_r_fb0,
+	                          "DPBSY:L:FB1", vd.vd_dpbsy_l_fb1,
+	                          "DPBSY:R:FB1", vd.vd_dpbsy_r_fb1,
+	                          "SCANRDY", vd.vd_scanrdy,
+	                          "FCLK", vd.vd_fclk,
+	                          "RE", vd.vd_re,
+	                          "SYNCE", vd.vd_synce,
+	                          "LOCK", vd.vd_lock,
+	                          NULL));
 }
 
 static void
@@ -3647,22 +3350,22 @@ debug_print_xpctrl(struct vip_xpctrl vx, const char *name)
 {
 	debug_str_t flags_str;
 	printf("%s: (%s)",
-			name,
-			debug_format_flags(flags_str,
-				"XPRST", vx.vx_xprst,
-				"XPEN", vx.vx_xpen,
-				"XPBSY:FB0", vx.vx_xpbsy_fb0,
-				"XPBSY:FB1", vx.vx_xpbsy_fb1,
-				"OVERTIME", vx.vx_overtime,
-				"SBOUT", vx.vx_sbout,
-				NULL));
+	       name,
+	       debug_format_flags(flags_str,
+	                          "XPRST", vx.vx_xprst,
+	                          "XPEN", vx.vx_xpen,
+	                          "XPBSY:FB0", vx.vx_xpbsy_fb0,
+	                          "XPBSY:FB1", vx.vx_xpbsy_fb1,
+	                          "OVERTIME", vx.vx_overtime,
+	                          "SBOUT", vx.vx_sbout,
+	                          NULL));
 }
 
 void
 debug_print_bgsc(struct vip_bgsc *vb)
 {
 	printf("CHR No: %u, BVFLP=%u, BHFLP=%u, GPLTS=%u\n",
-			vb->vb_chrno, vb->vb_bvflp, vb->vb_bhflp, vb->vb_gplts);
+	       vb->vb_chrno, vb->vb_bvflp, vb->vb_bhflp, vb->vb_gplts);
 }
 
 void
@@ -3671,23 +3374,23 @@ debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa
 	debug_str_t flags_s;
 	size_t bufoff = 0;
 	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%u, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
-			debug_format_flags(flags_s,
-				"LON", vwa->vwa_lon,
-				"RON", vwa->vwa_ron,
-				"OVER", vwa->vwa_over,
-				"END", vwa->vwa_end,
-				NULL),
-			vwa->vwa_bgm,
-			vwa->vwa_scx,
-			vwa->vwa_scy,
-			vwa->vwa_bgmap_base);
+	                  debug_format_flags(flags_s,
+	                                     "LON", vwa->vwa_lon,
+	                                     "RON", vwa->vwa_ron,
+	                                     "OVER", vwa->vwa_over,
+	                                     "END", vwa->vwa_end,
+	                                     NULL),
+	                  vwa->vwa_bgm,
+	                  vwa->vwa_scx,
+	                  vwa->vwa_scy,
+	                  vwa->vwa_bgmap_base);
 	if (!vwa->vwa_end && (vwa->vwa_lon || vwa->vwa_ron))
 	{
 		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-				"\tGX=%hd, GP=%hd, GY=%hu, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
-				vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
+		                  "\tGX=%hd, GP=%hd, GY=%hu, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
+		                  vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
 		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-				"\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu\n", vwa->vwa_param_base, vwa->vwa_over_chrno);
+		                  "\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu\n", vwa->vwa_param_base, vwa->vwa_over_chrno);
 	}
 }
 
@@ -3696,8 +3399,8 @@ debug_format_oam(debug_str_t s, const struct vip_oam *vop)
 {
 	snprintf(s, debug_str_len, "JX=%hd, JP=%d, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
 			", JVFLP=%u, JHFLP=%u, JPLTS=%u\n",
-			vop->vo_jx, vop->vo_jp, vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
-			vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
+	         vop->vo_jx, vop->vo_jp, vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
+	         vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
 }
 
 static void
@@ -3721,7 +3424,7 @@ debug_run(void)
 		{
 			debug_str_t addr_s;
 			printf("frame 0: %s: %s\n",
-					debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
+			       debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
 		}
 
 		tok_reset(s_token);
@@ -3741,13 +3444,13 @@ debug_run(void)
 				}
 				else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
 				{
-					main_exit();
+					tk_quit();
 					break;
 				}
 				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
 					break;
 				else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
-					cpu_step();
+					main_step();
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
 					static const char *fmt = "%5s: %-26s";
@@ -3763,7 +3466,7 @@ debug_run(void)
 					debug_print_psw(cpu_state.cs_psw, "  psw");
 					putchar('\n');
 					printf("\t  ecr: (eicc: 0x%04hx, fecc: 0x%04hx)\n",
-							cpu_state.cs_ecr.ecr_eicc, cpu_state.cs_ecr.ecr_fecc);
+					       cpu_state.cs_ecr.ecr_eicc, cpu_state.cs_ecr.ecr_fecc);
 					printf(fmt, "eipc", debug_format_addr(cpu_state.cs_eipc, addr_s));
 					debug_print_psw(cpu_state.cs_eipsw, "eipsw");
 					putchar('\n');
@@ -3903,7 +3606,7 @@ debug_run(void)
 					printf(" SBCMP=%d", vip_regs.vr_xpctrl.vx_sbcount);
 					putchar('\n');
 					printf("BRTA: %d, BRTB: %d, BRTC: %d, REST: %d\n",
-							vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
+					       vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
 					printf("FRMCYC: %d\n", vip_regs.vr_frmcyc);
 				}
 				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
@@ -3936,7 +3639,7 @@ debug_run(void)
 				{
 					for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
 						fprintf(stderr, "debug symbol: %s = 0x%08x, type = %u\n",
-								sym->ds_name, sym->ds_addr, sym->ds_type);
+						        sym->ds_name, sym->ds_addr, sym->ds_type);
 				}
 				else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
 				{
@@ -3994,7 +3697,7 @@ debug_run(void)
 								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
 										debug_draw(x * 8 + chr_x, y * 8 + chr_y,
-												vip_chr_read(vc, chr_x, chr_y, false, false));
+										           vip_chr_read(vc, chr_x, chr_y, false, false));
 								++vc;
 							}
 						tk_debug_flip();
@@ -4013,7 +3716,7 @@ debug_run(void)
 		else
 		{
 			putchar('\n');
-			main_exit();
+			tk_quit();
 			break;
 		}
 	}
@@ -4037,7 +3740,7 @@ debug_tracef(const char *tag, const char *fmt, ...)
 
 /* MAIN */
 #if INTERFACE
-	struct main_stats_t
+struct main_stats_t
 	{
 		u_int32_t ms_start_ticks;
 		u_int ms_frames;
@@ -4076,9 +3779,9 @@ main_restart_clock(void)
 		u_int32_t delta = ticks - main_stats.ms_start_ticks;
 		float fps = (float)main_stats.ms_frames / ((float)delta / 1000);
 		debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts\n",
-				main_stats.ms_frames, delta, fps,
-				main_stats.ms_insts,
-				main_stats.ms_intrs);
+		             main_stats.ms_frames, delta, fps,
+		             main_stats.ms_insts,
+		             main_stats.ms_intrs);
 	}
 
 	main_stats.ms_start_ticks = ticks;
@@ -4113,7 +3816,7 @@ main_step(void)
 	return true;
 }
 
-static void
+void
 main_noop(int sig)
 {
 }
@@ -4137,92 +3840,4 @@ main_frame(void)
 		signal(SIGINT, main_noop);
 		sigprocmask(SIG_BLOCK, &sigpend, NULL);
 	}
-}
-
-void
-main_exit(void)
-{
-	tk_running = false;
-}
-
-int
-main(int ac, char * const *av)
-{
-	int ch;
-	extern int optind;
-	bool help = false;
-	bool debug_boot = false;
-	bool self_test = false;
-	static const char *usage_fmt = "usage: %s [-dtCV] [-T <trace.log> ] { <file.vb> | <file.isx> }\n";
-	while ((ch = getopt(ac, av, "dtCVT:")) != -1)
-		switch (ch)
-		{
-			case '?':
-				help = true;
-			case 'd':
-				debug_boot = true;
-				break;
-			case 't':
-				self_test = true;
-				break;
-			case 'C':
-				debug_trace_cpu = true;
-				break;
-			case 'V':
-				debug_trace_vip = true;
-				break;
-			case 'T':
-				debug_trace_file = fopen(optarg, "w");
-				if (!debug_trace_file)
-					err(EX_CANTCREAT, "Can't open trace file %s", optarg);
-				if (setlinebuf(debug_trace_file) != 0)
-					err(EX_OSERR, "Can't set trace line-buffered");
-				break;
-		}
-	ac-= optind;
-	av+= optind;
-
-	if (ac != 1 || help)
-	{
-		fprintf(stderr, usage_fmt, getprogname());
-		return EX_USAGE;
-	}
-
-	if (!rom_load(av[0]))
-		return EX_NOINPUT;
-
-	if (!main_init())
-		return EX_OSERR;
-
-	main_reset();
-
-	tk_running = true;
-
-	if (self_test)
-	{
-		nvc_test();
-		vsu_test();
-		vip_test();
-		cpu_test();
-	}
-
-	if (debug_boot)
-		debug_run();
-
-	sigset_t sigset;
-	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGINT);
-	signal(SIGINT, main_noop);
-
-	sigprocmask(SIG_BLOCK, &sigset, NULL);
-	tk_main();
-	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
-
-	rom_unload();
-	main_fini();
-
-	if (debug_trace_file != NULL)
-		fclose(debug_trace_file);
-
-	return 0;
 }

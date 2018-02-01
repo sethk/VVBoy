@@ -45,10 +45,14 @@ tk_debug_flip(void)
 {
 }
 
-enum tk_keys
-tk_poll(void)
+void
+tk_main(void)
 {
-	return 0;
+}
+
+void
+tk_quit(void)
+{
 }
 
 void tk_fini(void)
