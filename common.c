@@ -653,7 +653,8 @@ rom_unload(void)
 #if INTERFACE
 #	define CPU_INST_PER_USEC (1) //(20)
 
-	typedef union {u_int32_t u; int32_t s; float f; int16_t s16;} cpu_regs_t[32];
+	union cpu_reg {u_int32_t u; int32_t s; float f; int16_t s16; u_int8_t u8s[4];};
+	typedef union cpu_reg cpu_regs_t[32];
 
 	union cpu_inst
 	{
@@ -1008,6 +1009,49 @@ cpu_setfl(u_int64_t result, u_int32_t left, bool sign_agree)
 		cpu_state.cs_psw.psw_flags.f_ov = 0;
 }
 
+static void
+cpu_setfl_float_zsoc(double result)
+{
+	cpu_state.cs_psw.psw_flags.f_cy = cpu_state.cs_psw.psw_flags.f_s = (result < 0);
+	cpu_state.cs_psw.psw_flags.f_ov = 0;
+	cpu_state.cs_psw.psw_flags.f_z = (result == 0);
+}
+
+static void
+cpu_setfl_float(double double_result)
+{
+	if (double_result != 0.0)
+	{
+		if (double_result >= 0x1.ffffffp127 || double_result <= -0x1.ffffffp127)
+			cpu_state.cs_psw.psw_flags.f_fov = 1;
+		else
+		{
+			union
+			{
+				struct
+				{
+					unsigned double_mantissa : 29 __attribute__((packed));
+					unsigned single_mantissa : 23 __attribute__((packed));
+					unsigned raw_exp : 11 __attribute__((packed));
+					unsigned sign : 1 __attribute__((packed));
+				} __attribute__((packed));
+				double d;
+			} result = {.d = double_result};
+			static_assert(sizeof(result) == 8, "double_result not packed correctly");
+			if (result.raw_exp == 0)
+			{
+				if (result.single_mantissa == 0)
+				{
+					assert(result.double_mantissa != 0);
+					cpu_state.cs_psw.psw_flags.f_fud = 1;
+				}
+			}
+			else if (result.double_mantissa) // Precision beyond 24-bit float mantissa
+				cpu_state.cs_psw.psw_flags.f_fpr = 1;
+		}
+	}
+}
+
 static u_int32_t
 cpu_add(u_int32_t left, u_int32_t right)
 {
@@ -1021,6 +1065,35 @@ cpu_sub(u_int32_t left, u_int32_t right)
 {
 	u_int64_t result = (u_int64_t)left - right;
 	cpu_setfl(result, left, (left & sign_bit32) != (right & sign_bit32));
+	return result;
+}
+
+static bool
+cpu_float_reserved(float f)
+{
+	switch (fpclassify(f))
+	{
+		case FP_NORMAL:
+		case FP_ZERO:
+			return false;
+
+		default:
+		{
+			cpu_state.cs_psw.psw_flags.f_fro = 1;
+			fputs("TODO: Reserved operand exception\n", stderr);
+			raise(SIGINT);
+			return true;
+		}
+	}
+}
+
+static double
+cpu_subf(float left, float right)
+{
+	assert(!cpu_float_reserved(left));
+	assert(!cpu_float_reserved(right));
+	double result = (double)left - right;
+	cpu_setfl_float_zsoc(result);
 	return result;
 }
 
@@ -1463,11 +1536,118 @@ cpu_exec(const union cpu_inst inst)
 		case OP_FLOAT:
 			switch (inst.vii_subop)
 			{
+				case FLOAT_CMPF_S:
+				{
+					float left = cpu_state.cs_r[inst.vii_reg2].f, right = cpu_state.cs_r[inst.vii_reg1].f;
+					if (cpu_float_reserved(left) || cpu_float_reserved(right))
+						return false;
+					cpu_subf(left, right);
+					break;
+				}
 				case FLOAT_CVT_WS:
 					cpu_state.cs_r[inst.vii_reg2].f = (float)cpu_state.cs_r[inst.vii_reg1].s;
 					if ((int32_t)cpu_state.cs_r[inst.vii_reg2].f != cpu_state.cs_r[inst.vii_reg1].s)
 						cpu_state.cs_psw.psw_flags.f_fpr = 1;
 					break;
+				case FLOAT_CVT_SW:
+				{
+					float source = cpu_state.cs_r[inst.vii_reg1].f;
+					if (cpu_float_reserved(source))
+						return false;
+					if (source >= (double)INT32_MAX + 0.5 || source <= (double)INT32_MIN - 0.5)
+					{
+						cpu_state.cs_psw.psw_flags.f_fiv = 1;
+						fputs("TODO: Floating-point invalid operation exception\n", stderr);
+						raise(SIGINT);
+						return false;
+					}
+					cpu_setfl_float_zsoc(source);
+					cpu_state.cs_r[inst.vii_reg2].s = (int32_t)lroundf(source);
+					if ((double)cpu_state.cs_r[inst.vii_reg2].s != source)
+						cpu_state.cs_psw.psw_flags.f_fpr = 1;
+					break;
+				}
+				case FLOAT_ADDF_S:
+				{
+					float left = cpu_state.cs_r[inst.vii_reg2].f, right = cpu_state.cs_r[inst.vii_reg1].f;
+					if (cpu_float_reserved(left) || cpu_float_reserved(right))
+						return false;
+					double result = (double)left + right;
+					cpu_setfl_float_zsoc(result);
+					cpu_setfl_float(result);
+					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+					break;
+				}
+				case FLOAT_SUBF_S:
+				{
+					float left = cpu_state.cs_r[inst.vii_reg2].f, right = cpu_state.cs_r[inst.vii_reg1].f;
+					if (cpu_float_reserved(left) || cpu_float_reserved(right))
+						return false;
+					double result = cpu_subf(left, right);
+					cpu_setfl_float(result);
+					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+					break;
+				}
+				case FLOAT_MULF_S:
+				{
+					float left = cpu_state.cs_r[inst.vii_reg2].f, right = cpu_state.cs_r[inst.vii_reg1].f;
+					if (cpu_float_reserved(left) || cpu_float_reserved(right))
+						return false;
+					double result = (double)left * right;
+					cpu_setfl_float_zsoc(result);
+					cpu_setfl_float(result);
+					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+					break;
+				}
+				case FLOAT_DIVF_S:
+				{
+					float left = cpu_state.cs_r[inst.vii_reg2].f, right = cpu_state.cs_r[inst.vii_reg1].f;
+					if (right == 0)
+					{
+						if (left == 0)
+						{
+							cpu_state.cs_psw.psw_flags.f_fiv = 1;
+							fputs("TODO: Invalid operation exception\n", stderr);
+							raise(SIGINT);
+							return false;
+						}
+						else if (cpu_float_reserved(left))
+							return false;
+						else
+						{
+							cpu_state.cs_psw.psw_flags.f_fzd = 1;
+							fputs("TODO: Divide by zero exception\n", stderr);
+							raise(SIGINT);
+							return false;
+						}
+					}
+					else if (cpu_float_reserved(left) || cpu_float_reserved(right))
+						return false;
+					double result = (double)left / right;
+					cpu_setfl_float_zsoc(result);
+					cpu_setfl_float(result);
+					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+					break;
+				}
+				case FLOAT_XB:
+				{
+					if (inst.vii_reg1 != 0)
+					{
+						fputs("TODO: reg1 operand (%s) should be r0 for XB instruction\n", stderr);
+						raise(SIGINT);
+						return false;
+					}
+					u_int8_t b0 = cpu_state.cs_r[inst.vii_reg2].u8s[0];
+					cpu_state.cs_r[inst.vii_reg2].u8s[0] = cpu_state.cs_r[inst.vii_reg2].u8s[1];
+					cpu_state.cs_r[inst.vii_reg2].u8s[1] = b0;
+					break;
+				}
+					/*
+					case FLOAT_XH:
+						break;
+					case FLOAT_TRNC_SW:
+						break;
+					 */
 				case FLOAT_MPYHW:
 					// TODO: Are there really no flags set?
 					cpu_state.cs_r[inst.vii_reg2].s =
@@ -1506,19 +1686,25 @@ cpu_exec(const union cpu_inst inst)
 }
 
 static void
-cpu_assert_reg(const char *dis, unsigned reg, u_int32_t value)
+cpu_assert_reg(const char *dis, unsigned reg, union cpu_reg value)
 {
-	if (cpu_state.cs_r[reg].u != value)
+	if (cpu_state.cs_r[reg].u != value.u)
+	{
 		fprintf(stderr, "*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x\n",
-		        dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value);
+		        dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value.u);
+		abort();
+	}
 }
 
 static void
 cpu_assert_flag(const char *dis, const char *name, bool flag, bool value)
 {
 	if (flag != value)
+	{
 		fprintf(stderr, "*** Test failure: %s\n\t%s flag (%d) should be %s\n",
 		        dis, name, flag, (value) ? "set" : "reset");
+		abort();
+	}
 }
 
 static void
@@ -1546,6 +1732,24 @@ cpu_assert_zero(const char *dis, bool zero)
 }
 
 static void
+cpu_assert_fov(const char *dis)
+{
+	cpu_assert_flag(dis, "floating-point overflow", cpu_state.cs_psw.psw_flags.f_fov, 1);
+}
+
+static void
+cpu_assert_fud(const char *dis)
+{
+	cpu_assert_flag(dis, "floating-point underflow", cpu_state.cs_psw.psw_flags.f_fud, 1);
+}
+
+static void
+cpu_assert_fpr(const char *dis)
+{
+	cpu_assert_flag(dis, "floating-point precision loss", cpu_state.cs_psw.psw_flags.f_fpr, 1);
+}
+
+static void
 cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool carry, bool zero)
 {
 	union cpu_inst inst;
@@ -1554,9 +1758,13 @@ cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 	inst.ci_v.v_reg2 = 7;
 	cpu_state.cs_r[6].s = right;
 	inst.ci_v.v_reg1 = 6;
+	cpu_state.cs_psw.psw_flags.f_ov = (!overflow);
+	cpu_state.cs_psw.psw_flags.f_cy = (!carry);
+	cpu_state.cs_psw.psw_flags.f_z = (!zero);
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 7, result);
+	union cpu_reg result_reg = {.s = result};
+	cpu_assert_reg(dis, 7, result_reg);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_carry(dis, carry);
 	cpu_assert_zero(dis, zero);
@@ -1571,9 +1779,12 @@ cpu_test_sub(int32_t left, int32_t right, int32_t result, bool overflow, bool ca
 	inst.ci_i.i_reg2 = 7;
 	cpu_state.cs_r[6].s = right;
 	inst.ci_i.i_reg1 = 6;
+	cpu_state.cs_psw.psw_flags.f_ov = (!overflow);
+	cpu_state.cs_psw.psw_flags.f_cy = (!carry);
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 7, result);
+	union cpu_reg result_reg = {.s = result};
+	cpu_assert_reg(dis, 7, result_reg);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_carry(dis, carry);
 }
@@ -1588,12 +1799,15 @@ cpu_test_mul(int32_t left, int32_t right, u_int32_t result, bool overflow, bool 
 	cpu_state.cs_r[6].s = right;
 	inst.ci_i.i_reg1 = 6;
 	cpu_state.cs_r[30].u = 0xdeadc0de;
+	cpu_state.cs_psw.psw_flags.f_ov = (!overflow);
+	cpu_state.cs_psw.psw_flags.f_s = (!sign);
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 7, result);
+	union cpu_reg result_reg = {.u = result};
+	cpu_assert_reg(dis, 7, result_reg);
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_sign(dis, sign);
-	cpu_assert_reg(dis, 30, carry);
+	cpu_assert_reg(dis, 30, (union cpu_reg){.u = carry});
 }
 
 static void
@@ -1606,12 +1820,38 @@ cpu_test_div(int32_t left, int32_t right, u_int32_t result, u_int32_t rem, bool 
 	cpu_state.cs_r[6].s = right;
 	inst.ci_i.i_reg1 = 6;
 	cpu_state.cs_r[30].u = 0xdeadc0de;
+	cpu_state.cs_psw.psw_flags.f_ov = (!overflow);
+	cpu_state.cs_psw.psw_flags.f_s = (!sign);
 	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
 	cpu_exec(inst);
-	cpu_assert_reg(dis, 7, result);
-	cpu_assert_reg(dis, 30, rem);
+	cpu_assert_reg(dis, 7, (union cpu_reg){.u = result});
+	cpu_assert_reg(dis, 30, (union cpu_reg){.u = rem});
 	cpu_assert_overflow(dis, overflow);
 	cpu_assert_sign(dis, sign);
+}
+
+static void
+cpu_test_subf(float left, float right, float result, bool overflow, bool underflow, bool degraded)
+{
+	union cpu_inst inst;
+	inst.vii_opcode = OP_FLOAT;
+	inst.vii_subop = FLOAT_SUBF_S;
+	cpu_state.cs_r[7].f = left;
+	inst.vii_reg2 = 7;
+	cpu_state.cs_r[6].f = right;
+	inst.vii_reg1 = 6;
+	cpu_state.cs_psw.psw_flags.f_fov = 0;
+	cpu_state.cs_psw.psw_flags.f_fud = 0;
+	cpu_state.cs_psw.psw_flags.f_fpr = 0;
+	const char *dis = debug_disasm(&inst, 0, cpu_state.cs_r);
+	cpu_exec(inst);
+	cpu_assert_reg(dis, 7, (union cpu_reg){.f = result});
+	if (overflow)
+		cpu_assert_fov(dis);
+	if (underflow)
+		cpu_assert_fud(dis);
+	if (degraded)
+		cpu_assert_fpr(dis);
 }
 
 void
@@ -1658,6 +1898,15 @@ cpu_test(void)
 	cpu_test_div(1000, 500, 2, 0, false, false);
 	cpu_test_div(1001, 500, 2, 1, false, false);
 	cpu_test_div(-500, 2, -250, 0, false, true);
+
+	cpu_test_subf(0x1p0f, 0x1p-24f, 0x1.fffffep-1, false, false, false);
+	cpu_test_subf(0x1p0f, 0x1p-25f, 0x1p0f, false, false, true);
+	cpu_test_subf(-0x1p0f, -0x1p-24f, -0x1.fffffep-1f, false, false, false);
+	cpu_test_subf(-0x1p0f, -0x1p-25f, -0x1p0f, false, false, true);
+	cpu_test_subf(0x1p0f, -0x1.1p-24f, 0x1.000002p0f, false, false, false);
+	cpu_test_subf(0x1p0f, -0x1p-25f, 0x1p0f, false, false, true);
+	cpu_test_subf(-FLT_MAX, 0x1p102f, -FLT_MAX, false, false, true);
+	cpu_test_subf(-FLT_MAX, 0x1p103f, -INFINITY, true, false, false);
 
 	cpu_reset();
 }
