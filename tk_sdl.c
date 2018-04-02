@@ -9,7 +9,7 @@
 static bool tk_running = false;
 static SDL_Window *sdl_window;
 static SDL_Renderer *sdl_renderer;
-static SDL_Texture *sdl_texture;
+static SDL_Texture *sdl_textures[2];
 static u_int32_t sdl_frame[384 * 224];
 static SDL_Window *sdl_debug_window;
 static SDL_Renderer *sdl_debug_renderer;
@@ -39,14 +39,18 @@ tk_init(void)
 		return false;
 	}
 
-	if (!(sdl_texture = SDL_CreateTexture(sdl_renderer,
-					SDL_PIXELFORMAT_ARGB8888,
-					SDL_TEXTUREACCESS_STREAMING,
-					384,
-					224)))
+	for (u_int i = 0; i < 2; ++i)
 	{
-		fprintf(stderr, "SDL: Could not create texture: %s", SDL_GetError());
-		return false;
+		if (!(sdl_textures[i] = SDL_CreateTexture(sdl_renderer,
+		                                          SDL_PIXELFORMAT_ARGB8888,
+		                                          SDL_TEXTUREACCESS_STREAMING,
+		                                          384,
+		                                          224)))
+		{
+			fprintf(stderr, "SDL: Could not create texture: %s", SDL_GetError());
+			return false;
+		}
+		SDL_SetTextureBlendMode(sdl_textures[i], SDL_BLENDMODE_ADD);
 	}
 
 	return true;
@@ -177,11 +181,24 @@ tk_quit(void)
 void
 tk_blit(const u_int8_t *fb, bool right)
 {
+	if (!right)
+		SDL_RenderClear(sdl_renderer);
+
+	SDL_Texture *texture = sdl_textures[(right) ? 0 : 1];
 	for (u_int x = 0; x < 384; ++x)
 		for (u_int y = 0; y < 224; ++y)
-			sdl_frame[y * 384 + x] = vip_fb_read_argb(fb, x, y);
-	SDL_UpdateTexture(sdl_texture, NULL, sdl_frame, 384 * sizeof(*sdl_frame));
-	SDL_RenderCopy(sdl_renderer, sdl_texture, NULL, NULL);
+		{
+			u_int8_t intensity = vip_fb_read(fb, x, y);
+			u_int32_t argb;
+			if (right)
+				argb = 0xff000000 | (intensity << 6);
+			else
+				argb = 0xff000000 | (intensity << 22);
+			sdl_frame[y * 384 + x] = argb;
+		}
+	SDL_UpdateTexture(texture, NULL, sdl_frame, 384 * sizeof(*sdl_frame));
+	SDL_RenderCopy(sdl_renderer, texture, NULL, NULL);
+
 	if (right)
 		SDL_RenderPresent(sdl_renderer);
 }
@@ -212,7 +229,8 @@ tk_debug_flip(void)
 void
 tk_fini(void)
 {
-	SDL_DestroyTexture(sdl_texture);
+	for (u_int i = 0; i < 2; ++i)
+		SDL_DestroyTexture(sdl_textures[i]);
     SDL_DestroyRenderer(sdl_renderer);
     SDL_DestroyWindow(sdl_window);
 
