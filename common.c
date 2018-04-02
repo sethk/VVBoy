@@ -2022,6 +2022,16 @@ struct vip_bgsc
 static const u_int vip_bgseg_width = 64, vip_bgseg_height = 64;
 typedef struct vip_bgsc vip_bgseg_t[vip_bgseg_width * vip_bgseg_height];
 
+struct vip_affine
+{
+	int16_t va_mx;
+	int16_t va_mp;
+	int16_t va_my;
+	int16_t va_dx;
+	int16_t va_dy;
+	u_int16_t va_rfu[3];
+};
+
 #if INTERFACE
 enum vip_world_bgm
 	{
@@ -2056,12 +2066,23 @@ enum vip_world_bgm
 	};
 #endif // INTERFACE
 
+struct vip_hbias
+{
+	int16_t vh_hofstl, vh_hofstr;
+};
+
+union vip_params
+{
+	struct vip_hbias vp_hbias;
+	struct vip_affine vp_affine;
+};
+
 struct vip_dram
 {
 	union
 	{
 		vip_bgseg_t s_bgsegs[14];
-		u_int8_t s_param_tbl[0x1d800];
+		u_int16_t s_param_tbl[0xec00];
 	} vd_shared;
 	struct vip_world_att vd_world_atts[32];
 	u_int8_t vd_clm_tbl[0x400];
@@ -2264,6 +2285,8 @@ vip_chr_find(u_int chrno)
 static u_int8_t
 vip_chr_read(const struct vip_chr *vc, u_int x, u_int y, bool hflip, bool vflip)
 {
+	assert(x < 8);
+	assert(y < 8);
 	if (hflip)
 		x = 7 - x;
 	if (vflip)
@@ -2334,12 +2357,53 @@ vip_bgsc_read(struct vip_bgsc *vb, u_int chr_x, u_int chr_y)
 }
 
 static u_int8_t
-vip_bgmap_read(struct vip_bgsc *bgmap_base, struct vip_world_att *vwa, u_int x, u_int y)
+vip_bgmap_read(struct vip_bgsc *bgmap_base,
+               struct vip_world_att *vwa,
+               u_int win_x, u_int win_y,
+               bool right,
+               union vip_params *vp)
 {
+	int x, y;
+	if (vwa->vwa_bgm == WORLD_BGM_AFFINE)
+	{
+		float mx = (float)vp->vp_affine.va_mx / (1 << 3);
+		float my = (float)vp->vp_affine.va_my / (1 << 3);
+		float dx = (float)vp->vp_affine.va_dx / (1 << 9);
+		float dy = (float)vp->vp_affine.va_dy / (1 << 9);
+		int bias_x = win_x;
+		//assert(vp->vp_affine.va_mp > -256 && vp->vp_affine.va_mp < 255);
+		if ((vp->vp_affine.va_mp >= 0) == right)
+			bias_x+= vp->vp_affine.va_mp;
+		x = (int)lroundf(mx + dx * bias_x);
+		y = (int)lroundf(my + dy * bias_x);
+	}
+	else
+	{
+		if (right)
+			x = vwa->vwa_mx + vwa->vwa_mp + win_x;
+		else
+			x = vwa->vwa_mx - vwa->vwa_mp + win_x;
+		y = vwa->vwa_my + win_y;
+
+		if (vwa->vwa_bgm == WORLD_BGM_H_BIAS)
+		{
+			if (right)
+				x += vp->vp_hbias.vh_hofstr;
+			else
+				x += vp->vp_hbias.vh_hofstl;
+		}
+	}
+
 	u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width,
-			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height,
-			bg_x = x / 8, bg_y = y / 8,
-			chr_x = x % 8, chr_y = y % 8;
+			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
+
+	if (x < 0)
+		x+= width_chrs * 8;
+	if (y < 0)
+		y+= height_chrs * 8;
+
+	u_int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8,
+			chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
 	struct vip_bgsc *vb;
 	if (bg_x < width_chrs && bg_y < height_chrs)
 		vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
@@ -2347,6 +2411,7 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base, struct vip_world_att *vwa, u_int x, 
 		vb = &(bgmap_base[vwa->vwa_over_chrno]);
 	else
 		vb = &(bgmap_base[(bg_y % height_chrs) * width_chrs + (bg_x % width_chrs)]);
+
 	return vip_bgsc_read(vb, chr_x, chr_y);
 }
 
@@ -2380,76 +2445,83 @@ vip_draw_finish(u_int fb_index)
 		if ((vip_world_mask & (1 << world_index)) == 0)
 			continue;
 
-		switch (vwa->vwa_bgm)
+		if (vwa->vwa_bgm == WORLD_BGM_OBJ)
 		{
-			case WORLD_BGM_NORMAL:
+			if (obj_group < 0)
 			{
-				struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
-				for (u_int x = 0; x <= vwa->vwa_w; ++x)
-					for (u_int y = 0; y <= vwa->vwa_h; ++y)
-					{
-						u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, vwa->vwa_mx + x, vwa->vwa_my + y);
-						if (pixel)
-						{
-							if (vwa->vwa_lon)
-								vip_fb_write(left_fb, vwa->vwa_gx + x, vwa->vwa_gy + y, pixel);
-							if (vwa->vwa_ron)
-								vip_fb_write(right_fb, vwa->vwa_gx + x, vwa->vwa_gy + y, pixel);
-						}
-					}
+				fprintf(stderr, "VIP already searched 4 OBJ groups for worlds\n");
 				break;
 			}
-			case WORLD_BGM_H_BIAS:
-			case WORLD_BGM_AFFINE:
-				// TODO: Draw BG
-				break;
-			case WORLD_BGM_OBJ:
+
+			int start_index;
+			if (obj_group > 0)
+				start_index = (vip_regs.vr_spt[obj_group - 1] + 1) & 0x3ff;
+			else
+				start_index = 0;
+
+			for (int obj_index = vip_regs.vr_spt[obj_group] & 0x3ff; obj_index >= start_index; --obj_index)
 			{
-				if (obj_group < 0)
+				assert(obj_index >= 0 && obj_index < 1024);
+				struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
+
+				if (debug_trace_vip)
 				{
-					fprintf(stderr, "VIP already searched 4 OBJ groups for worlds\n");
-					break;
+					debug_str_t oamstr;
+					debug_format_oam(oamstr, obj);
+					debug_tracef("vip", "OBJ[%u]: %s\n", obj->vo_jca, oamstr);
 				}
 
-				int start_index;
-				if (obj_group > 0)
-					start_index = (vip_regs.vr_spt[obj_group - 1] + 1) & 0x3ff;
-				else
-					start_index = 0;
+				if (!obj->vo_jlon && !obj->vo_jron)
+					continue;
 
-				for (int obj_index = vip_regs.vr_spt[obj_group] & 0x3ff; obj_index >= start_index; --obj_index)
-				{
-					assert(obj_index >= 0 && obj_index < 1024);
-					struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
-
-					if (debug_trace_vip)
+				int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
+				struct vip_chr *vc = vip_chr_find(obj->vo_jca);
+				for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+					for (u_int chr_y = 0; chr_y < 8; ++chr_y)
 					{
-						debug_str_t oamstr;
-						debug_format_oam(oamstr, obj);
-						debug_tracef("vip", "OBJ[%u]: %s\n", obj->vo_jca, oamstr);
-					}
-
-					if (!obj->vo_jlon && !obj->vo_jron)
-						continue;
-
-					int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
-					struct vip_chr *vc = vip_chr_find(obj->vo_jca);
-					for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-						for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+						u_int8_t pixel = vip_chr_read(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
+						if (pixel)
 						{
-							u_int8_t pixel = vip_chr_read(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
-							if (pixel)
-							{
-								if (obj->vo_jlon)
-									vip_fb_write(left_fb, scr_l_x + chr_x, obj->vo_jy + chr_y, pixel);
-								if (obj->vo_jron)
-									vip_fb_write(right_fb, scr_r_x + chr_x, obj->vo_jy + chr_y, pixel);
-							}
+							if (obj->vo_jlon)
+								vip_fb_write(left_fb, scr_l_x + chr_x, obj->vo_jy + chr_y, pixel);
+							if (obj->vo_jron)
+								vip_fb_write(right_fb, scr_r_x + chr_x, obj->vo_jy + chr_y, pixel);
 						}
-					// TODO PLTS
+					}
+				// TODO PLTS
+			}
+			--obj_group;
+		}
+		else
+		{
+			u_int16_t *param_tbl;
+			if (vwa->vwa_bgm == WORLD_BGM_H_BIAS || vwa->vwa_bgm == WORLD_BGM_AFFINE)
+				param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
+
+			struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
+			for (u_int win_y = 0; win_y <= vwa->vwa_h; ++win_y)
+			{
+				union vip_params *params;
+				if (vwa->vwa_bgm == WORLD_BGM_H_BIAS)
+					params = (union vip_params *)((struct vip_hbias *)param_tbl + win_y);
+				else if (vwa->vwa_bgm == WORLD_BGM_AFFINE)
+					params = (union vip_params *)((struct vip_affine *)param_tbl + win_y);
+
+				for (u_int win_x = 0; win_x <= vwa->vwa_w; ++win_x)
+				{
+					if (vwa->vwa_lon)
+					{
+						u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, win_x, win_y, false, params);
+						if (pixel)
+							vip_fb_write(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
+					}
+					if (vwa->vwa_ron)
+					{
+						u_int8_t pixel =  vip_bgmap_read(bgmap_base, vwa, win_x, win_y, true, params);
+						if (pixel)
+							vip_fb_write(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
+					}
 				}
-				--obj_group;
-				break;
 			}
 		}
 	} while (--world_index > 0);
@@ -2734,13 +2806,14 @@ vip_test(void)
 {
 	fputs("Running VIP self-test\n", stderr);
 
-	assert(sizeof(vip_vrm) == 0x20000);
+	static_assert(sizeof(vip_vrm) == 0x20000, "sizeof(vip_vrm) should be 0x20000");
 	assert(sizeof(struct vip_oam) == 8);
-	assert(sizeof(vip_dram) == 0x20000);
+	static_assert(sizeof(vip_dram) == 0x20000, "sizeof(vip_dram) should be 0x20000");
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
 	int perms;
 	assert(vip_mem_emu2host(0x24000, 4, &perms) == &(vip_dram.vd_shared.s_bgsegs[2]));
+	assert(vip_mem_emu2host(0x31000, 4, &perms) == &(vip_dram.vd_shared.s_param_tbl[0x8800]));
 	assert(vip_mem_emu2host(0x3d800, 4, &perms) == &(vip_dram.vd_world_atts));
 	assert(vip_mem_emu2host(0x3e000, 8, &perms) == &(vip_dram.vd_oam));
 	assert(vip_mem_emu2host(0x5f800, 2, &perms) == &(vip_regs.vr_intpnd));
