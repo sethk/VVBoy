@@ -153,12 +153,12 @@ mem_check_perms(int perms, int mem_ops, u_int32_t addr)
 {
 	if ((perms & mem_ops) != mem_ops)
 	{
-		debug_str_t ops_s, perms_s;
-		fprintf(stderr, "Invalid memory operation at 0x%08x, mem ops = %s, prot = %s\n",
-		        addr,
-		        debug_format_perms(ops_s, mem_ops),
-		        debug_format_perms(perms_s, perms));
-		return false;
+		debug_str_t addr_s, ops_s, perms_s;
+		if (!debug_runtime_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
+		                          debug_format_addr(addr, addr_s),
+		                          debug_format_perms(ops_s, mem_ops),
+		                          debug_format_perms(perms_s, perms)))
+			return false;
 	}
 	return true;
 }
@@ -300,7 +300,7 @@ mem_test_size(char *name, size_t size, size_t expected)
 {
 	if (expected != size)
 	{
-		fprintf(stderr, "sizeof(%s) is %lu but should be %lu\n", name, size, expected);
+		debug_runtime_errorf("sizeof(%s) is %lu but should be %lu", name, size, expected);
 		abort();
 	}
 }
@@ -607,7 +607,8 @@ rom_read_isx(struct rom_file *file)
 		}
 		else
 		{
-			fprintf(stderr, "ISX chunk type 0x%hhx @ 0x%08llx\n", header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
+			debug_runtime_errorf("ISX chunk type 0x%hhx @ 0x%08llx\n",
+			                     header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
 			char *debug_info = malloc(2048);
 			if (!rom_read_buffer(file, debug_info, 2048, "ISX chunk data"))
 				return false;
@@ -1690,7 +1691,7 @@ cpu_assert_reg(const char *dis, unsigned reg, union cpu_reg value)
 {
 	if (cpu_state.cs_r[reg].u != value.u)
 	{
-		fprintf(stderr, "*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x\n",
+		debug_runtime_errorf("*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x",
 		        dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value.u);
 		abort();
 	}
@@ -1701,7 +1702,7 @@ cpu_assert_flag(const char *dis, const char *name, bool flag, bool value)
 {
 	if (flag != value)
 	{
-		fprintf(stderr, "*** Test failure: %s\n\t%s flag (%d) should be %s\n",
+		debug_runtime_errorf("*** Test failure: %s\n\t%s flag (%d) should be %s",
 		        dis, name, flag, (value) ? "set" : "reset");
 		abort();
 	}
@@ -2276,8 +2277,7 @@ vip_chr_find(u_int chrno)
 		return &(vip_vrm.vv_chr3[chrno - 1536]);
 	else
 	{
-		fprintf(stderr, "VIP: Invalid CHR No. %u\n", chrno);
-		assert(chrno < 2048);
+		debug_runtime_errorf("VIP: Invalid CHR No. %u", chrno);
 		return NULL;
 	}
 }
@@ -2449,7 +2449,7 @@ vip_draw_finish(u_int fb_index)
 		{
 			if (obj_group < 0)
 			{
-				fprintf(stderr, "VIP already searched 4 OBJ groups for worlds\n");
+				debug_runtime_errorf("VIP already searched 4 OBJ groups for worlds");
 				break;
 			}
 
@@ -2754,13 +2754,15 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	if (addr & 0x00f80000)
 	{
 		u_int32_t mirror = addr & 0x7ffff;
-		debug_tracef("vip", "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror);
+		if (!debug_runtime_errorf("Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
+			return NULL;
 		addr = mirror;
 	}
 	else if (addr >= 0x40000 && addr < 0x60000 && (addr & 0x5ff00) != 0x5f800)
 	{
 		u_int32_t mirror = 0x5f800 | (addr & 0x7f);
-		debug_tracef("vip", "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror);
+		if (!debug_runtime_errorf("Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
+			return NULL;
 		addr = mirror;
 	}
 
@@ -2772,13 +2774,13 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	{
 		if (size & 1)
 		{
-			debug_tracef("vip", "Invalid VIP access size %lu\n", size);
-			//return NULL;
+			if (!debug_runtime_errorf("Invalid VIP access size %lu", size))
+				return NULL;
 		}
 		if (addr & 1)
 		{
-			fprintf(stderr, "VIP address alignment error at 0x%08x\n", addr);
-			//return NULL;
+			if (!debug_runtime_errorf("VIP address alignment error at 0x%08x", addr))
+				return NULL;
 		}
 
 		u_int reg_num = (addr & 0x7f) >> 1;
@@ -2895,7 +2897,7 @@ vsu_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	else if (addr + size <= 0x01000400)
 	{
 		u_int32_t mirror = addr % 0x300;
-		fprintf(stderr, "Mirroring VSU RAM at 0x%08x -> 0x%x\n", addr, mirror);
+		debug_runtime_errorf("Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror);
 		return (u_int8_t *)&vsu_ram + mirror;
 	}
 	else if (addr >= 0x01000400 && addr + size <= 0x01000600)
@@ -3037,8 +3039,8 @@ nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 
 	if (size != 1)
 	{
-		fprintf(stderr, "Invalid NVC access size %lu @ 0x%08x\n", size, addr);
-		//return NULL;
+		if (!debug_runtime_errorf("Invalid NVC access size %lu @ 0x%08x\n", size, addr))
+			return NULL;
 	}
 	if (addr <= 0x02000028)
 		return (u_int8_t *)&nvc_regs + (addr & 0xff);
@@ -4276,7 +4278,7 @@ debug_run(void)
 				else if (!strcmp(argv[0], "S"))
 				{
 					for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
-						fprintf(stderr, "debug symbol: %s = 0x%08x, type = %u\n",
+						printf("debug symbol: %s = 0x%08x, type = %u\n",
 						        sym->ds_name, sym->ds_addr, sym->ds_type);
 				}
 				else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
@@ -4376,6 +4378,33 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	va_end(ap);
 }
 
+bool
+debug_runtime_errorf(const char *fmt, ...)
+{
+	if (debugging)
+		return false;
+
+	va_list ap;
+	va_start(ap, fmt);
+	char msg[1024];
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+	fputs(msg, stderr);
+	fputc('\n', stderr);
+	switch (tk_runtime_error(msg))
+	{
+		case ERROR_IGNORE:
+			return true;
+
+		case ERROR_DEBUG:
+			debugging = true;
+			return false;
+
+		case ERROR_ABORT:
+			abort();
+	}
+	return false;
+}
 /* MAIN */
 #if INTERFACE
 struct main_stats_t
@@ -4460,22 +4489,47 @@ main_noop(int sig)
 }
 
 void
+main_block_sigint(void)
+{
+	sigset_t sigset;
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGINT);
+	signal(SIGINT, main_noop);
+
+	sigprocmask(SIG_BLOCK, &sigset, NULL);
+}
+
+void
+main_unblock_sigint(void)
+{
+	sigset_t sigset;
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGINT);
+	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
+
+	signal(SIGINT, SIG_DFL);
+}
+
+void
 main_frame(void)
 {
-	while (main_step() && (main_usec % 20000) != 0)
-		;
-
-	// Check SIGINT -> Debugger
-	sigset_t sigpend;
-	sigpending(&sigpend);
-	if (sigismember(&sigpend, SIGINT))
+	if (!debugging)
 	{
-		sigprocmask(SIG_UNBLOCK, &sigpend, NULL);
-		signal(SIGINT, SIG_DFL);
+		while (main_step() && (main_usec % 20000) != 0);
+
+		// Check SIGINT -> Debugger
+		sigset_t sigpend;
+		sigpending(&sigpend);
+		if (sigismember(&sigpend, SIGINT))
+			debugging = true;
+	}
+
+	if (debugging)
+	{
+		main_unblock_sigint();
 
 		putchar('\n');
 		debug_run();
-		signal(SIGINT, main_noop);
-		sigprocmask(SIG_BLOCK, &sigpend, NULL);
+		main_block_sigint();
 	}
 }

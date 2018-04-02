@@ -219,3 +219,38 @@ tk_fini(void)
     SDL_Quit();
 }
 
+enum tk_error_state
+tk_runtime_error(const char *msg)
+{
+	SDL_MessageBoxButtonData buttons[] =
+	{
+			{
+					.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT,
+					.buttonid = ERROR_IGNORE,
+					.text = "Ignore"
+			},
+			{
+					.flags = 0,
+					.buttonid = ERROR_ABORT,
+					.text = "Abort"
+			},
+			{
+					.flags = SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
+					.buttonid = ERROR_DEBUG,
+					.text = "Debug"
+			}
+	};
+	SDL_MessageBoxData data =
+			{
+					.flags = SDL_MESSAGEBOX_WARNING,
+					.window = sdl_window,
+					.title = "Emulation error",
+					.message = msg,
+					.numbuttons = sizeof(buttons) / sizeof(buttons[0]),
+					.buttons = buttons,
+					.colorScheme = NULL
+			};
+	int buttonid;
+	SDL_ShowMessageBox(&data, &buttonid);
+	return buttonid;
+}

@@ -68,14 +68,9 @@ main(int ac, char * const *av)
 	if (debug_boot)
 		debug_run();
 
-	sigset_t sigset;
-	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGINT);
-	signal(SIGINT, main_noop);
-
-	sigprocmask(SIG_BLOCK, &sigset, NULL);
+	main_block_sigint();
 	tk_main();
-	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
+	main_unblock_sigint();
 
 	rom_unload();
 	main_fini();

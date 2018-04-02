@@ -21,6 +21,13 @@ enum tk_keys
 	KEY_RD = (1 << 15)
 };
 
+enum tk_error_state
+{
+	ERROR_IGNORE,
+	ERROR_DEBUG,
+	ERROR_ABORT
+};
+
 extern bool tk_init(void);
 extern u_int32_t tk_get_ticks(void);
 extern void tk_delay(u_int ticks);
@@ -30,3 +37,4 @@ extern void tk_debug_draw(u_int x, u_int y, u_int32_t argb);
 extern void tk_debug_flip(void);
 extern enum tk_keys tk_poll(void);
 extern void tk_fini(void);
+extern enum tk_error_state tk_runtime_error(const char *msg);
