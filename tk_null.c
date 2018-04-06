@@ -1,5 +1,6 @@
 #include <sys/time.h>
 #include <err.h>
+#include <stdio.h>
 #include "tk_null.h"
 
 struct timeval start_time;
@@ -57,4 +58,11 @@ tk_quit(void)
 
 void tk_fini(void)
 {
+}
+
+enum tk_error_state
+tk_runtime_error(const char *msg)
+{
+	fprintf(stderr, "\n*** %s\n", msg);
+	return ERROR_ABORT;
 }
