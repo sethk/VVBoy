@@ -73,7 +73,7 @@ rom_open(const char *fn, struct rom_file *file)
 static bool
 rom_read(struct rom_file *file)
 {
-	if (file->rf_size < ROM_MIN_SIZE)
+	if (file->rf_size < (off_t)ROM_MIN_SIZE)
 	{
 		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", file->rf_path, ROM_MIN_SIZE);
 		return false;
@@ -98,7 +98,7 @@ static bool
 rom_read_buffer(struct rom_file *file, void *buf, size_t size, const char *desc)
 {
 	ssize_t nread = read(file->rf_fdesc, buf, size);
-	if (nread == size)
+	if (nread == (ssize_t)size)
 		return true;
 	else
 	{

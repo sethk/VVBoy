@@ -65,12 +65,14 @@ static const char *mem_seg_names[MEM_NSEGS] =
 				[MEM_SEG_ROM] = "ROM"
 		};
 
+#ifndef NDEBUG
 static bool
 validate_seg_size(size_t size)
 {
 	double log2size = log2(size);
 	return (remainder(log2size, 1.0) == 0.0);
 }
+#endif // !NDEBUG
 
 bool
 mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
@@ -2513,6 +2515,7 @@ vip_test(void)
 	static_assert(sizeof(vip_dram) == 0x20000, "sizeof(vip_dram) should be 0x20000");
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
+#ifndef NDEBUG
 	int perms;
 	assert(vip_mem_emu2host(0x24000, 4, &perms) == &(vip_dram.vd_shared.s_bgsegs[2]));
 	assert(vip_mem_emu2host(0x31000, 4, &perms) == &(vip_dram.vd_shared.s_param_tbl[0x8800]));
@@ -2523,6 +2526,7 @@ vip_test(void)
 	assert(vip_mem_emu2host(0x5f870, 2, &perms) == &(vip_regs.vr_bkcol));
 	assert(vip_mem_emu2host(0x78000, 2, &perms) == &(vip_vrm.vv_chr0));
 	assert(vip_mem_emu2host(0x7e000, 2, &perms) == &(vip_vrm.vv_chr3));
+#endif // !NDEBUG
 }
 
 void
@@ -2570,8 +2574,10 @@ vsu_test(void)
 {
 	fputs("Running VSU self-test\n", stderr);
 	mem_test_size("vsu_regs", sizeof(vsu_regs), 0x200);
+#ifndef NDEBUG
 	int perms;
 	assert(vsu_mem_emu2host(0x01000580, 1, &perms) == &(vsu_regs.vr_sstop));
+#endif // !NDEBUG
 }
 
 void
@@ -2781,7 +2787,7 @@ static Tokenizer *s_token;
 static struct debug_symbol *debug_syms = NULL;
 
 static char *
-debug_prompt(EditLine *editline)
+debug_prompt(EditLine *editline __unused)
 {
 	return "vvboy> ";
 }
@@ -3543,8 +3549,8 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 	int reg_num;
 	int nparsed;
 
-	if ((sscanf(s, "%i[pc]%n", &disp, &nparsed) == 1 && nparsed == len) ||
-	    (sscanf(s, "[pc]%n", &nparsed) == 0 && nparsed == len))
+	if ((sscanf(s, "%i[pc]%n", &disp, &nparsed) == 1 && (size_t)nparsed == len) ||
+	    (sscanf(s, "[pc]%n", &nparsed) == 0 && (size_t)nparsed == len))
 		base = cpu_state.cs_pc;
 	else if ((sscanf(s, "%i[r%2d]%n", &disp, &reg_num, &nparsed) == 2 && nparsed == len) ||
 	         (sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
@@ -3556,7 +3562,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		char sym_name[64 + 1], sign[2];
 		int num_parsed;
 		num_parsed = sscanf(s, "%64[^+-]%n%1[+-]%i%n", sym_name, &nparsed, sign, &disp, &nparsed);
-		if (num_parsed >= 1 && nparsed == len)
+		if (num_parsed >= 1 && (size_t)nparsed == len)
 		{
 #if 0
 			fprintf(stderr, "Sym name: \"%s\"\n", sym_name);
@@ -4112,7 +4118,7 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	if (debug_trace_file)
 		fputs(trace, debug_trace_file);
 	va_end(ap);
-}
+} __printflike(2, 3)
 
 bool
 debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
@@ -4226,7 +4232,7 @@ main_step(void)
 }
 
 void
-main_noop(int sig)
+main_noop(int sig __unused)
 {
 }
 

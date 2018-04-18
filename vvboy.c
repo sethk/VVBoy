@@ -57,6 +57,8 @@ main(int ac, char * const *av)
 
 	if (self_test)
 	{
+		extern void cpu_test(void); // makeheaders bug?
+
 		nvc_test();
 		vsu_test();
 		vip_test();

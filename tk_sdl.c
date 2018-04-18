@@ -63,7 +63,7 @@ tk_get_ticks(void)
 }
 
 static Uint32
-tk_frame_tick(Uint32 interval, void *param)
+tk_frame_tick(Uint32 interval __unused, void *param __unused)
 {
 	SDL_Event event;
 	SDL_UserEvent userevent;
