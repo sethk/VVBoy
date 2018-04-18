@@ -2151,16 +2151,10 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base,
 
 	u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width,
 			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
-
-	if (x < 0)
-		x+= width_chrs * 8;
-	if (y < 0)
-		y+= height_chrs * 8;
-
-	u_int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8,
-			chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
+	int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8;
+	u_int chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
 	struct vip_bgsc *vb;
-	if (bg_x < width_chrs && bg_y < height_chrs)
+	if (bg_x >= 0 && (u_int)bg_x < width_chrs && bg_y >= 0 && (u_int)bg_y < height_chrs)
 		vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
 	else if (vwa->vwa_over)
 		vb = &(bgmap_base[vwa->vwa_over_chrno]);
