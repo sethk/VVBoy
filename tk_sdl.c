@@ -154,19 +154,8 @@ tk_main(void)
 					switch (event.key.keysym.scancode)
 					{
 						default: break;
-						case SDL_SCANCODE_ESCAPE: debug_intr(); break;
-						case SDL_SCANCODE_F1: vip_toggle_world(31); break;
-						case SDL_SCANCODE_F2: vip_toggle_world(30); break;
-						case SDL_SCANCODE_F3: vip_toggle_world(29); break;
-						case SDL_SCANCODE_F4: vip_toggle_world(28); break;
-						case SDL_SCANCODE_F5: vip_toggle_world(27); break;
-						case SDL_SCANCODE_F6: vip_toggle_world(26); break;
-						case SDL_SCANCODE_F7: vip_toggle_world(25); break;
-						case SDL_SCANCODE_F8: vip_toggle_world(24); break;
-						case SDL_SCANCODE_F9: vip_toggle_world(23); break;
-						case SDL_SCANCODE_F10: vip_toggle_world(22); break;
-						case SDL_SCANCODE_F11: vip_toggle_world(21); break;
-						case SDL_SCANCODE_F12: vip_toggle_world(20); break;
+						case SDL_SCANCODE_ESCAPE: debug_enter(); break;
+						case SDL_SCANCODE_F1: vip_toggle_worlds(); break;
 					}
 			}
 		}

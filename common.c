@@ -2177,9 +2177,6 @@ vip_draw_finish(u_int fb_index)
 		if (!vwa->vwa_lon && !vwa->vwa_ron)
 			continue;
 
-		if ((vip_world_mask & (1 << world_index)) == 0)
-			continue;
-
 		if (vwa->vwa_bgm == WORLD_BGM_OBJ)
 		{
 			if (obj_group < 0)
@@ -2209,6 +2206,9 @@ vip_draw_finish(u_int fb_index)
 				if (!obj->vo_jlon && !obj->vo_jron)
 					continue;
 
+				if ((vip_world_mask & (1 << world_index)) == 0)
+					continue;
+
 				int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
 				struct vip_chr *vc = vip_chr_find(obj->vo_jca);
 				for (u_int chr_x = 0; chr_x < 8; ++chr_x)
@@ -2229,6 +2229,9 @@ vip_draw_finish(u_int fb_index)
 		}
 		else
 		{
+			if ((vip_world_mask & (1 << world_index)) == 0)
+				continue;
+
 			u_int16_t *param_tbl;
 			if (vwa->vwa_bgm == WORLD_BGM_H_BIAS || vwa->vwa_bgm == WORLD_BGM_AFFINE)
 				param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
@@ -2566,13 +2569,17 @@ vip_test(void)
 }
 
 void
-vip_toggle_world(u_int world_index)
+vip_toggle_worlds(void)
 {
-	u_int bit = 1 << world_index;
-	if (vip_world_mask & bit)
-		vip_world_mask&= ~bit;
+	if (vip_world_mask == ~0U)
+		vip_world_mask = 0x80000000;
 	else
-		vip_world_mask|= bit;
+	{
+		vip_world_mask >>= 1;
+		if (!vip_world_mask)
+			vip_world_mask = ~0;
+	}
+	debug_tracef("vip", "World mask 0x%08x\n", vip_world_mask);
 }
 
 /* VSU */
@@ -4173,12 +4180,15 @@ debug_step(void)
 				}
 				else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
 				{
-					if (argc != 2)
+					if (argc == 1)
+						printf("World mask 0x%08x\n", vip_world_mask);
+					else if (argc == 2)
+						vip_world_mask = strtoul(argv[1], NULL, 0);
+					else
 					{
 						debug_usage('W');
 						continue;
 					}
-					vip_toggle_world(atoi(argv[1]));
 				}
 				else if (!strcmp(argv[0], "D") || !strcmp(argv[0], "draw"))
 				{
