@@ -283,7 +283,7 @@ rom_read_isx(struct rom_file *file)
 		}
 		else
 		{
-			debug_runtime_errorf("ISX chunk type 0x%hhx @ 0x%08llx\n",
+			debug_runtime_errorf(NULL, "ISX chunk type 0x%hhx @ 0x%08llx\n",
 			                     header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
 			char *debug_info = malloc(2048);
 			if (!rom_read_buffer(file, debug_info, 2048, "ISX chunk data"))

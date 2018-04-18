@@ -153,7 +153,8 @@ mem_check_perms(int perms, int mem_ops, u_int32_t addr)
 	if ((perms & mem_ops) != mem_ops)
 	{
 		debug_str_t addr_s, ops_s, perms_s;
-		if (!debug_runtime_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
+		static bool ignore_perms = false;
+		if (!debug_runtime_errorf(&ignore_perms, "Invalid memory operation at %s, mem ops = %s, prot = %s\n",
 		                          debug_format_addr(addr, addr_s),
 		                          debug_format_perms(ops_s, mem_ops),
 		                          debug_format_perms(perms_s, perms)))
@@ -295,11 +296,22 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 }
 
 void
-mem_test_size(char *name, size_t size, size_t expected)
+mem_test_size(const char *name, size_t size, size_t expected)
 {
 	if (expected != size)
 	{
-		debug_runtime_errorf("sizeof(%s) is %lu but should be %lu", name, size, expected);
+		debug_runtime_errorf(NULL, "sizeof(%s) is %lu but should be %lu", name, size, expected);
+		abort();
+	}
+}
+
+void
+mem_test_addr(const char *name, void *addr, void *expected)
+{
+	if (addr != expected)
+	{
+		debug_runtime_errorf(NULL, "emu2host(%s) is %p but should be %p (offset %lu)",
+		                     name, addr, expected, (intptr_t)expected - (intptr_t)addr);
 		abort();
 	}
 }
@@ -1012,9 +1024,7 @@ cpu_exec(const union cpu_inst inst)
 		case OP_RETI:
 			if (!cpu_state.cs_psw.psw_flags.f_ep)
 			{
-				warnx("Tried to return from interrupt/exception while EP=0");
-				//debug_intr();
-				//return false;
+				debug_runtime_errorf(NULL, "Tried to return from interrupt/exception while EP=0\n");
 				break;
 			}
 
@@ -1054,17 +1064,14 @@ cpu_exec(const union cpu_inst inst)
 				{
 					u_int32_t chcw = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					if (chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE))
-					{
-						warnx("Unsupported CHCW commands 0x%x", chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE));
-						//debug_intr();
-						//return false;
-					}
+						debug_runtime_errorf(NULL, "Unsupported CHCW commands 0x%x",
+						                     chcw & ~(CPU_CHCW_ICC | CPU_CHCW_ICE));
 					cpu_state.cs_chcw = chcw & CPU_CHCW_ICE;
 					break;
 				}
 				default:
-					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
-					debug_intr();
+					debug_runtime_errorf(NULL, "Unsupported regID %d", inst.ci_ii.ii_imm5);
+					debug_enter();
 					return false;
 			}
 			break;
@@ -1087,8 +1094,8 @@ cpu_exec(const union cpu_inst inst)
 					cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_state.cs_chcw;
 					break;
 				default:
-					warnx("Unsupported regID %d", inst.ci_ii.ii_imm5);
-					debug_intr();
+					debug_runtime_errorf(NULL, "Unsupported regID %d", inst.ci_ii.ii_imm5);
+					debug_enter();
 					return false;
 			}
 		case OP_SEI:
@@ -1339,8 +1346,8 @@ cpu_exec(const union cpu_inst inst)
 							cpu_state.cs_r[inst.vii_reg1].s16 * cpu_state.cs_r[inst.vii_reg2].s16;
 					break;
 				default:
-					fputs("TODO: execute instruction\n", stderr);
-					debug_intr();
+					debug_runtime_errorf(NULL, "TODO: execute instruction");
+					debug_enter();
 					return false;
 			}
 			break;
@@ -1355,8 +1362,8 @@ cpu_exec(const union cpu_inst inst)
 				}
 				break;
 			}
-			fputs("TODO: execute instruction\n", stderr);
-			debug_intr();
+			debug_runtime_errorf(NULL, "TODO: execute instruction");
+			debug_enter();
 			return false;
 	}
 	//assert(!cpu_state.cs_r[0].u);
@@ -1364,7 +1371,8 @@ cpu_exec(const union cpu_inst inst)
 	{
 		fputs("r0 written to with non-zero value\n", stderr);
 		cpu_state.cs_r[0].s = 0;
-		//debug_intr();
+		if (!debug_runtime_errorf(NULL, "r0 written to with non-zero value\n"))
+			return false;
 	}
 	++main_stats.ms_insts;
 	return true;
@@ -1375,7 +1383,7 @@ cpu_assert_reg(const char *dis, unsigned reg, union cpu_reg value)
 {
 	if (cpu_state.cs_r[reg].u != value.u)
 	{
-		debug_runtime_errorf("*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x",
+		debug_runtime_errorf(NULL, "*** Test failure: %s\n\t%s (0x%08x) should be 0x%08x",
 		        dis, debug_rnames[reg], cpu_state.cs_r[reg].u, value.u);
 		abort();
 	}
@@ -1386,7 +1394,7 @@ cpu_assert_flag(const char *dis, const char *name, bool flag, bool value)
 {
 	if (flag != value)
 	{
-		debug_runtime_errorf("*** Test failure: %s\n\t%s flag (%d) should be %s",
+		debug_runtime_errorf(NULL, "*** Test failure: %s\n\t%s flag (%d) should be %s",
 		        dis, name, flag, (value) ? "set" : "reset");
 		abort();
 	}
@@ -1966,7 +1974,7 @@ vip_chr_find(u_int chrno)
 		return &(vip_vrm.vv_chr3[chrno - 1536]);
 	else
 	{
-		debug_runtime_errorf("VIP: Invalid CHR No. %u", chrno);
+		debug_runtime_errorf(NULL, "VIP: Invalid CHR No. %u", chrno);
 		return NULL;
 	}
 }
@@ -2138,7 +2146,7 @@ vip_draw_finish(u_int fb_index)
 		{
 			if (obj_group < 0)
 			{
-				debug_runtime_errorf("VIP already searched 4 OBJ groups for worlds");
+				debug_runtime_errorf(NULL, "VIP already searched 4 OBJ groups for worlds");
 				break;
 			}
 
@@ -2440,17 +2448,18 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	// TODO: Set read/write permissions
 	*permsp = PROT_READ | PROT_WRITE;
 
+	static bool ignore_mirror = false;
 	if (addr & 0x00f80000)
 	{
 		u_int32_t mirror = addr & 0x7ffff;
-		if (!debug_runtime_errorf("Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
+		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
 			return NULL;
 		addr = mirror;
 	}
 	else if (addr >= 0x40000 && addr < 0x60000 && (addr & 0x5ff00) != 0x5f800)
 	{
 		u_int32_t mirror = 0x5f800 | (addr & 0x7f);
-		if (!debug_runtime_errorf("Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
+		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
 			return NULL;
 		addr = mirror;
 	}
@@ -2463,12 +2472,14 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	{
 		if (size & 1)
 		{
-			if (!debug_runtime_errorf("Invalid VIP access size %lu", size))
+			static bool always_ignore = false;
+			if (!debug_runtime_errorf(&always_ignore, "Invalid VIP access size %lu", size))
 				return NULL;
 		}
 		if (addr & 1)
 		{
-			if (!debug_runtime_errorf("VIP address alignment error at 0x%08x", addr))
+			static bool always_ignore = false;
+			if (!debug_runtime_errorf(&always_ignore, "VIP address alignment error at 0x%08x", addr))
 				return NULL;
 		}
 
@@ -2586,7 +2597,7 @@ vsu_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	else if (addr + size <= 0x01000400)
 	{
 		u_int32_t mirror = addr % 0x300;
-		debug_runtime_errorf("Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror);
+		debug_runtime_errorf(NULL, "Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror);
 		return (u_int8_t *)&vsu_ram + mirror;
 	}
 	else if (addr >= 0x01000400 && addr + size <= 0x01000600)
@@ -2728,15 +2739,16 @@ nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 
 	if (size != 1)
 	{
-		if (!debug_runtime_errorf("Invalid NVC access size %lu @ 0x%08x\n", size, addr))
+		static bool ignore_size = false;
+		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %lu @ 0x%08x\n", size, addr))
 			return NULL;
 	}
 	if (addr <= 0x02000028)
 		return (u_int8_t *)&nvc_regs + (addr & 0xff);
 	else
 	{
-		fprintf(stderr, "NVC bus error at 0x%08x\n", addr);
-		debug_intr();
+		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", addr);
+		debug_enter();
 		return NULL;
 	}
 }
@@ -3604,6 +3616,7 @@ const char *
 debug_format_perms(debug_str_t s, int perms)
 {
 	return debug_format_flags(s,
+	                          "NONE", (perms == 0),
 	                          "READ", (perms & PROT_READ),
 	                          "WRITE", (perms & PROT_WRITE),
 	                          "EXEC", (perms & PROT_EXEC),
@@ -4102,11 +4115,8 @@ debug_tracef(const char *tag, const char *fmt, ...)
 }
 
 bool
-debug_runtime_errorf(const char *fmt, ...)
+debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 {
-	if (debugging)
-		return false;
-
 	va_list ap;
 	va_start(ap, fmt);
 	char msg[1024];
@@ -4114,9 +4124,17 @@ debug_runtime_errorf(const char *fmt, ...)
 	va_end(ap);
 	fputs(msg, stderr);
 	fputc('\n', stderr);
-	switch (tk_runtime_error(msg))
+
+	if (ignore_flagp && *ignore_flagp)
+		return true;
+
+	switch (tk_runtime_error(msg, (ignore_flagp != NULL)))
 	{
 		case ERROR_IGNORE:
+			return true;
+
+		case ERROR_ALWAYS_IGNORE:
+			*ignore_flagp = true;
 			return true;
 
 		case ERROR_DEBUG:
@@ -4128,6 +4146,7 @@ debug_runtime_errorf(const char *fmt, ...)
 	}
 	return false;
 }
+
 /* MAIN */
 #if INTERFACE
 struct main_stats_t

@@ -238,10 +238,15 @@ tk_fini(void)
 }
 
 enum tk_error_state
-tk_runtime_error(const char *msg)
+tk_runtime_error(const char *msg, bool allow_always_ignore)
 {
-	SDL_MessageBoxButtonData buttons[] =
+	static const SDL_MessageBoxButtonData all_buttons[] =
 	{
+			{
+					.flags = 0,
+					.buttonid = ERROR_ALWAYS_IGNORE,
+					.text = "Always Ignore"
+			},
 			{
 					.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT,
 					.buttonid = ERROR_IGNORE,
@@ -256,19 +261,26 @@ tk_runtime_error(const char *msg)
 					.flags = SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
 					.buttonid = ERROR_DEBUG,
 					.text = "Debug"
-			}
+			},
 	};
+	const SDL_MessageBoxButtonData *buttons = all_buttons;
+	u_int num_buttons = sizeof(all_buttons) / sizeof(all_buttons[0]);
+	if (!allow_always_ignore)
+	{
+		++buttons;
+		--num_buttons;
+	}
 	SDL_MessageBoxData data =
 			{
 					.flags = SDL_MESSAGEBOX_WARNING,
 					.window = sdl_window,
 					.title = "Emulation error",
 					.message = msg,
-					.numbuttons = sizeof(buttons) / sizeof(buttons[0]),
+					.numbuttons = num_buttons,
 					.buttons = buttons,
 					.colorScheme = NULL
 			};
 	int buttonid;
 	SDL_ShowMessageBox(&data, &buttonid);
-	return buttonid;
+	return (enum tk_error_state)buttonid;
 }

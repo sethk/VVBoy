@@ -24,6 +24,7 @@ enum tk_keys
 enum tk_error_state
 {
 	ERROR_IGNORE,
+	ERROR_ALWAYS_IGNORE,
 	ERROR_DEBUG,
 	ERROR_ABORT
 };
@@ -37,4 +38,4 @@ extern void tk_debug_draw(u_int x, u_int y, u_int32_t argb);
 extern void tk_debug_flip(void);
 extern enum tk_keys tk_poll(void);
 extern void tk_fini(void);
-extern enum tk_error_state tk_runtime_error(const char *msg);
+extern enum tk_error_state tk_runtime_error(const char *msg, bool allow_always_ignore);
