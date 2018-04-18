@@ -34,6 +34,9 @@ struct rom_file
 	char *rf_path;
 };
 
+static FILE *rom_symbol_fp = NULL;
+static char *rom_symbol_fn = NULL;
+
 static void
 rom_close(struct rom_file *file)
 {
@@ -318,11 +321,60 @@ rom_load(const char *fn)
 
 	rom_close(&file);
 
+	size_t base_len = (ext) ? ext - fn : strlen(fn);
+	rom_symbol_fn = malloc(base_len + sizeof(".sym"));
+	if (!rom_symbol_fn)
+		err(EX_OSERR, "Alloc filename");
+	sprintf(rom_symbol_fn, "%.*s.sym", (int)base_len, fn);
+	rom_symbol_fp = fopen(rom_symbol_fn, "r+");
+	if (rom_symbol_fp)
+	{
+		u_int line_num = 0;
+		char line[64];
+		while (fgets(line, sizeof(line), rom_symbol_fp))
+		{
+			++line_num;
+			u_int32_t addr;
+			char name[33];
+			if (sscanf(line, "%x %32s", &addr, name) == 2)
+				debug_create_symbol(name, addr);
+			else
+				warnx("%s:%u: Could not parse line", rom_symbol_fn, line_num);
+		}
+		if (ferror(rom_symbol_fp))
+			warn("Read from symbol file %s", rom_symbol_fn);
+	}
+	else if (errno != ENOENT)
+		warn("Could not open symbol file %s", rom_symbol_fn);
+
+	debug_add_syms();
+
 	return status;
+}
+
+void
+rom_add_symbol(const struct debug_symbol *sym)
+{
+	if (!rom_symbol_fp && rom_symbol_fn)
+	{
+		debug_tracef("rom", "Created symbol file %s\n", rom_symbol_fn);
+		rom_symbol_fp = fopen(rom_symbol_fn, "a");
+		if (!rom_symbol_fp)
+			warn("Could not open symbol file %s", rom_symbol_fn);
+	}
+
+	if (rom_symbol_fp)
+		fprintf(rom_symbol_fp, "%08x %s\n", sym->ds_addr, sym->ds_name);
 }
 
 void
 rom_unload(void)
 {
 	mem_seg_free(MEM_SEG_ROM);
+	if (rom_symbol_fp)
+		fclose(rom_symbol_fp);
+	if (rom_symbol_fn)
+		free(rom_symbol_fn);
+
+	debug_clear_syms();
 }

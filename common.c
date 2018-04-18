@@ -359,6 +359,14 @@ wram_init(void)
 }
 
 void
+wram_add_syms(void)
+{
+	debug_create_symbol("HEAP", 0x05000000);
+	debug_create_symbol("GP", 0x05008000);
+	debug_create_symbol("STACK", 0x0500b000);
+}
+
+void
 wram_fini(void)
 {
 	mem_seg_free(MEM_SEG_WRAM);
@@ -420,6 +428,115 @@ wram_fini(void)
 			u_int vii_rfu : 10;
 			u_int vii_subop : 6;
 		};
+	};
+
+	enum cpu_opcode
+	{
+		OP_MOV   = 0b000000,
+		OP_ADD   = 0b000001,
+		OP_SUB   = 0b000010,
+		OP_CMP   = 0b000011,
+		OP_SHL   = 0b000100,
+		OP_SHR   = 0b000101,
+		OP_JMP   = 0b000110,
+		OP_SAR   = 0b000111,
+		OP_MUL   = 0b001000,
+		OP_DIV   = 0b001001,
+		OP_MULU  = 0b001010,
+		OP_DIVU  = 0b001011,
+		OP_OR    = 0b001100,
+		OP_AND   = 0b001101,
+		OP_XOR   = 0b001110,
+		OP_NOT   = 0b001111,
+		OP_MOV2  = 0b010000,
+		OP_ADD2  = 0b010001,
+		OP_SETF  = 0b010010,
+		OP_CMP2  = 0b010011,
+		OP_SHL2  = 0b010100,
+		OP_SHR2  = 0b010101,
+		OP_CLI   = 0b010110,
+		OP_SAR2  = 0b010111,
+		OP_TRAP  = 0b011000,
+		OP_RETI  = 0b011001,
+		OP_HALT  = 0b011010,
+		OP_LDSR  = 0b011100,
+		OP_STSR  = 0b011101,
+		OP_SEI   = 0b011110,
+		OP_BSTR  = 0b011111,
+		OP_BCOND = 0b100,
+		OP_MOVEA = 0b101000,
+		OP_ADDI  = 0b101001,
+		OP_JR    = 0b101010,
+		OP_JAL   = 0b101011,
+		OP_ORI   = 0b101100,
+		OP_ANDI  = 0b101101,
+		OP_XORI  = 0b101110,
+		OP_MOVHI = 0b101111,
+		OP_LD_B  = 0b110000,
+		OP_LD_H  = 0b110001,
+		OP_LD_W  = 0b110011,
+		OP_ST_B  = 0b110100,
+		OP_ST_H  = 0b110101,
+		OP_ST_W  = 0b110111,
+		OP_IN_B  = 0b111000,
+		OP_IN_H  = 0b111001,
+		OP_CAXI  = 0b111010,
+		OP_IN_W  = 0b111011,
+		OP_OUT_B = 0b111100,
+		OP_OUT_H = 0b111101,
+		OP_FLOAT = 0b111110,
+		OP_OUT_W = 0b111111
+	};
+
+	enum cpu_bcond
+	{
+		BCOND_BV  = 0b0000,
+		BCOND_BL  = 0b0001,
+		BCOND_BZ  = 0b0010,
+		BCOND_BNH = 0b0011,
+		BCOND_BN  = 0b0100,
+		BCOND_BR  = 0b0101,
+		BCOND_BLT = 0b0110,
+		BCOND_BLE = 0b0111,
+		BCOND_BNV = 0b1000,
+		BCOND_BNC = 0b1001,
+		BCOND_BNZ = 0b1010,
+		BCOND_BH  = 0b1011,
+		BCOND_BP  = 0b1100,
+		BCOND_NOP = 0b1101,
+		BCOND_BGE = 0b1110,
+		BCOND_BGT = 0b1111,
+	};
+
+	enum cpu_regid
+	{
+		REGID_EIPC = 0,
+		REGID_EIPSW = 1,
+		REGID_FEPC = 2,
+		REGID_FEPSW = 3,
+		REGID_PSW = 5,
+		REGID_CHCW = 24
+	};
+
+	enum cpu_chcw_flags
+	{
+		CPU_CHCW_ICC = (1 << 0),
+		CPU_CHCW_ICE = (1 << 1)
+	};
+
+	enum float_subop
+	{
+		FLOAT_CMPF_S =  0b000000,
+		FLOAT_CVT_WS =  0b000010,
+		FLOAT_CVT_SW =  0b000011,
+		FLOAT_ADDF_S =  0b000100,
+		FLOAT_SUBF_S =  0b000101,
+		FLOAT_MULF_S =  0b000110,
+		FLOAT_DIVF_S =  0b000111,
+		FLOAT_XB =      0b001000,
+		FLOAT_XH =      0b001001,
+		FLOAT_TRNC_SW = 0b001011,
+		FLOAT_MPYHW =   0b001100,
 	};
 #endif // INTERFACE
 
@@ -584,6 +701,12 @@ cpu_init(void)
 }
 
 void
+cpu_add_syms(void)
+{
+	debug_create_symbol("vect.reset", 0xfffffff0);
+}
+
+void
 cpu_fini(void)
 {
 	// TODO
@@ -600,13 +723,13 @@ cpu_reset(void)
 	cpu_state.cs_chcw = CPU_CHCW_ICE;
 }
 
-static size_t
+size_t
 cpu_inst_size(const union cpu_inst *inst)
 {
 	return (inst->ci_i.i_opcode < 0x28) ? 2 : 4;
 }
 
-static u_int32_t
+u_int32_t
 cpu_inst_disp26(const union cpu_inst *inst)
 {
 	u_int32_t disp = (inst->ci_iv.iv_disp10 << 16) | inst->ci_iv.iv_disp16;
@@ -615,7 +738,7 @@ cpu_inst_disp26(const union cpu_inst *inst)
 	return disp;
 }
 
-static bool
+bool
 cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 {
 	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true))
@@ -640,7 +763,8 @@ static const u_int32_t sign_bit32 = 0x80000000;
 static const u_int64_t sign_bit64 = 0x8000000000000000;
 static const u_int64_t sign_bits32to64 = 0xffffffff80000000;
 
-extern inline u_int32_t
+#if INTERFACE
+inline static u_int32_t
 cpu_extend9(u_int32_t s9)
 {
 	if ((s9 & 0x100) == 0x100)
@@ -648,13 +772,22 @@ cpu_extend9(u_int32_t s9)
 	return s9;
 }
 
-extern inline u_int16_t
+inline static u_int16_t
 cpu_extend5to16(u_int16_t s5)
 {
 	if ((s5 & 0b10000) == 0b10000)
 		s5|= 0xffe0;
 	return s5;
 }
+
+inline static u_int32_t
+cpu_extend16(u_int32_t s16)
+{
+	if ((s16 & 0x8000) == 0x8000)
+		s16|= 0xffff0000;
+	return s16;
+}
+#endif // INTERFACE
 
 static bool
 cpu_getfl(enum cpu_bcond cond)
@@ -1134,17 +1267,13 @@ cpu_exec(const union cpu_inst inst)
    */
 		case OP_MOVEA:
 		{
-			u_int32_t imm = inst.ci_v.v_imm16;
-			if ((imm & 0x8000) == 0x8000)
-				imm|= 0xffff0000;
+			u_int32_t imm = cpu_extend16(inst.ci_v.v_imm16);
 			cpu_state.cs_r[inst.ci_v.v_reg2].s = cpu_state.cs_r[inst.ci_v.v_reg1].s + imm;
 			break;
 		}
 		case OP_ADDI:
 		{
-			u_int32_t imm = inst.ci_v.v_imm16;
-			if ((imm & 0x8000) == 0x8000)
-				imm|= 0xffff0000;
+			u_int32_t imm = cpu_extend16(inst.ci_v.v_imm16);
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = cpu_add(cpu_state.cs_r[inst.ci_v.v_reg1].u, imm);
 			break;
 		}
@@ -1915,15 +2044,17 @@ vip_init(void)
 	bzero(&vip_regs, sizeof(vip_regs));
 	vip_regs.vr_dpstts.vd_scanrdy = 1;
 	vip_disp_index = 0;
-	debug_create_symbol_array("BGMAP", 0x20000, 13, 8192);
-	//debug_create_symbol("BG_SEG1", 0x20000);
-	//debug_create_symbol("BG_SEG2", 0x20000);
-	//debug_create_symbol("BG_SEG2", 0x20000);
-	//debug_create_symbol("BG_SEG2", 0x20000);
-	//debug_create_symbol("BG_SEG2", 0x20000);
-	debug_create_symbol("WORLD_ATT", 0x3d800);
-	debug_create_symbol("CLM_TBL", 0x3dc00);
-	debug_create_symbol("OAM", 0x3e000);
+
+	return true;
+}
+
+void
+vip_add_syms(void)
+{
+	debug_create_symbol("L:FB0", 0x00000);
+	debug_create_symbol("L:FB1", 0x08000);
+	debug_create_symbol("R:FB0", 0x10000);
+	debug_create_symbol("R:FB1", 0x18000);
 	debug_create_symbol("INTPND", 0x5f800);
 	debug_create_symbol("INTENB", 0x5f802);
 	debug_create_symbol("INTCLR", 0x5f804);
@@ -1950,9 +2081,11 @@ vip_init(void)
 	debug_create_symbol("JPLT2", 0x5f86c);
 	debug_create_symbol("JPLT3", 0x5f86e);
 	debug_create_symbol("BKCOL", 0x5f870);
+	debug_create_symbol_array("BGMAP", 0x20000, 13, 8192);
+	debug_create_symbol("WORLD_ATT", 0x3d800);
+	debug_create_symbol("CLM_TBL", 0x3dc00);
+	debug_create_symbol("OAM", 0x3e000);
 	debug_create_symbol("CHR", 0x78000);
-
-	return true;
 }
 
 void
@@ -2619,11 +2752,22 @@ static struct vsu_regs vsu_regs;
 bool
 vsu_init(void)
 {
-	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80);
-	debug_create_symbol("SNDMOD", 0x01000280);
-	debug_create_symbol("SSTOP", 0x01000580);
 	// TODO
 	return true;
+}
+
+void
+vsu_add_syms(void)
+{
+	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80);
+	debug_create_symbol("SND5.MOD", 0x01000280);
+	debug_create_symbol("SOUND1", 0x01000400);
+	debug_create_symbol("SOUND2", 0x01000440);
+	debug_create_symbol("SOUND3", 0x01000480);
+	debug_create_symbol("SOUND4", 0x010004c0);
+	debug_create_symbol("SOUND5", 0x01000500);
+	debug_create_symbol("SOUND6", 0x01000540);
+	debug_create_symbol("SSTOP", 0x01000580);
 }
 
 void
@@ -2726,6 +2870,12 @@ static u_int nvc_timer_frac;
 bool
 nvc_init(void)
 {
+	return cpu_init();
+}
+
+void
+nvc_add_syms(void)
+{
 	debug_create_symbol("SCR", 0x02000028);
 	debug_create_symbol("WCR", 0x02000024);
 	debug_create_symbol("TCR", 0x02000020);
@@ -2737,7 +2887,11 @@ nvc_init(void)
 	debug_create_symbol("CDTR", 0x02000008);
 	debug_create_symbol("CCSR", 0x02000004);
 	debug_create_symbol("CCR", 0x02000000);
-	return cpu_init();
+	debug_create_symbol("vect.key", 0xfffffe00);
+	debug_create_symbol("vect.tim", 0xfffffe10);
+	debug_create_symbol("vect.cro", 0xfffffe20);
+	debug_create_symbol("vect.com", 0xfffffe30);
+	debug_create_symbol("vect.vip", 0xfffffe40);
 }
 
 void
@@ -2957,6 +3111,15 @@ debug_prompt(EditLine *editline __unused)
 	return "vvboy> ";
 }
 
+void
+debug_add_syms(void)
+{
+	wram_add_syms();
+	cpu_add_syms();
+	vsu_add_syms();
+	nvc_add_syms();
+}
+
 bool
 debug_init(void)
 {
@@ -2990,17 +3153,21 @@ debug_init(void)
 }
 
 void
-debug_fini(void)
+debug_clear_syms(void)
 {
-	el_end(s_editline);
-	history_end(s_history);
-
 	while (debug_syms)
 	{
 		struct debug_symbol *debug_sym = debug_syms;
 		debug_syms = debug_sym->ds_next;
 		debug_destroy_symbol(debug_sym);
 	}
+}
+
+void
+debug_fini(void)
+{
+	el_end(s_editline);
+	history_end(s_history);
 }
 
 static char *
@@ -3018,12 +3185,35 @@ debug_format_binary(u_int n, u_int nbits)
 	return bin;
 }
 
+char *
+debug_format_hex(const u_int8_t *bytes, u_int byte_size, debug_str_t s)
+{
+	u_int32_t value;
+	switch (byte_size)
+	{
+		case 1:
+			value = *bytes;
+			break;
+		case 2:
+			value = *(u_int16_t *) bytes;
+			break;
+		case 4:
+			value = *(u_int32_t *) bytes;
+			break;
+		default:
+			assert(byte_size == 1 || byte_size == 2 || byte_size == 4);
+			value = 0;
+	}
+	snprintf(s, debug_str_len, "0x%0*x", byte_size << 1, value);
+	return s;
+}
+
 #if INTERFACE
 typedef char debug_str_t[64];
 # define debug_str_len sizeof(debug_str_t)
 #endif // INTERFACE
 
-static struct debug_symbol *
+struct debug_symbol *
 debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
 {
 	struct debug_symbol *sym = debug_syms;
@@ -3093,7 +3283,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 }
 
-void
+struct debug_symbol *
 debug_create_symbol(const char *name, u_int32_t addr)
 {
 	struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
@@ -3105,6 +3295,7 @@ debug_create_symbol(const char *name, u_int32_t addr)
 	debug_sym->ds_addr = addr;
 	debug_sym->ds_type = ISX_SYMBOL_POINTER;
 	debug_add_symbol(debug_sym);
+	return debug_sym;
 }
 
 void
@@ -3324,7 +3515,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_STSR: mnemonic = "STSR"; break;
 		case OP_SEI: mnemonic = "SEI"; break;
-		case OP_MOVHI: mnemonic = "MOVHI"; break;
 		case OP_ADDI: mnemonic = "ADDI"; break;
 		case OP_JR: mnemonic = "JR"; break;
 		case OP_JAL: mnemonic = "JAL"; break;
@@ -3520,6 +3710,8 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_v(decode, decomp, inst, "ANDI", "0x%2$08x & 0x%1$04hx", regs);
 			break;
 		case OP_MOVHI:
+			debug_disasm_v(decode, decomp, inst, "MOVHI", "%3$s <- 0x%2$08x | (0x%1$04hx << 16)", regs);
+			break;
 		case OP_XORI:
 			snprintf(decode, debug_str_len, "%s %hXh, %s, %s",
 			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
@@ -3556,7 +3748,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			debug_disasm_vi(decode, decomp, inst, "OUT.H", regs);
 			break;
 		case OP_OUT_W:
-			debug_disasm_vi(decode, decomp, inst, "OUT.W", regs);
+			debug_disasm_vi_fmt(decode, decomp, inst, "OUT.W", "[%4$s] <- 0x%3$08x", regs);
 			break;
 		case OP_ST_B:
 			debug_disasm_vi(decode, decomp, inst, "ST.B", regs);
@@ -3652,7 +3844,8 @@ static const struct debug_help
 								  "\t\tOmit address to clear breakpoint"},
 				{'i', "", "Show CPU info (aliases: info)"},
 				{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
-						          "\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR), O (VIP OAM), B (VIP BGSC)\n"
+						          "\t\tFormats: h (hex), i (instructions), b (binary), a (address), C (VIP CHR),"
+				                                             " O (VIP OAM), B (VIP BGSC)\n"
 						          "\t\t\tW (VIP WORLD_ATT)\n"
 						          "\t\tSizes: b (byte), h (half-word), w (word)\n"
 						          "\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
@@ -3660,8 +3853,11 @@ static const struct debug_help
 				{'v', "", "Show VIP info (aliases: vip)"},
 				{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
 				{'S', "", "Show symbol table"},
-				{'W', "<index>", "Toggle drawing of world <index> (aliases: world)"},
-				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"}
+				{'N', "<name> <addr>", "Add a debug symbol\n"
+								   "\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
+				{'W', "<mask>", "Set world drawing mask (aliases: world)"},
+				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"},
+				{'t', "[ cpu | cpu.flow | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
 		};
 
 static void
@@ -3697,7 +3893,7 @@ debug_mem_read(u_int32_t addr, void *dest, size_t size)
 	}
 }
 
-static u_int32_t
+u_int32_t
 debug_locate_symbol(const char *s)
 {
 	for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
@@ -3711,16 +3907,27 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 {
 	size_t len = strlen(s);
 	u_int32_t base, disp = 0;
-	int reg_num;
+	char reg_name[4];
 	int nparsed;
 
 	if ((sscanf(s, "%i[pc]%n", &disp, &nparsed) == 1 && (size_t)nparsed == len) ||
 	    (sscanf(s, "[pc]%n", &nparsed) == 0 && (size_t)nparsed == len))
 		base = cpu_state.cs_pc;
-	else if ((sscanf(s, "%i[r%2d]%n", &disp, &reg_num, &nparsed) == 2 && nparsed == len) ||
-	         (sscanf(s, "[r%2d]%n", &reg_num, &nparsed) == 1 && nparsed == len))
-		base = cpu_state.cs_r[reg_num & 0x1f].u;
-	else if (sscanf(s, "%u%n", &base, &nparsed) == 1 && nparsed == len)
+	else if ((sscanf(s, "%i[%3s]%n", &disp, reg_name, &nparsed) == 2 && (size_t)nparsed == len) ||
+	         (sscanf(s, "[%3s]%n", reg_name, &nparsed) == 1 && (size_t)nparsed == len))
+	{
+		u_int reg_num;
+		for (reg_num = 0; reg_num < 32; ++reg_num)
+			if (!strcmp(reg_name, debug_rnames[reg_num]))
+				break;
+		if (reg_num == 32)
+		{
+			warnx("Invalid register name %s", reg_name);
+			return false;
+		}
+		base = cpu_state.cs_r[reg_num].u;
+	}
+	else if (sscanf(s, "%i%n", &base, &nparsed) == 1 && (size_t)nparsed == len)
 		disp = 0;
 	else
 	{
@@ -3732,8 +3939,11 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 #if 0
 			fprintf(stderr, "Sym name: \"%s\"\n", sym_name);
 #endif // 0
-			if (!(base = debug_locate_symbol(sym_name)))
+			if ((base = debug_locate_symbol(sym_name)) == 0xffffffff)
+			{
+				warnx("Symbol not found: %s", s);
 				return false;
+			}
 			if (num_parsed >= 2 && *sign == '-')
 				disp = -disp;
 		}
@@ -3765,7 +3975,7 @@ debug_enter(void)
 	debugging = true;
 }
 
-static char *
+char *
 debug_format_flags(debug_str_t s, ...)
 {
 	va_list ap;
@@ -4080,7 +4290,14 @@ debug_step(void)
 								u_int value;
 								if (debug_mem_read(addr, &value, int_size))
 									printf(" %s\n", debug_format_binary(value, int_size << 3));
-								addr+= sizeof(value);
+								addr+= int_size;
+							}
+							else if (!strcmp(format, "addr"))
+							{
+								u_int32_t addr_value;
+								if (debug_mem_read(addr, &addr_value, sizeof(addr_value)))
+									printf(" %s\n", debug_format_addr(addr_value, addr_s));
+								addr+= sizeof(addr_value);
 							}
 							else if (!strcmp(format, "C"))
 							{
@@ -4206,6 +4423,26 @@ debug_step(void)
 					for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
 						printf("debug symbol: %s = 0x%08x, type = %u\n",
 						        sym->ds_name, sym->ds_addr, sym->ds_type);
+				}
+				else if (!strcmp(argv[0], "N"))
+				{
+					if (argc != 3)
+					{
+						debug_usage('N');
+						continue;
+					}
+
+					u_int32_t addr;
+					if (!debug_parse_addr(argv[2], &addr))
+						continue;
+
+					if (debug_locate_symbol(argv[1]) == 0xffffffff)
+					{
+						struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
+						rom_add_symbol(sym);
+					}
+					else
+						printf("Symbol %s already exists\n", argv[1]);
 				}
 				else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
 				{
