@@ -3942,6 +3942,10 @@ debug_step(void)
 		const char *line = el_gets(s_editline, &length);
 		if (line)
 		{
+			HistEvent hist_event;
+			if (history(s_history, &hist_event, H_ENTER, line) == -1)
+				warn("Could not save editline history");
+
 			int argc;
 			const char **argv;
 			if (tok_str(s_token, line, &argc, &argv) == 0 && argc > 0)
@@ -4280,10 +4284,6 @@ debug_step(void)
 				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
-
-				HistEvent hist_event;
-				if (history(s_history, &hist_event, H_ENTER, line) == -1)
-					warn("Could not save editline history");
 			}
 		}
 		else
