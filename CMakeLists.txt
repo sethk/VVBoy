@@ -23,3 +23,5 @@ add_custom_command(OUTPUT ${GEN_HEADERS}
 
 add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES})
 add_executable(vvboy ${VVBOY_SOURCES} vvboy.h ${COMMON_SOURCES} ${TK_SOURCES})
+target_compile_options(vvboy PUBLIC -Wno-implicit-function-declaration) # makeheaders enum parsing bug?
+target_compile_options(vvboy PUBLIC -Wall -Wextra -Wformat -Werror)
