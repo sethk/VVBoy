@@ -202,13 +202,13 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	if (!src)
 	{
 		warnx("Bus error at 0x%08x", addr);
-		debug_intr();
+		debug_enter();
 		return false;
 	}
 
 	if (!mem_check_perms(perms, mem_ops, addr))
 	{
-		debug_intr();
+		debug_enter();
 		return false;
 	}
 
@@ -267,13 +267,13 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	{
 		// TODO: SEGV
 		fprintf(stderr, "Bus error at 0x%08x\n", addr);
-		debug_intr();
+		debug_enter();
 		return false;
 	}
 
 	if (!mem_check_perms(perms, PROT_WRITE, addr))
 	{
-		debug_intr();
+		debug_enter();
 		return false;
 	}
 
@@ -669,7 +669,7 @@ cpu_getfl(enum cpu_bcond cond)
 			         cpu_state.cs_psw.psw_flags.f_z);
 		default:
 			fputs("Handle branch cond\n", stderr);
-			debug_intr();
+			debug_enter();
 			return false;
 	}
 }
@@ -1599,11 +1599,16 @@ cpu_test(void)
 bool
 cpu_step(void)
 {
-	if (!debugging && debug_break != 0xffffffff && cpu_state.cs_pc == debug_break)
+	if (debug_break != 0xffffffff && cpu_state.cs_pc == debug_break)
 	{
-		fprintf(stderr, "Stopped at breakpoint\n");
-		debug_intr();
-		return false;
+		fprintf(stderr, "\nStopped at breakpoint\n");
+		debugging = true;
+	}
+
+	if (debugging)
+	{
+		if (!debug_step())
+			return false;
 	}
 
 	union cpu_inst inst;
@@ -2754,7 +2759,7 @@ bool debugging = false;
 bool debug_trace_cpu = false;
 bool debug_trace_vip = false;
 FILE *debug_trace_file = NULL;
-u_int32_t debug_break = 0xffffffff; //0x07001b40;
+u_int32_t debug_break = 0xffffffff;
 
 static EditLine *s_editline;
 static History *s_history;
@@ -3460,6 +3465,8 @@ static const struct debug_help
 				{'q', "", "Quit the emulator (aliases: quit, exit)"},
 				{'c', "", "Continue execution (aliases: cont)"},
 				{'s', "", "Step into the next instruction (aliases: step)"},
+				{'b', "[<addr>]", "Set or remove breakpoint\n"
+								  "\t\tOmit address to clear breakpoint"},
 				{'i', "", "Show CPU info (aliases: info)"},
 				{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
 						          "\t\tFormats: h (hex), i (instructions), b (binary), C (VIP CHR), O (VIP OAM), B (VIP BGSC)\n"
@@ -3513,8 +3520,7 @@ debug_locate_symbol(const char *s)
 	for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
 		if (!strcmp(sym->ds_name, s))
 			return sym->ds_addr;
-	warnx("Symbol not found: %s", s);
-	return 0;
+	return 0xffffffff;
 }
 
 static bool
@@ -3571,10 +3577,9 @@ debug_disasm_at(u_int32_t *addrp)
 }
 
 void
-debug_intr(void)
+debug_enter(void)
 {
-	if (!debugging)
-		raise(SIGINT);
+	debugging = true;
 }
 
 static char *
@@ -3737,11 +3742,15 @@ debug_draw(u_int x, u_int y, u_int8_t pixel)
 	tk_debug_draw(x, y, argb);
 }
 
-void
-debug_run(void)
+bool
+debug_step(void)
 {
-	debugging = true;
-	while (1)
+	bool running = true;
+
+	main_unblock_sigint();
+
+	assert(debugging);
+	while (true)
 	{
 		union cpu_inst inst;
 		if (cpu_fetch(cpu_state.cs_pc, &inst))
@@ -3769,12 +3778,39 @@ debug_run(void)
 				else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
 				{
 					tk_quit();
+					debugging = false;
+					running = false;
 					break;
 				}
 				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
+				{
+					debugging = false;
 					break;
+				}
 				else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
-					main_step();
+					break;
+				else if (!strcmp(argv[0], "b") || !strcmp(argv[0], "break"))
+				{
+					if (argc > 2)
+					{
+						debug_usage('b');
+						continue;
+					}
+
+					if (argc == 2)
+					{
+						if (debug_parse_addr(argv[1], &debug_break))
+						{
+							debug_str_t addr_s;
+							printf("Set breakpoint at %s\n", debug_format_addr(debug_break, addr_s));
+						}
+					}
+					else
+					{
+						debug_break = 0xffffffff;
+						printf("Cleared breakpoint\n");
+					}
+				}
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
 					static const char *fmt = "%5s: %-26s";
@@ -4044,7 +4080,10 @@ debug_run(void)
 			break;
 		}
 	}
-	debugging = false;
+
+	main_block_sigint();
+
+	return running;
 }
 
 void
@@ -4197,23 +4236,11 @@ main_unblock_sigint(void)
 void
 main_frame(void)
 {
-	if (!debugging)
-	{
-		while (main_step() && (main_usec % 20000) != 0);
+	while (main_step() && (main_usec % 20000) != 0);
 
-		// Check SIGINT -> Debugger
-		sigset_t sigpend;
-		sigpending(&sigpend);
-		if (sigismember(&sigpend, SIGINT))
-			debugging = true;
-	}
-
-	if (debugging)
-	{
-		main_unblock_sigint();
-
-		putchar('\n');
-		debug_run();
-		main_block_sigint();
-	}
+	// Check SIGINT -> Debugger
+	sigset_t sigpend;
+	sigpending(&sigpend);
+	if (sigismember(&sigpend, SIGINT))
+		debugging = true;
 }

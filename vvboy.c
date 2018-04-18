@@ -4,7 +4,6 @@
 #include <err.h>
 #include <sysexits.h>
 #include <stdlib.h>
-#include <signal.h>
 
 int
 main(int ac, char * const *av)
@@ -12,7 +11,6 @@ main(int ac, char * const *av)
 	int ch;
 	extern int optind;
 	bool help = false;
-	bool debug_boot = false;
 	bool self_test = false;
 	static const char *usage_fmt = "usage: %s [-dtCV] [-T <trace.log> ] { <file.vb> | <file.isx> }\n";
 	while ((ch = getopt(ac, av, "dtCVT:")) != -1)
@@ -21,7 +19,7 @@ main(int ac, char * const *av)
 			case '?':
 				help = true;
 			case 'd':
-				debug_boot = true;
+				debugging = true;
 				break;
 			case 't':
 				self_test = true;
@@ -64,9 +62,6 @@ main(int ac, char * const *av)
 		vip_test();
 		cpu_test();
 	}
-
-	if (debug_boot)
-		debug_run();
 
 	main_block_sigint();
 	tk_main();
