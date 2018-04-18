@@ -216,6 +216,13 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 		return false;
 	}
 
+	if (debug_trace_mem && !is_exec)
+	{
+		debug_str_t addr_s;
+		debug_str_t hex_s;
+		debug_tracef("mem", "[%-26s] -> %s\n", debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
+	}
+
 	switch (size)
 	{
 		case 1:
@@ -280,6 +287,13 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	{
 		debug_enter();
 		return false;
+	}
+
+	if (debug_trace_mem)
+	{
+		debug_str_t addr_s;
+		debug_str_t hex_s;
+		debug_tracef("mem", "[%-26s] <- %s\n", debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
 	}
 
 	switch (size)
@@ -867,6 +881,11 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		case OP_JMP:
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
+			if (inst.ci_i.i_reg1 == 31 && debug_trace_cpu_flow)
+			{
+				debug_str_t addr_s;
+				debug_tracef("cpu.flow", "RET  %s\n", debug_format_addr(cpu_state.cs_pc, addr_s));
+			}
 			break;
 		case OP_SAR:
 		{
@@ -1042,6 +1061,11 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_pc = cpu_state.cs_eipc;
 				cpu_state.cs_psw = cpu_state.cs_eipsw;
 			}
+			if (debug_trace_cpu_flow)
+			{
+				debug_str_t addr_s;
+				debug_tracef("cpu.flow", "RETI %s\n", debug_format_addr(cpu_state.cs_pc, addr_s));
+			}
 			break;
 			/*
    OP_HALT  = 0b011010,
@@ -1138,6 +1162,11 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t disp = cpu_inst_disp26(&inst);
 			cpu_state.cs_r[31].u = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
+			if (debug_trace_cpu_flow)
+			{
+				debug_str_t addr_s;
+				debug_tracef("cpu.flow", "CALL %s\n", debug_format_addr(cpu_state.cs_pc, addr_s));
+			}
 			break;
 		}
 		case OP_ORI:
@@ -1671,6 +1700,11 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 			cpu_state.cs_psw.psw_flags.f_i = MIN(level + 1, 15);
 			cpu_state.cs_pc = cpu_state.cs_ecr.ecr_eicc;
 
+			if (debug_trace_cpu_flow)
+			{
+				debug_str_t addr_s;
+				debug_tracef("cpu.flow", "INT%u %s\n", level, debug_format_addr(cpu_state.cs_pc, addr_s));
+			}
 			++main_stats.ms_intrs;
 		}
 	}
@@ -2732,7 +2766,8 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 		bool raise_intr = state && !nvc_regs.nr_scr.s_k_int_inh && !(old_nvc_keys & key);
 		nvc_regs.nr_sdlr = nvc_keys & 0xff;
 		nvc_regs.nr_sdhr = nvc_keys >> 8;
-		debug_tracef("nvc", "Serial data 0x%08x -> 0x%08x, raise intr = %d\n", old_nvc_keys, nvc_keys, raise_intr);
+		if (debug_trace_nvc)
+			debug_tracef("nvc", "Serial data 0x%08x -> 0x%08x, raise intr = %d\n", old_nvc_keys, nvc_keys, raise_intr);
 
 		nvc_regs.nr_scr.s_si_stat = 0;
 
@@ -2801,7 +2836,11 @@ struct debug_symbol
 
 bool debugging = false;
 bool debug_trace_cpu = false;
+bool debug_trace_cpu_flow = false;
+bool debug_trace_mem = false;
 bool debug_trace_vip = false;
+bool debug_trace_nvc = false;
+bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
 u_int32_t debug_break = 0xffffffff;
 
@@ -3778,6 +3817,12 @@ debug_format_oam(debug_str_t s, const struct vip_oam *vop)
 }
 
 static void
+debug_show_tracing(const char *name, bool *tracep)
+{
+	printf("%s tracing is %s\n", name, (*tracep) ? "on" : "off");
+}
+
+static void
 debug_draw(u_int x, u_int y, u_int8_t pixel)
 {
 	u_int32_t argb = pixel;
@@ -4109,6 +4154,39 @@ debug_step(void)
 					}
 					else
 						debug_usage('D');
+				}
+				else if (!strcmp(argv[0], "t"))
+				{
+					if (argc > 1)
+					{
+						bool *tracep;
+						if (!strcmp(argv[1], "cpu"))
+							tracep = &debug_trace_cpu;
+						if (!strcmp(argv[1], "cpu.flow"))
+							tracep = &debug_trace_cpu_flow;
+						else if (!strcmp(argv[1], "vip"))
+							tracep = &debug_trace_vip;
+						else if (!strcmp(argv[1], "nvc"))
+							tracep = &debug_trace_nvc;
+						else if (!strcmp(argv[1], "nvc.tim"))
+							tracep = &debug_trace_nvc_tim;
+						else
+						{
+							debug_usage('t');
+							continue;
+						}
+
+						*tracep = !*tracep;
+						debug_show_tracing(argv[1], tracep);
+					}
+					else
+					{
+						debug_show_tracing("cpu", &debug_trace_cpu);
+						debug_show_tracing("cpu.flow", &debug_trace_cpu_flow);
+						debug_show_tracing("vip", &debug_trace_vip);
+						debug_show_tracing("nvc", &debug_trace_nvc);
+						debug_show_tracing("nvc.tim", &debug_trace_nvc_tim);
+					}
 				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
