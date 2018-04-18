@@ -2669,7 +2669,6 @@ struct nvc_regs
 	u_int8_t nr_cdtr;
 	u_int8_t nr_cdrr;
 	u_int8_t nr_sdlr;
-	u_int8_t nr_regs2[3];
 	u_int8_t nr_sdhr;
 	u_int8_t nr_tlr;
 	u_int8_t nr_thr;
