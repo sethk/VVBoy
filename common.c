@@ -1877,13 +1877,17 @@ struct vip_regs
 	u_int16_t vr_intpnd;
 	u_int16_t vr_intenb;
 	u_int16_t vr_intclr;
-	u_int16_t vr_undef1[13];
+	u_int16_t vr_rfu1[13];
 	struct vip_dpctrl vr_dpstts;
 	struct vip_dpctrl vr_dpctrl;
-	u_int16_t vr_brta;
-	u_int16_t vr_brtb;
-	u_int16_t vr_brtc;
-	u_int16_t vr_rest;
+	u_int8_t vr_brta;
+	u_int8_t vr_rfu2;
+	u_int8_t vr_brtb;
+	u_int8_t vr_rfu3;
+	u_int8_t vr_brtc;
+	u_int8_t vr_rfu4;
+	u_int8_t vr_rest;
+	u_int8_t vr_rfu5;
 	u_int16_t vr_frmcyc;
 	u_int16_t vr_undef2;
 	u_int16_t vr_cta;
@@ -2038,8 +2042,26 @@ vip_fb_read(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 u_int32_t
 vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 {
-	static const u_int32_t lut[4] = {0xff000000, 0xff400000, 0xff800000, 0xffa00000};
-	return lut[vip_fb_read(fb, x, y)];
+	// TODO: Read column table
+	u_int8_t intensity = 0;
+	switch (vip_fb_read(fb, x, y))
+	{
+		case 3:
+			assert(255 - intensity >= vip_regs.vr_brtc);
+			intensity = vip_regs.vr_brtc;
+			/*FALLTHRU*/
+		case 2:
+			assert(255 - intensity >= vip_regs.vr_brtb);
+			intensity+= vip_regs.vr_brtb;
+			/*FALLTHRU*/
+		case 1:
+			assert(255 - intensity >= vip_regs.vr_brta);
+			intensity+= vip_regs.vr_brta;
+			/*FALLTHRU*/
+		case 0:
+			break;
+	}
+	return 0xff000000 | (intensity << 16) | (intensity << 8) | intensity;
 }
 
 void
@@ -4143,7 +4165,7 @@ debug_step(void)
 					debug_print_xpctrl(vip_regs.vr_xpctrl, "XPCTRL");
 					printf(" SBCMP=%d", vip_regs.vr_xpctrl.vx_sbcount);
 					putchar('\n');
-					printf("BRTA: %d, BRTB: %d, BRTC: %d, REST: %d\n",
+					printf("BRTA: %hhu, BRTB: %hhu, BRTC: %hhu, REST: %hhu\n",
 					       vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
 					printf("FRMCYC: %d\n", vip_regs.vr_frmcyc);
 				}

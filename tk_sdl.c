@@ -52,6 +52,8 @@ tk_init(void)
 		}
 		SDL_SetTextureBlendMode(sdl_textures[i], SDL_BLENDMODE_ADD);
 	}
+	SDL_SetTextureColorMod(sdl_textures[0], 0xff, 0, 0);
+	SDL_SetTextureColorMod(sdl_textures[1], 0, 0, 0xff);
 
 	return true;
 }
@@ -176,15 +178,7 @@ tk_blit(const u_int8_t *fb, bool right)
 	SDL_Texture *texture = sdl_textures[(right) ? 0 : 1];
 	for (u_int x = 0; x < 384; ++x)
 		for (u_int y = 0; y < 224; ++y)
-		{
-			u_int8_t intensity = vip_fb_read(fb, x, y);
-			u_int32_t argb;
-			if (right)
-				argb = 0xff000000 | (intensity << 6);
-			else
-				argb = 0xff000000 | (intensity << 22);
-			sdl_frame[y * 384 + x] = argb;
-		}
+			sdl_frame[y * 384 + x] = vip_fb_read_argb(fb, x, y);
 	SDL_UpdateTexture(texture, NULL, sdl_frame, 384 * sizeof(*sdl_frame));
 	SDL_RenderCopy(sdl_renderer, texture, NULL, NULL);
 
