@@ -174,6 +174,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	int mem_ops = PROT_READ;
 	if (is_exec)
 		mem_ops|= PROT_EXEC;
+	u_int32_t mask = 0xffffffff;
 	int perms;
 
 	if (seg == MEM_SEG_VIP)
@@ -181,7 +182,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	else if (seg == MEM_SEG_VSU)
 		src = vsu_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_NVC)
-		src = nvc_mem_emu2host(addr, size, &perms);
+		src = nvc_mem_emu2host(addr, size, &mask, &perms);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -239,13 +240,14 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
 	void *dest = NULL;
 	int perms;
+	u_int32_t mask = 0xffffffff;
 
 	if (seg == MEM_SEG_VIP)
 		dest = vip_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_VSU)
 		dest = vsu_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_NVC)
-		dest = nvc_mem_emu2host(addr, size, &perms);
+		dest = nvc_mem_emu2host(addr, size, &mask, &perms);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -283,13 +285,13 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	switch (size)
 	{
 		case 1:
-			*(u_int8_t *)dest = *(u_int8_t *)src;
+			*(u_int8_t *)dest = (*(u_int8_t *)dest & ~mask) | (*(u_int8_t *)src & mask);
 			return true;
 		case 2:
-			*(u_int16_t *)dest = *(u_int16_t *)src;
+			*(u_int16_t *)dest = (*(u_int16_t *)dest & ~mask) | (*(u_int16_t *)src & mask);
 			return true;
 		case 4:
-			*(u_int32_t *)dest = *(u_int32_t *)src;
+			*(u_int32_t *)dest = (*(u_int32_t *)dest & ~mask) | (*(u_int32_t *)src & mask);
 			return true;
 		default:
 			bcopy(src, dest, size);
@@ -2691,10 +2693,12 @@ nvc_test(void)
 {
 	fputs("Running NVC self-test\n", stderr);
 
-	assert(sizeof(nvc_regs) == 0x29);
+	mem_test_size("nvc_regs", sizeof(nvc_regs), 11);
+	u_int32_t mask;
 	int perms;
-	assert(nvc_mem_emu2host(0x02000010, 1, &perms) == &(nvc_regs.nr_sdlr));
-	assert(nvc_mem_emu2host(0x02000014, 1, &perms) == &(nvc_regs.nr_sdhr));
+	mem_test_addr("nvc_sdlr", nvc_mem_emu2host(0x02000010, 1, &mask, &perms), &(nvc_regs.nr_sdlr));
+	mem_test_addr("nvc_sdhr", nvc_mem_emu2host(0x02000014, 1, &mask, &perms), &(nvc_regs.nr_sdhr));
+	mem_test_addr("nvc_tcr", nvc_mem_emu2host(0x02000020, 1, &mask, &perms), &(nvc_regs.nr_tcr));
 }
 
 bool
@@ -2738,7 +2742,7 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 }
 
 void *
-nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
+nvc_mem_emu2host(u_int32_t addr, size_t size, u_int32_t *maskp, int *permsp)
 {
 	// TODO: Set read/write permissions
 	*permsp = PROT_READ | PROT_WRITE;
@@ -2750,7 +2754,29 @@ nvc_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 			return NULL;
 	}
 	if (addr <= 0x02000028)
-		return (u_int8_t *)&nvc_regs + (addr & 0xff);
+	{
+		switch (addr)
+		{
+			case 0x02000024:
+			case 0x02000028:
+			case 0x0200001c:
+			case 0x02000018:
+			case 0x02000014:
+			case 0x02000010:
+			case 0x02000008:
+			case 0x02000004:
+			case 0x02000000:
+				*permsp = PROT_READ | PROT_WRITE;
+				break;
+			case 0x02000020:
+				*permsp = PROT_READ | PROT_WRITE;
+				*maskp = 0x1d;
+				break;
+			default:
+				*permsp = 0;
+		}
+		return (u_int8_t *) &nvc_regs + ((addr & 0x3f) >> 2);
+	}
 	else
 	{
 		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", addr);
