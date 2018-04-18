@@ -4165,6 +4165,7 @@ debug_step(void)
 				}
 				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
 				{
+					u_int inst_limit;
 					u_int32_t pc;
 					if (argc >= 2)
 					{
@@ -4179,7 +4180,17 @@ debug_step(void)
 					start_sym = debug_resolve_addr(pc, &offset);
 					next_sym = start_sym;
 
-					while (next_sym == start_sym)
+					if (argc >= 3)
+						inst_limit = strtoul(argv[2], NULL, 10);
+					else if (start_sym)
+						inst_limit = 8192;
+					else
+					{
+						inst_limit = 25;
+						printf("No symbol found at start address: only disassembling %u instructions\n", inst_limit);
+					}
+
+					while (next_sym == start_sym && inst_limit > 0)
 					{
 						debug_str_t addr_s;
 
@@ -4187,6 +4198,7 @@ debug_step(void)
 						if (!debug_disasm_at(&pc))
 							break;
 						next_sym = debug_resolve_addr(pc, &offset);
+						--inst_limit;
 					}
 				}
 				else if (!strcmp(argv[0], "S"))
