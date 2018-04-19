@@ -208,7 +208,11 @@ rom_read_isx(struct rom_file *file)
 	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size, PROT_READ | PROT_EXEC))
 		return false;
 
-	memset(mem_segs[MEM_SEG_ROM].ms_ptr, 0xff, rom_size);
+	union cpu_inst halt_inst = {.ci_i = {.i_opcode = (enum cpu_opcode)OP_TRAP}};
+	u_int16_t pattern[2];
+	pattern[0] = halt_inst.ci_hwords[0];
+	pattern[1] = halt_inst.ci_hwords[1];
+	memset_pattern4(mem_segs[MEM_SEG_ROM].ms_ptr, pattern, rom_size);
 
 	if (!rom_seek(file, 32, SEEK_SET))
 		return false;

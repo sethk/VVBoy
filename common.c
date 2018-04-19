@@ -595,6 +595,7 @@ void
 cpu_add_syms(void)
 {
 	debug_create_symbol("vect.reset", 0xfffffff0);
+	debug_create_symbol(".reset", 0x07000000 + (0xfffffff0 & mem_segs[MEM_SEG_ROM].ms_addrmask));
 }
 
 void
@@ -2778,11 +2779,18 @@ nvc_add_syms(void)
 	debug_create_symbol("CDTR", 0x02000008);
 	debug_create_symbol("CCSR", 0x02000004);
 	debug_create_symbol("CCR", 0x02000000);
+
+	u_int32_t rom_mask = mem_segs[MEM_SEG_ROM].ms_addrmask;
 	debug_create_symbol("vect.key", 0xfffffe00);
+	debug_create_symbol(".intkey", 0x07000000 + (0xfffffe00 & rom_mask));
 	debug_create_symbol("vect.tim", 0xfffffe10);
+	debug_create_symbol(".inttim", 0x07000000 + (0xfffffe10 & rom_mask));
 	debug_create_symbol("vect.cro", 0xfffffe20);
+	debug_create_symbol(".intcro", 0x07000000 + (0xfffffe20 & rom_mask));
 	debug_create_symbol("vect.com", 0xfffffe30);
+	debug_create_symbol(".intcom", 0x07000000 + (0xfffffe30 & rom_mask));
 	debug_create_symbol("vect.vip", 0xfffffe40);
+	debug_create_symbol(".intvip", 0x07000000 + (0xfffffe40 & rom_mask));
 }
 
 void
@@ -3392,7 +3400,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_CMP2:
 			mnemonic = "CMP";
 			break;
-		case OP_RETI: mnemonic = "RETI"; break;
 		case OP_JMP: mnemonic = "JMP"; break;
 		case OP_SAR:
 		case OP_SAR2:
@@ -3554,12 +3561,18 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				snprintf(decomp, debug_str_len, "%d <=> %hi", regs[inst->ci_ii.ii_reg2].s, imm);
 			break;
 		}
+		case OP_TRAP:
+			snprintf(decode, debug_str_len, "%s", "TRAP");
+			break;
 		case OP_RETI:
 			snprintf(decode, debug_str_len, "%s", "RETI");
 			if (regs)
 				snprintf(decomp, debug_str_len, "pc <- 0x%08x, psw <- 0x%08x",
 				         (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc,
 				         (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepsw.psw_word : cpu_state.cs_eipsw.psw_word);
+			break;
+		case OP_HALT:
+			snprintf(decode, debug_str_len, "%s", "HALT");
 			break;
 		case OP_CLI:
 		case OP_SEI:
