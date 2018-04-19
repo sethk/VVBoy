@@ -6,6 +6,7 @@
 /rom.h
 /common.h
 /tk_sdl.h
+/tk_null.h
 /vvbdis.h
 .depend
 /vendor/makeheaders/makeheaders
