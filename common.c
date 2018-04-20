@@ -150,22 +150,6 @@ mem_size_ceil(u_int32_t size)
 }
 
 static bool
-mem_check_perms(int perms, int mem_ops, u_int32_t addr)
-{
-	if ((perms & mem_ops) != mem_ops)
-	{
-		debug_str_t addr_s, ops_s, perms_s;
-		static bool ignore_perms = false;
-		if (!debug_runtime_errorf(&ignore_perms, "Invalid memory operation at %s, mem ops = %s, prot = %s\n",
-		                          debug_format_addr(addr, addr_s),
-		                          debug_format_perms(ops_s, mem_ops),
-		                          debug_format_perms(perms_s, perms)))
-			return false;
-	}
-	return true;
-}
-
-static bool
 mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 {
 	assert(size > 0);
@@ -210,8 +194,13 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 		return false;
 	}
 
-	if (!mem_check_perms(perms, mem_ops, addr))
+	if ((perms & mem_ops) != mem_ops)
 	{
+		debug_str_t addr_s, ops_s, perms_s;
+		warnx("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
+		      debug_format_addr(addr, addr_s),
+		      debug_format_perms(mem_ops, ops_s),
+		      debug_format_perms(perms, perms_s));
 		debug_enter();
 		return false;
 	}
@@ -241,7 +230,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	}
 }
 
-static bool __unused
+static bool
 mem_write(u_int32_t addr, const void *src, size_t size)
 {
 	assert(size > 0);
@@ -284,8 +273,14 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 		return false;
 	}
 
-	if (!mem_check_perms(perms, PROT_WRITE, addr))
+	if ((perms & PROT_WRITE) == 0)
 	{
+		debug_str_t addr_s, perms_s;
+		static bool ignore_writes = false;
+		if (debug_runtime_errorf(&ignore_writes, "Invalid memory operation at %s, mem ops = PROT_WRITE, prot = %s\n",
+		                          debug_format_addr(addr, addr_s),
+		                          debug_format_perms(perms, perms_s)))
+			return true;
 		debug_enter();
 		return false;
 	}
@@ -2592,12 +2587,29 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 			if (!debug_runtime_errorf(&always_ignore, "VIP address alignment error at 0x%08x", addr))
 				return NULL;
 		}
-
 		u_int reg_num = (addr & 0x7f) >> 1;
+		switch (reg_num)
+		{
+			case 0x00:
+			case 0x10:
+			case 0x18:
+			case 0x20:
+				*permsp = PROT_READ;
+				break;
+			case 0x02:
+			case 0x11:
+			case 0x12:
+			case 0x13:
+			case 0x14:
+			case 0x15:
+			case 0x17:
+			case 0x21:
+				*permsp = PROT_WRITE;
+				break;
+		}
+
 		u_int16_t *regp = (u_int16_t *)&vip_regs + reg_num;
 		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (addr & 0x7e)));
-		if ((struct vip_dpctrl *)regp == &(vip_regs.vr_dpstts))
-			*permsp = PROT_READ;
 
 		return (u_int8_t *)&vip_regs + (addr & 0x7e);
 	}
@@ -2962,9 +2974,6 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 void *
 nvc_mem_emu2host(u_int32_t addr, size_t size, u_int32_t *maskp, int *permsp)
 {
-	// TODO: Set read/write permissions
-	*permsp = PROT_READ | PROT_WRITE;
-
 	if (size != 1)
 	{
 		static bool ignore_size = false;
