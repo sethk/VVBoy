@@ -158,6 +158,7 @@ tk_main(void)
 						default: break;
 						case SDL_SCANCODE_ESCAPE: debug_enter(); break;
 						case SDL_SCANCODE_F1: vip_toggle_worlds(); break;
+						case SDL_SCANCODE_F2: vip_use_bright = !vip_use_bright; break;
 					}
 			}
 		}

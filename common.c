@@ -1947,6 +1947,7 @@ struct vip_regs
 static struct vip_regs vip_regs;
 static u_int vip_disp_index = 0;
 static u_int32_t vip_world_mask = ~0;
+bool vip_use_bright = true;
 
 bool
 vip_init(void)
@@ -2088,24 +2089,33 @@ u_int32_t
 vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 {
 	// TODO: Read column table
+	u_int8_t pixel = vip_fb_read(fb, x, y);
 	u_int8_t intensity = 0;
-	switch (vip_fb_read(fb, x, y))
+	if (vip_use_bright)
 	{
-		case 3:
-			assert(255 - intensity >= vip_regs.vr_brtc);
-			intensity = vip_regs.vr_brtc;
-			/*FALLTHRU*/
-		case 2:
-			assert(255 - intensity >= vip_regs.vr_brtb);
-			intensity+= vip_regs.vr_brtb;
-			/*FALLTHRU*/
-		case 1:
-			assert(255 - intensity >= vip_regs.vr_brta);
-			intensity+= vip_regs.vr_brta;
-			/*FALLTHRU*/
-		case 0:
-			break;
+		//u_int8_t total = vip_regs.vr_brta + vip_regs.vr_brtb + vip_regs.vr_brtc + vip_regs.vr_rest + 5;
+		//u_int8_t repeat;
+		switch (pixel)
+		{
+			case 3:
+				assert(255 - intensity >= vip_regs.vr_brtc);
+				intensity = vip_regs.vr_brtc + 1;
+				/*FALLTHRU*/
+			case 2:
+				assert(255 - intensity >= vip_regs.vr_brtb);
+				intensity += vip_regs.vr_brtb + 1;
+				/*FALLTHRU*/
+			case 1:
+				assert(255 - intensity >= vip_regs.vr_brta);
+				intensity += vip_regs.vr_brta + 1;
+				/*FALLTHRU*/
+			case 0:
+				break;
+		}
 	}
+	else // For debugging
+		intensity = pixel | (pixel << 2) | (pixel << 4) | (pixel << 6);
+
 	return 0xff000000 | (intensity << 16) | (intensity << 8) | intensity;
 }
 
