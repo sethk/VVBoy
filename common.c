@@ -371,7 +371,7 @@ wram_fini(void)
 
 /* CPU */
 #if INTERFACE
-#	define CPU_INST_PER_USEC (1) //(20)
+#	define CPU_INST_PER_USEC (10)
 
 	union cpu_reg {u_int32_t u; int32_t s; float f; int16_t s16; u_int8_t u8s[4];};
 	typedef union cpu_reg cpu_regs_t[32];
@@ -2871,8 +2871,6 @@ nvc_test(void)
 bool
 nvc_step(void)
 {
-	u_int inst_per_usec = (debugging) ? 1 : CPU_INST_PER_USEC;
-
 	if (main_usec == nvc_next_tick)
 	{
 		if (nvc_regs.nr_tcr.t_enb)
@@ -2935,7 +2933,7 @@ nvc_step(void)
 		nvc_next_tick = (nvc_next_tick + tick_usec) % 1000000;
 	}
 
-	for (u_int x = 0; x < inst_per_usec; ++x)
+	for (u_int x = 0; x < CPU_INST_PER_USEC; ++x)
 		if (!cpu_step())
 			return false;
 
