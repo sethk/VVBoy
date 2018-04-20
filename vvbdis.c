@@ -137,7 +137,7 @@ static void
 show_disasm(union cpu_inst *inst, u_int32_t pc)
 {
 	debug_str_t addr_s;
-	printf("%-26s:", debug_format_addr((pc), addr_s));
+	printf(DEBUG_ADDR_FMT ":", debug_format_addr((pc), addr_s));
 	printf(" %s\n", debug_disasm(inst, pc, NULL));
 }
 

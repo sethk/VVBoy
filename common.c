@@ -220,7 +220,8 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	{
 		debug_str_t addr_s;
 		debug_str_t hex_s;
-		debug_tracef("mem", "[%-26s] -> %s\n", debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
+		debug_tracef("mem", "[" DEBUG_ADDR_FMT "] -> %s\n",
+		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
 	}
 
 	switch (size)
@@ -293,7 +294,8 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	{
 		debug_str_t addr_s;
 		debug_str_t hex_s;
-		debug_tracef("mem", "[%-26s] <- %s\n", debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
+		debug_tracef("mem", "[" DEBUG_ADDR_FMT "] <- %s\n",
+		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
 	}
 
 	switch (size)
@@ -905,12 +907,15 @@ cpu_exec(const union cpu_inst inst)
 					cpu_shift_right(cpu_state.cs_r[inst.ci_i.i_reg2].u, cpu_state.cs_r[inst.ci_i.i_reg1].u & 0x1f);
 			break;
 		case OP_JMP:
-			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
-			if (inst.ci_i.i_reg1 == 31 && debug_trace_cpu_flow)
+			if (debug_trace_cpu_jmp)
 			{
-				debug_str_t addr_s;
-				debug_tracef("cpu.flow", "RET  %s\n", debug_format_addr(cpu_state.cs_pc, addr_s));
+				debug_str_t addr_s, dest_addr_s;
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": %-4s %s\n",
+				             debug_format_addr(cpu_state.cs_pc, addr_s),
+				             (inst.ci_i.i_reg1 == 31) ? "RET" : "JMP",
+				             debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, dest_addr_s));
 			}
+			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
 			break;
 		case OP_SAR:
 		{
@@ -1076,6 +1081,15 @@ cpu_exec(const union cpu_inst inst)
 				break;
 			}
 
+			if (debug_trace_cpu_jmp)
+			{
+				debug_str_t addr_s, dest_addr_s;
+				u_int32_t dest_addr = (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc;
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": RETI %s\n",
+				             debug_format_addr(cpu_state.cs_pc, addr_s),
+				             debug_format_addr(dest_addr, dest_addr_s));
+			}
+
 			if (cpu_state.cs_psw.psw_flags.f_np)
 			{
 				cpu_state.cs_pc = cpu_state.cs_fepc;
@@ -1085,11 +1099,6 @@ cpu_exec(const union cpu_inst inst)
 			{
 				cpu_state.cs_pc = cpu_state.cs_eipc;
 				cpu_state.cs_psw = cpu_state.cs_eipsw;
-			}
-			if (debug_trace_cpu_flow)
-			{
-				debug_str_t addr_s;
-				debug_tracef("cpu.flow", "RETI %s\n", debug_format_addr(cpu_state.cs_pc, addr_s));
 			}
 			break;
 			/*
@@ -1181,13 +1190,19 @@ cpu_exec(const union cpu_inst inst)
 		case OP_JAL:
 		{
 			u_int32_t disp = cpu_inst_disp26(&inst);
+			if (debug_trace_cpu_jmp)
+			{
+				debug_str_t addr_s, dest_addr_s;
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": CALL %s(0x%08x, 0x%08x, 0x%08x, 0x%08x)\n",
+				             debug_format_addr(cpu_state.cs_pc, addr_s),
+				             debug_format_addr(cpu_state.cs_pc + disp, dest_addr_s),
+				             cpu_state.cs_r[6].u,
+				             cpu_state.cs_r[7].u,
+				             cpu_state.cs_r[8].u,
+				             cpu_state.cs_r[9].u);
+			}
 			cpu_state.cs_r[31].u = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
-			if (debug_trace_cpu_flow)
-			{
-				debug_str_t addr_s;
-				debug_tracef("cpu.flow", "CALL %s\n", debug_format_addr(cpu_state.cs_pc, addr_s));
-			}
 			break;
 		}
 		case OP_ORI:
@@ -1682,7 +1697,7 @@ cpu_step(void)
 	if (debug_trace_cpu)
 	{
 		debug_str_t addr_s;
-		debug_tracef("cpu", "%-26s: %s\n",
+		debug_tracef("cpu", DEBUG_ADDR_FMT ": %s\n",
 		             debug_format_addr(cpu_state.cs_pc, addr_s),
 		             debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
 	}
@@ -1706,7 +1721,7 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 			if (debug_trace_cpu)
 			{
 				debug_str_t addr_s;
-				debug_tracef("cpu", "%-26s: Interrupt level=%d\n",
+				debug_tracef("cpu", DEBUG_ADDR_FMT ": Interrupt level=%d\n",
 				             debug_format_addr(cpu_state.cs_pc, addr_s), level);
 			}
 
@@ -1717,13 +1732,18 @@ cpu_intr(/*enum*/ nvc_intlevel level)
 			cpu_state.cs_psw.psw_flags.f_id = 1;
 			cpu_state.cs_psw.psw_flags.f_ae = 0;
 			cpu_state.cs_psw.psw_flags.f_i = MIN(level + 1, 15);
+
+			if (debug_trace_cpu_jmp)
+			{
+				debug_str_t addr_s, dest_addr_s;
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": INT%u %s\n",
+				             debug_format_addr(cpu_state.cs_pc, addr_s),
+				             level,
+				             debug_format_addr(cpu_state.cs_ecr.ecr_eicc, dest_addr_s));
+			}
+
 			cpu_state.cs_pc = cpu_state.cs_ecr.ecr_eicc;
 
-			if (debug_trace_cpu_flow)
-			{
-				debug_str_t addr_s;
-				debug_tracef("cpu.flow", "INT%u %s\n", level, debug_format_addr(cpu_state.cs_pc, addr_s));
-			}
 			++main_stats.ms_intrs;
 		}
 	}
@@ -2985,11 +3005,13 @@ struct debug_symbol
 
 	extern bool debug_trace_cpu;
 	extern bool debug_trace_vip;
+
+# define DEBUG_ADDR_FMT "%-26s"
 #endif // INTERFACE
 
 bool debugging = false;
 bool debug_trace_cpu = false;
-bool debug_trace_cpu_flow = false;
+bool debug_trace_cpu_jmp = false;
 bool debug_trace_mem = false;
 bool debug_trace_vip = false;
 bool debug_trace_nvc = false;
@@ -3761,7 +3783,7 @@ static const struct debug_help
 								   "\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
 				{'W', "<mask>", "Set world drawing mask (aliases: world)"},
 				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"},
-				{'t', "[ cpu | cpu.flow | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
+				{'t', "[ cpu | cpu.jmp | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
 		};
 
 static void
@@ -4060,7 +4082,7 @@ debug_step(void)
 		if (cpu_fetch(cpu_state.cs_pc, &inst))
 		{
 			debug_str_t addr_s;
-			printf("frame 0: %s: %s\n",
+			printf("frame 0: " DEBUG_ADDR_FMT ": %s\n",
 			       debug_format_addr(cpu_state.cs_pc, addr_s), debug_disasm(&inst, cpu_state.cs_pc, cpu_state.cs_r));
 		}
 
@@ -4121,7 +4143,7 @@ debug_step(void)
 				}
 				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 				{
-					static const char *fmt = "%5s: %-26s";
+					static const char *fmt = "%5s: " DEBUG_ADDR_FMT;
 					debug_str_t addr_s;
 					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
 					{
@@ -4133,7 +4155,7 @@ debug_step(void)
 					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
 					debug_print_psw(cpu_state.cs_psw, "  psw");
 					putchar('\n');
-					printf("\t  ecr: (eicc: 0x%04hx, fecc: 0x%04hx)\n",
+					printf("  ecr: (eicc: 0x%04hx, fecc: 0x%04hx)\n",
 					       cpu_state.cs_ecr.ecr_eicc, cpu_state.cs_ecr.ecr_fecc);
 					printf(fmt, "eipc", debug_format_addr(cpu_state.cs_eipc, addr_s));
 					debug_print_psw(cpu_state.cs_eipsw, "eipsw");
@@ -4315,7 +4337,7 @@ debug_step(void)
 					{
 						debug_str_t addr_s;
 
-						printf("%s:", debug_format_addrsym(pc, next_sym, addr_s));
+						printf(DEBUG_ADDR_FMT ":", debug_format_addrsym(pc, next_sym, addr_s));
 						if (!debug_disasm_at(&pc))
 							break;
 						next_sym = debug_resolve_addr(pc, &offset);
@@ -4422,14 +4444,16 @@ debug_step(void)
 						bool *tracep;
 						if (!strcmp(argv[1], "cpu"))
 							tracep = &debug_trace_cpu;
-						if (!strcmp(argv[1], "cpu.flow"))
-							tracep = &debug_trace_cpu_flow;
+						else if (!strcmp(argv[1], "cpu.jmp"))
+							tracep = &debug_trace_cpu_jmp;
 						else if (!strcmp(argv[1], "vip"))
 							tracep = &debug_trace_vip;
 						else if (!strcmp(argv[1], "nvc"))
 							tracep = &debug_trace_nvc;
 						else if (!strcmp(argv[1], "nvc.tim"))
 							tracep = &debug_trace_nvc_tim;
+						else if (!strcmp(argv[1], "mem"))
+							tracep = &debug_trace_mem;
 						else
 						{
 							debug_usage('t');
@@ -4442,10 +4466,11 @@ debug_step(void)
 					else
 					{
 						debug_show_tracing("cpu", &debug_trace_cpu);
-						debug_show_tracing("cpu.flow", &debug_trace_cpu_flow);
+						debug_show_tracing("cpu.jmp", &debug_trace_cpu_jmp);
 						debug_show_tracing("vip", &debug_trace_vip);
 						debug_show_tracing("nvc", &debug_trace_nvc);
 						debug_show_tracing("nvc.tim", &debug_trace_nvc_tim);
+						debug_show_tracing("mem", &debug_trace_mem);
 					}
 				}
 				else
