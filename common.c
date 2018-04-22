@@ -325,7 +325,7 @@ mem_test_addr(const char *name, void *addr, void *expected)
 {
 	if (addr != expected)
 	{
-		debug_runtime_errorf(NULL, "emu2host(%s) is %p but should be %p (offset %lu)",
+		debug_runtime_errorf(NULL, "emu2host(%s) is %p but should be %p (offset %ld)",
 		                     name, addr, expected, (intptr_t)expected - (intptr_t)addr);
 		abort();
 	}
