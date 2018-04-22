@@ -203,7 +203,7 @@ main(int ac, char * const *av)
 		{
 			default:
 				break;
-			case OP_JR:
+			//case OP_JR:
 			case OP_JAL:
 			{
 				u_int32_t disp = cpu_inst_disp26(&inst);
@@ -276,7 +276,7 @@ main(int ac, char * const *av)
 					if (target > last_branch)
 						last_branch = target;
 				}
-				else if ((inst.ci_i.i_opcode == OP_JR ||
+				else if ((/*inst.ci_i.i_opcode == OP_JR ||*/
 						  inst.ci_i.i_opcode == OP_JMP ||
 						  inst.ci_i.i_opcode == OP_RETI ||
 				          inst.ci_i.i_opcode == OP_TRAP) &&
