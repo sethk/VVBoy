@@ -217,7 +217,6 @@ tk_main(void)
 			case SDL_CONTROLLERAXISMOTION:
 			{
 				static const u_int16_t dead_zone = 8192;
-				//SDL_Log("Controller axis: %d, %d, %d"
 				switch (event.caxis.axis)
 				{
 					case SDL_CONTROLLER_AXIS_RIGHTX:
@@ -232,7 +231,6 @@ tk_main(void)
 						}
 						break;
 					case SDL_CONTROLLER_AXIS_RIGHTY:
-						SDL_Log("Controller axis: %d, %d", event.caxis.axis, event.caxis.value);
 						if (event.caxis.value > dead_zone)
 							nvc_input(KEY_RD, true);
 						else if (event.caxis.value < -dead_zone)
