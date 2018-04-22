@@ -51,6 +51,9 @@ enum mem_segment
 
 #endif // INTERFACE
 
+#define INIT_DEAD_MEM 1
+#define DEAD_MEM_PATTERN (0xdeadc0de)
+
 struct mem_seg_desc mem_segs[(enum mem_segment)MEM_NSEGS];
 
 static const char *mem_seg_names[MEM_NSEGS] =
@@ -87,6 +90,18 @@ mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
 	mem_segs[seg].ms_size = size;
 	mem_segs[seg].ms_addrmask = size - 1;
 	mem_segs[seg].ms_perms = perms;
+
+#ifndef NDEBUG
+	bool init_dead_mem = INIT_DEAD_MEM;
+	char *dead_mem_env = getenv("INIT_DEAD_MEM");
+	if (dead_mem_env)
+		init_dead_mem = atoi(dead_mem_env);
+	if (init_dead_mem)
+	{
+		u_int32_t pattern = DEAD_MEM_PATTERN;
+		memset_pattern4(mem_segs[MEM_SEG_WRAM].ms_ptr, &pattern, mem_segs[MEM_SEG_WRAM].ms_size);
+	}
+#endif // !NDEBUG
 
 	return true;
 }
