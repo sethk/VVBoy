@@ -2762,7 +2762,8 @@ vsu_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	else if (addr + size <= 0x01000400)
 	{
 		u_int32_t mirror = addr % 0x300;
-		debug_runtime_errorf(NULL, "Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror);
+		static bool always_ignore = false;
+		debug_runtime_errorf(&always_ignore, "Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror);
 		return (u_int8_t *)&vsu_ram + mirror;
 	}
 	else if (addr >= 0x01000400 && addr + size <= 0x01000600)
