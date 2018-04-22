@@ -1235,6 +1235,8 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffffff00 | value;
 			else
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
+			if (debug_watches)
+				debug_watch_read(cpu_state.cs_pc, addr, value, 1);
 			break;
 		}
 		case OP_LD_H:
@@ -1249,6 +1251,8 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffff0000 | value;
 			else
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
+			if (debug_watches)
+				debug_watch_read(cpu_state.cs_pc, addr, value, 2);
 			break;
 		}
 		case OP_LD_W:
@@ -1257,6 +1261,8 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r), false))
 				return false;
+			if (debug_watches)
+				debug_watch_read(cpu_state.cs_pc, addr, cpu_state.cs_r[inst.ci_vi.vi_reg2].u, 4);
 			break;
 		}
 		case OP_ST_B:
@@ -1266,6 +1272,8 @@ cpu_exec(const union cpu_inst inst)
 			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xff;
 			if (!mem_write(addr, &value, sizeof(value)))
 				return false;
+			if (debug_watches)
+				debug_watch_write(cpu_state.cs_pc, addr, value, 1);
 			break;
 		}
 		case OP_ST_H:
@@ -1275,6 +1283,8 @@ cpu_exec(const union cpu_inst inst)
 			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xffff;
 			if (!mem_write(addr, &value, sizeof(value)))
 				return false;
+			if (debug_watches)
+				debug_watch_write(cpu_state.cs_pc, addr, value, 2);
 			break;
 		}
 		case OP_ST_W:
@@ -1284,6 +1294,8 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u;
 			if (!mem_write(addr, &value, sizeof(value)))
 				return false;
+			if (debug_watches)
+				debug_watch_write(cpu_state.cs_pc, addr, value, 4);
 			break;
 		}
 			/*
@@ -3037,6 +3049,14 @@ bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
 u_int32_t debug_break = 0xffffffff;
 
+struct debug_watch
+{
+	u_int32_t dw_addr;
+	int dw_ops;
+	struct debug_watch *dw_next;
+};
+struct debug_watch *debug_watches = NULL;
+
 static EditLine *s_editline;
 static History *s_history;
 static Tokenizer *s_token;
@@ -3796,12 +3816,15 @@ static const struct debug_help
 				{'r', "", "Reset the CPU (aliases: reset)"},
 				{'v', "", "Show VIP info (aliases: vip)"},
 				{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
-				{'S', "", "Show symbol table"},
-				{'N', "<name> <addr>", "Add a debug symbol\n"
-								   "\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
+				{'t', "[ cpu | cpu.jmp | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
+				{'N', "nvc", "Show NVC info (aliases: nvc)"},
+				{'S', "[<name> [<addr>]]", "Add a debug symbol\n"
+					"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>\n"
+					"\t\tUse without address to show symbol address, use without name to show all symbols"},
+				{'w', "( read | write | all | none ) <addr>",
+					"Add or remove a debug watch\n\t\tUse without arguments to display watches"},
 				{'W', "<mask>", "Set world drawing mask (aliases: world)"},
 				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"},
-				{'t', "[ cpu | cpu.jmp | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
 		};
 
 static void
@@ -3938,7 +3961,7 @@ debug_format_flags(debug_str_t s, ...)
 }
 
 const char *
-debug_format_perms(debug_str_t s, int perms)
+debug_format_perms(int perms, debug_str_t s)
 {
 	return debug_format_flags(s,
 	                          "NONE", (perms == 0),
@@ -4084,6 +4107,41 @@ debug_draw(u_int x, u_int y, u_int8_t pixel)
 	argb|= argb << 4;
 	argb|= (argb << 8) | (argb << 16);
 	tk_debug_draw(x, y, argb);
+}
+
+struct debug_watch *
+debug_find_watch(u_int32_t addr, int mem_op)
+{
+	for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
+		if (watch->dw_addr == addr)
+			return ((watch->dw_ops & mem_op) != 0) ? watch : NULL;
+	return NULL;
+}
+
+void
+debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
+{
+	if (debug_find_watch(addr, PROT_READ))
+	{
+		debug_str_t addr_s, mem_addr_s, hex_s;
+		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] -> %s\n",
+		             debug_format_addr(pc, addr_s),
+		             debug_format_addr(addr, mem_addr_s),
+		             debug_format_hex((u_int8_t *)&value, byte_size, hex_s));
+	}
+}
+
+void
+debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
+{
+	if (debug_find_watch(addr, PROT_WRITE))
+	{
+		debug_str_t addr_s, mem_addr_s, hex_s;
+		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] <- %s\n",
+		             debug_format_addr(pc, addr_s),
+		             debug_format_addr(addr, mem_addr_s),
+		             debug_format_hex((u_int8_t *)&value, byte_size, hex_s));
+	}
 }
 
 bool
@@ -4362,31 +4420,132 @@ debug_step(void)
 						--inst_limit;
 					}
 				}
+				else if (!strcmp(argv[0], "n") || !strcmp(argv[0], "nvc"))
+				{
+					debug_str_t flags_s;
+					printf("SCR: (%s)\n",
+					       debug_format_flags(flags_s,
+					                          "Abt-Dis", nvc_regs.nr_scr.s_abt_dis,
+					                          "SI-Stat", nvc_regs.nr_scr.s_si_stat,
+					                          "HW-SI", nvc_regs.nr_scr.s_hw_si,
+					                          "Soft-Ck", nvc_regs.nr_scr.s_soft_ck,
+					                          "Para-SI", nvc_regs.nr_scr.s_para_si,
+					                          "K-Int-Inh", nvc_regs.nr_scr.s_k_int_inh,
+					                          NULL));
+				}
 				else if (!strcmp(argv[0], "S"))
 				{
-					for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
-						printf("debug symbol: %s = 0x%08x, type = %u\n",
-						        sym->ds_name, sym->ds_addr, sym->ds_type);
-				}
-				else if (!strcmp(argv[0], "N"))
-				{
-					if (argc != 3)
+					if (argc == 1)
 					{
-						debug_usage('N');
-						continue;
+						for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
+							printf("debug symbol: %s = 0x%08x, type = %u\n",
+							       sym->ds_name, sym->ds_addr, sym->ds_type);
 					}
-
-					u_int32_t addr;
-					if (!debug_parse_addr(argv[2], &addr))
-						continue;
-
-					if (debug_locate_symbol(argv[1]) == 0xffffffff)
+					else if (argc == 2)
 					{
-						struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
-						rom_add_symbol(sym);
+						u_int32_t addr = debug_locate_symbol(argv[1]);
+						if (addr != 0xffffffff)
+							printf("%s = 0x%08x\n", argv[1], addr);
+						else
+							printf("Symbol %s not found\n", argv[1]);
+					}
+					else if (argc == 3)
+					{
+						u_int32_t addr;
+						if (!debug_parse_addr(argv[2], &addr))
+							continue;
+
+						if (debug_locate_symbol(argv[1]) == 0xffffffff)
+						{
+							struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
+							rom_add_symbol(sym);
+						}
+						else
+							printf("Symbol %s already exists\n", argv[1]);
 					}
 					else
-						printf("Symbol %s already exists\n", argv[1]);
+					{
+						debug_usage('S');
+						continue;
+					}
+				}
+				else if (!strcmp(argv[0], "w"))
+				{
+					if (argc == 1)
+					{
+						for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
+						{
+							debug_str_t addr_s, ops_s;
+							printf("Watch at %s, ops = %s\n",
+							       debug_format_addr(watch->dw_addr, addr_s),
+							       debug_format_perms(watch->dw_ops, ops_s));
+						}
+					}
+					else if (argc == 3)
+					{
+						int ops;
+						if (!strcmp(argv[1], "read"))
+							ops = PROT_READ;
+						else if (!strcmp(argv[1], "write"))
+							ops = PROT_WRITE;
+						else if (!strcmp(argv[1], "all"))
+							ops = PROT_READ | PROT_WRITE;
+						else if (!strcmp(argv[1], "none"))
+							ops = 0;
+						else
+						{
+							debug_usage('w');
+							continue;
+						}
+
+						u_int32_t addr;
+						if (!debug_parse_addr(argv[2], &addr))
+						{
+							debug_usage('w');
+							continue;
+						}
+
+						struct debug_watch **prevp = &(debug_watches);
+						struct debug_watch *watch;
+						for (watch = debug_watches; watch; watch = watch->dw_next)
+						{
+							if (watch->dw_addr == addr)
+								break;
+							prevp = &(watch->dw_next);
+						}
+						if (watch)
+						{
+							if (ops)
+							{
+								if (watch->dw_ops == ops)
+									printf("Watch at 0x%08x already exists\n", addr);
+								else
+									watch->dw_ops = ops;
+							}
+							else
+							{
+								*prevp = watch->dw_next;
+								free(watch);
+							}
+						}
+						else
+						{
+							if (!ops)
+								printf("No watch found for 0x%08x\n", addr);
+							else
+							{
+								watch = malloc(sizeof(*watch));
+								if (!watch)
+									err(1, "Allocate debug watch");
+								watch->dw_addr = addr;
+								watch->dw_ops = ops;
+								watch->dw_next = debug_watches;
+								debug_watches = watch;
+							}
+						}
+					}
+					else
+						debug_usage('w');
 				}
 				else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
 				{
