@@ -2464,6 +2464,9 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB0 start\n");
 				tk_blit(vip_vrm.vv_left0, false);
+				if (vip_regs.vr_intenb & VIP_SBHIT)
+					debug_runtime_errorf(NULL, "SBHIT enabled");
+				// TODO: SBHIT
 			}
 			else
 			{
@@ -2471,6 +2474,7 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB1 start\n");
 				tk_blit(vip_vrm.vv_left1, false);
+				// TODO: SBHIT
 			}
 		}
 	}
@@ -2490,9 +2494,9 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB1 finish\n");
 			}
-		}
 
-		// TODO: Raise RFBEND
+			//vip_raise(VIP_LFBEND);
+		}
 	}
 	else if (scanner_usec == 10000)
 	{
@@ -2514,6 +2518,7 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB0 start\n");
 				tk_blit(vip_vrm.vv_right0, true);
+				// TODO: SBHIT
 			}
 			else
 			{
@@ -2521,6 +2526,7 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB1 start\n");
 				tk_blit(vip_vrm.vv_right1, true);
+				// TODO: SBHIT
 			}
 		}
 	}
@@ -2541,7 +2547,9 @@ vip_step(void)
 					debug_tracef("vip", "Display R:FB1 finish\n");
 			}
 
-			// TODO: raise LFB_END
+			if (vip_regs.vr_intenb & (VIP_LFBEND | VIP_RFBEND))
+				debug_runtime_errorf(NULL, "VIP_LFBEND | VIP_RFBEND enabled");
+			//vip_raise(VIP_RFBEND);
 			vip_disp_index = (vip_disp_index + 1) % 2;
 			++main_stats.ms_frames;
 		}
