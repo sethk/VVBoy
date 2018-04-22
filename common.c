@@ -3328,6 +3328,19 @@ debug_disasm_ii(debug_str_t decode,
 		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_ii.ii_imm5, regs[inst->ci_ii.ii_reg2]);
 }
 
+static const union cpu_reg *
+debug_get_reg(const cpu_regs_t regs, u_int rnum)
+{
+	static const union cpu_reg zero_reg;
+
+	if (regs)
+		return &(regs[rnum]);
+	else if (rnum == 0)
+		return &zero_reg;
+	else
+		return NULL;
+}
+
 static void
 debug_disasm_v(debug_str_t decode,
                debug_str_t decomp,
@@ -3338,10 +3351,11 @@ debug_disasm_v(debug_str_t decode,
 {
 	snprintf(decode, debug_str_len, "%s %hd, %s, %s",
 	         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
-	if (regs)
+	const union cpu_reg *reg1;
+	if ((reg1 = debug_get_reg(regs, inst->ci_v.v_reg1)))
 		snprintf(decomp, debug_str_len, decomp_fmt,
 		         inst->ci_v.v_imm16,
-		         regs[inst->ci_v.v_reg1],
+		         reg1->u,
 		         debug_rnames[inst->ci_v.v_reg2]);
 }
 
@@ -3478,7 +3492,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_STSR: mnemonic = "STSR"; break;
 		case OP_SEI: mnemonic = "SEI"; break;
-		case OP_ADDI: mnemonic = "ADDI"; break;
 		case OP_JR: mnemonic = "JR"; break;
 		case OP_JAL: mnemonic = "JAL"; break;
 		case OP_ORI: mnemonic = "ORI"; break;
@@ -3533,7 +3546,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				         regs[inst->ci_i.i_reg2].u, regs[inst->ci_i.i_reg1].u);
 			break;
 		case OP_ADD:
-			debug_disasm_i(decode, decomp, inst, "ADD", "+", regs);
+			debug_disasm_i_fmt(decode, decomp, inst, "ADD", "%3$s <- %4$d + %2$d (0x%4$08x + 0x%2$08x)", regs);
 			break;
 		case OP_CMP:
 			debug_disasm_i(decode, decomp, inst, "CMP", "<=>", regs);
@@ -3686,8 +3699,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 			break;
 		case OP_ADDI:
-			snprintf(decode, debug_str_len, "%s %hd, %s, %s",
-			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
+			debug_disasm_v(decode, decomp, inst, "ADDI", "%3$s <- 0x%2$08x + extend(0x%1$04hx)", regs);
 			break;
 		case OP_CAXI:
 			debug_disasm_vi(decode, decomp, inst, "CAXI", regs);
