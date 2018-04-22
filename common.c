@@ -2945,6 +2945,7 @@ u_int16_t nvc_keys;
 void
 nvc_input(/*enum*/ tk_keys key, bool state)
 {
+	// TODO: handle multi-key mask
 	if (state)
 		nvc_keys|= key;
 	else

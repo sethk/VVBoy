@@ -6,12 +6,17 @@
 
 #include <SDL.h>
 
+#if !SDL_VERSION_ATLEAST(2, 0, 7)
+# warning Problems with game controller GUIDs on macOS with version 2.0.5
+#endif
+
 static bool tk_running = false;
 static SDL_Window *sdl_window;
 static SDL_Renderer *sdl_renderer;
 static SDL_Texture *sdl_textures[2];
 static u_int32_t sdl_frame[384 * 224];
 static SDL_Window *sdl_debug_window;
+static SDL_GameController *sdl_controller;
 static SDL_Renderer *sdl_debug_renderer;
 static SDL_Texture *sdl_debug_texture;
 static u_int32_t sdl_debug_frame[512 * 512];
@@ -19,7 +24,7 @@ static u_int32_t sdl_debug_frame[512 * 512];
 bool
 tk_init(void)
 {
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) < 0)
 	{
 		fprintf(stderr, "SDL: Failed to initialize: %s", SDL_GetError());
 		return false;
@@ -54,6 +59,38 @@ tk_init(void)
 	}
 	SDL_SetTextureColorMod(sdl_textures[0], 0xff, 0, 0);
 	SDL_SetTextureColorMod(sdl_textures[1], 0, 0, 0xff);
+
+	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", SDL_GetError(), sdl_window);
+
+	int num_joysticks = SDL_NumJoysticks(), joy_index;
+	for (joy_index = 0; joy_index < num_joysticks; ++joy_index)
+		if (SDL_IsGameController(joy_index))
+			break;
+
+	if (joy_index < num_joysticks)
+	{
+		if ((sdl_controller = SDL_GameControllerOpen(0)))
+			SDL_Log("Using game controller #%d: %s", joy_index, SDL_GameControllerNameForIndex(joy_index));
+		else
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", SDL_GetError(), sdl_window);
+	}
+	else
+	{
+		char msg[1024];
+		size_t msg_offset = 0;
+		msg_offset+= snprintf(msg, sizeof(msg) - msg_offset, "No game controllers found\nJoysticks found:");
+		for (joy_index = 0; joy_index < num_joysticks; ++joy_index)
+		{
+			char guid_s[33];
+			SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(joy_index);
+			SDL_JoystickGetGUIDString(guid, guid_s, sizeof(guid_s));
+			msg_offset += snprintf(msg + msg_offset, sizeof(msg) - msg_offset, "\n\tName: %s, GUID: %s",
+			                       SDL_JoystickNameForIndex(joy_index),
+			                       guid_s);
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", msg, sdl_window);
+		}
+	}
 
 	return true;
 }
@@ -133,24 +170,23 @@ tk_main(void)
 			{
 				if (event.key.repeat)
 					break;
-				bool state = (event.type == SDL_KEYDOWN);
 				switch (event.key.keysym.scancode)
 				{
 					default: break;
-					case SDL_SCANCODE_LSHIFT: nvc_input(KEY_LT, state); break;
-					case SDL_SCANCODE_W: nvc_input(KEY_LU, state); break;
-					case SDL_SCANCODE_A: nvc_input(KEY_LL, state); break;
-					case SDL_SCANCODE_S: nvc_input(KEY_LD, state); break;
-					case SDL_SCANCODE_D: nvc_input(KEY_LR, state); break;
-					case SDL_SCANCODE_APOSTROPHE: nvc_input(KEY_SEL, state); break;
-					case SDL_SCANCODE_RETURN: nvc_input(KEY_STA, state); break;
-					case SDL_SCANCODE_RSHIFT: nvc_input(KEY_RT, state); break;
-					case SDL_SCANCODE_UP: nvc_input(KEY_RU, state); break;
-					case SDL_SCANCODE_LEFT: nvc_input(KEY_RL, state); break;
-					case SDL_SCANCODE_DOWN: nvc_input(KEY_RD, state); break;
-					case SDL_SCANCODE_RIGHT: nvc_input(KEY_RR, state); break;
-					case SDL_SCANCODE_RALT: nvc_input(KEY_A, state); break;
-					case SDL_SCANCODE_RGUI: nvc_input(KEY_B, state); break;
+					case SDL_SCANCODE_LSHIFT: nvc_input(KEY_LT, event.key.state); break;
+					case SDL_SCANCODE_W: nvc_input(KEY_LU, event.key.state); break;
+					case SDL_SCANCODE_A: nvc_input(KEY_LL, event.key.state); break;
+					case SDL_SCANCODE_S: nvc_input(KEY_LD, event.key.state); break;
+					case SDL_SCANCODE_D: nvc_input(KEY_LR, event.key.state); break;
+					case SDL_SCANCODE_APOSTROPHE: nvc_input(KEY_SEL, event.key.state); break;
+					case SDL_SCANCODE_RETURN: nvc_input(KEY_STA, event.key.state); break;
+					case SDL_SCANCODE_RSHIFT: nvc_input(KEY_RT, event.key.state); break;
+					case SDL_SCANCODE_UP: nvc_input(KEY_RU, event.key.state); break;
+					case SDL_SCANCODE_LEFT: nvc_input(KEY_RL, event.key.state); break;
+					case SDL_SCANCODE_DOWN: nvc_input(KEY_RD, event.key.state); break;
+					case SDL_SCANCODE_RIGHT: nvc_input(KEY_RR, event.key.state); break;
+					case SDL_SCANCODE_RALT: nvc_input(KEY_A, event.key.state); break;
+					case SDL_SCANCODE_RGUI: nvc_input(KEY_B, event.key.state); break;
 				}
 				if (event.type == SDL_KEYDOWN)
 					switch (event.key.keysym.scancode)
@@ -160,7 +196,58 @@ tk_main(void)
 						case SDL_SCANCODE_F1: vip_toggle_worlds(); break;
 						case SDL_SCANCODE_F2: vip_use_bright = !vip_use_bright; break;
 					}
+				break;
 			}
+			case SDL_CONTROLLERBUTTONDOWN:
+			case SDL_CONTROLLERBUTTONUP:
+				switch (event.cbutton.button)
+				{
+					case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: nvc_input(KEY_LT, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_DPAD_UP: nvc_input(KEY_LU, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_DPAD_LEFT: nvc_input(KEY_LL, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_DPAD_DOWN: nvc_input(KEY_LD, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: nvc_input(KEY_LR, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_BACK: nvc_input(KEY_SEL, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_START: nvc_input(KEY_STA, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: nvc_input(KEY_RT, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_A: nvc_input(KEY_A, event.cbutton.state); break;
+					case SDL_CONTROLLER_BUTTON_B: nvc_input(KEY_B, event.cbutton.state); break;
+				}
+				break;
+			case SDL_CONTROLLERAXISMOTION:
+			{
+				static const u_int16_t dead_zone = 8192;
+				//SDL_Log("Controller axis: %d, %d, %d"
+				switch (event.caxis.axis)
+				{
+					case SDL_CONTROLLER_AXIS_RIGHTX:
+						if (event.caxis.value > dead_zone)
+							nvc_input(KEY_RR, true);
+						else if (event.caxis.value < -dead_zone)
+							nvc_input(KEY_RL, true);
+						else
+						{
+							nvc_input(KEY_RR, false);
+							nvc_input(KEY_RL, false);
+						}
+						break;
+					case SDL_CONTROLLER_AXIS_RIGHTY:
+						SDL_Log("Controller axis: %d, %d", event.caxis.axis, event.caxis.value);
+						if (event.caxis.value > dead_zone)
+							nvc_input(KEY_RD, true);
+						else if (event.caxis.value < -dead_zone)
+							nvc_input(KEY_RU, true);
+						else
+						{
+							nvc_input(KEY_RD, false);
+							nvc_input(KEY_RU, false);
+						}
+						break;
+				}
+				break;
+			}
+			default:
+				break;
 		}
 }
 
@@ -213,6 +300,9 @@ tk_debug_flip(void)
 void
 tk_fini(void)
 {
+	if (sdl_controller)
+		SDL_GameControllerClose(sdl_controller);
+
 	for (u_int i = 0; i < 2; ++i)
 		SDL_DestroyTexture(sdl_textures[i]);
     SDL_DestroyRenderer(sdl_renderer);
