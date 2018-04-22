@@ -4425,8 +4425,11 @@ debug_step(void)
 					u_int world_index = 31;
 					do
 					{
+						const struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
+						if (vwa->vwa_end)
+							break;
 						char buf[1024];
-						debug_format_world_att(buf, sizeof(buf), &(vip_dram.vd_world_atts[world_index]));
+						debug_format_world_att(buf, sizeof(buf), vwa);
 						printf("WORLD_ATT[%u]: %s", world_index, buf);
 					} while (world_index-- > 0);
 				}
