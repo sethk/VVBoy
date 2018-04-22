@@ -1825,15 +1825,15 @@ enum vip_world_bgm
 
 	struct vip_world_att
 	{
-		unsigned vwa_bgmap_base : 4;
-		unsigned vwa_rfu1 : 2;
-		unsigned vwa_end : 1;
-		unsigned vwa_over : 1;
-		unsigned vwa_scy : 2;
-		unsigned vwa_scx : 2;
-		unsigned vwa_bgm : 2;
-		unsigned vwa_ron : 1;
-		unsigned vwa_lon : 1;
+		unsigned vwa_bgmap_base : 4 __attribute__((packed));
+		unsigned vwa_rfu1 : 2 __attribute__((packed));
+		unsigned vwa_end : 1 __attribute__((packed));
+		unsigned vwa_over : 1 __attribute__((packed));
+		unsigned vwa_scy : 2 __attribute__((packed));
+		unsigned vwa_scx : 2 __attribute__((packed));
+		unsigned vwa_bgm : 2 __attribute__((packed));
+		unsigned vwa_ron : 1 __attribute__((packed));
+		unsigned vwa_lon : 1 __attribute__((packed));
 		int16_t vwa_gx;
 		int16_t vwa_gp;
 		u_int16_t vwa_gy;
