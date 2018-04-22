@@ -726,7 +726,7 @@ cpu_getfl(enum cpu_bcond cond)
 		case BCOND_BH:
 			return !(cpu_state.cs_psw.psw_flags.f_cy | cpu_state.cs_psw.psw_flags.f_z);
 		case BCOND_BP:
-			return !cpu_state.cs_psw.psw_flags.f_z;
+			return !cpu_state.cs_psw.psw_flags.f_s;
 		case BCOND_NOP:
 			return false;
 		case BCOND_BGE:
