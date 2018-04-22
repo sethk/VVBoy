@@ -2002,7 +2002,7 @@ vip_add_syms(void)
 	debug_create_symbol("JPLT3", 0x5f86e);
 	debug_create_symbol("BKCOL", 0x5f870);
 	debug_create_symbol_array("BGMAP", 0x20000, 13, 8192);
-	debug_create_symbol("WORLD_ATT", 0x3d800);
+	debug_create_symbol_array("WORLD_ATT", 0x3d800, 32, 32);
 	debug_create_symbol("CLM_TBL", 0x3dc00);
 	debug_create_symbol("OAM", 0x3e000);
 	debug_create_symbol("CHR", 0x78000);
@@ -2647,8 +2647,12 @@ vip_test(void)
 	static_assert(sizeof(vip_dram) == 0x20000, "sizeof(vip_dram) should be 0x20000");
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
+	mem_test_size("vip_world_att", sizeof(vip_world_att), 32);
 #ifndef NDEBUG
 	int perms;
+	mem_test_addr("world_att[1]",
+	              vip_mem_emu2host(debug_locate_symbol("WORLD_ATT:1"), 4, &perms),
+	              &(vip_dram.vd_world_atts[1]));
 	assert(vip_mem_emu2host(0x24000, 4, &perms) == &(vip_dram.vd_shared.s_bgsegs[2]));
 	assert(vip_mem_emu2host(0x31000, 4, &perms) == &(vip_dram.vd_shared.s_param_tbl[0x8800]));
 	assert(vip_mem_emu2host(0x3d800, 4, &perms) == &(vip_dram.vd_world_atts));
@@ -3075,6 +3079,7 @@ debug_add_syms(void)
 {
 	wram_add_syms();
 	cpu_add_syms();
+	vip_add_syms();
 	vsu_add_syms();
 	nvc_add_syms();
 }
@@ -3824,7 +3829,7 @@ static const struct debug_help
 				{'w', "( read | write | all | none ) <addr>",
 					"Add or remove a debug watch\n\t\tUse without arguments to display watches"},
 				{'W', "<mask>", "Set world drawing mask (aliases: world)"},
-				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG"},
+				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG, CHR"},
 		};
 
 static void
@@ -4381,6 +4386,13 @@ debug_step(void)
 					printf("BRTA: %hhu, BRTB: %hhu, BRTC: %hhu, REST: %hhu\n",
 					       vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
 					printf("FRMCYC: %d\n", vip_regs.vr_frmcyc);
+					u_int world_index = 31;
+					do
+					{
+						char buf[1024];
+						debug_format_world_att(buf, sizeof(buf), &(vip_dram.vd_world_atts[world_index]));
+						printf("WORLD_ATT[%u]: %s", world_index, buf);
+					} while (world_index-- > 0);
 				}
 				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
 				{
