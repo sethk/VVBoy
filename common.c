@@ -2897,7 +2897,8 @@ vip_toggle_worlds(void)
 /* VSU */
 struct vsu_ram
 {
-	u_int8_t vr_ram[0x300];
+	u_int8_t vr_ram[0x280];
+	u_int32_t vr_sound5[32];
 };
 
 struct vsu_regs
@@ -2939,6 +2940,7 @@ void
 vsu_test(void)
 {
 	fputs("Running VSU self-test\n", stderr);
+	mem_test_size("vsu_ram", sizeof(vsu_ram), 0x300);
 	mem_test_size("vsu_regs", sizeof(vsu_regs), 0x200);
 #ifndef NDEBUG
 	int perms;
@@ -2965,18 +2967,26 @@ vsu_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 	*permsp = PROT_READ | PROT_WRITE;
 
 	if (addr + size <= 0x01000300)
-		return (u_int8_t *)&vsu_ram + (addr - 0x01000000);
+		return (u_int8_t *)&vsu_ram + (addr & 0x3ff);
 	else if (addr + size <= 0x01000400)
 	{
 		u_int32_t mirror = addr % 0x300;
 		static bool always_ignore = false;
-		debug_runtime_errorf(&always_ignore, "Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror);
+		if (!debug_runtime_errorf(&always_ignore, "Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror))
+			return NULL;
 		return (u_int8_t *)&vsu_ram + mirror;
 	}
 	else if (addr >= 0x01000400 && addr + size <= 0x01000600)
 		return (u_int8_t *)&vsu_regs + (addr - 0x01000400);
 	else
+	{
+		if (debug_runtime_errorf(NULL, "VSU bus error at 0x%08x\n", addr))
+		{
+			static u_int32_t dummy;
+			return &dummy;
+		}
 		return NULL;
+	}
 }
 
 void
