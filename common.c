@@ -2673,7 +2673,10 @@ vip_step(void)
 					debug_tracef("vip", "Display L:FB0 start\n");
 				tk_blit(vip_vrm.vv_left0, false);
 				if (vip_regs.vr_intenb & VIP_SBHIT)
-					debug_runtime_errorf(NULL, "SBHIT enabled");
+				{
+					static bool ignore_sbhit = false;
+					debug_runtime_errorf(&ignore_sbhit, "SBHIT enabled");
+				}
 				// TODO: SBHIT
 			}
 			else
