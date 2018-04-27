@@ -3552,9 +3552,13 @@ debug_disasm_ii(debug_str_t decode,
                 const char *decomp_fmt,
                 const cpu_regs_t regs)
 {
-	snprintf(decode, debug_str_len, "%s %i, %s", mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
+	snprintf(decode, debug_str_len, "%s %hi, %s",
+	         mnemonic,
+	         cpu_extend5to16(inst->ci_ii.ii_imm5),
+	         debug_rnames[inst->ci_ii.ii_reg2]);
 	if (regs)
-		snprintf(decomp, debug_str_len, decomp_fmt, inst->ci_ii.ii_imm5, regs[inst->ci_ii.ii_reg2]);
+		snprintf(decomp, debug_str_len,
+		         decomp_fmt, inst->ci_ii.ii_imm5, regs[inst->ci_ii.ii_reg2], cpu_extend5to16(inst->ci_ii.ii_imm5));
 }
 
 static const union cpu_reg *
@@ -3695,11 +3699,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 	const char *mnemonic = "???";
 	switch (inst->ci_i.i_opcode)
 	{
-		case OP_ADD:
-		case OP_ADD2:
-			mnemonic = "ADD";
-			break;
-		case OP_MOV:
 		case OP_MOV2:
 			mnemonic = "MOV";
 			break;
@@ -3824,13 +3823,8 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 			}
 			break;
 		case OP_ADD2:
-		{
-			int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
-			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
-			if (regs)
-				snprintf(decomp, debug_str_len, "%d + %hi", regs[inst->ci_ii.ii_reg2].s, imm);
+			debug_disasm_ii(decode, decomp, inst, "ADD", "%2$d + %3$hi (0x%2$08x + 0x%3$04x)", regs);
 			break;
-		}
 		case OP_SETF:
 		{
 			switch (inst->ci_ii.ii_imm5)
