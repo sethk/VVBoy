@@ -1520,19 +1520,24 @@ cpu_exec(const union cpu_inst inst)
 				case FLOAT_XB:
 				{
 					if (inst.vii_reg1 != 0)
-					{
-						fputs("TODO: reg1 operand (%s) should be r0 for XB instruction\n", stderr);
-						raise(SIGINT);
-						return false;
-					}
+						debug_runtime_errorf(NULL, "reg1 operand %s should be r0 for XB instruction",
+						                     debug_rnames[inst.vii_reg1]);
 					u_int8_t b0 = cpu_state.cs_r[inst.vii_reg2].u8s[0];
 					cpu_state.cs_r[inst.vii_reg2].u8s[0] = cpu_state.cs_r[inst.vii_reg2].u8s[1];
 					cpu_state.cs_r[inst.vii_reg2].u8s[1] = b0;
 					break;
 				}
+				case FLOAT_XH:
+				{
+					if (inst.vii_reg1 != 0)
+						debug_runtime_errorf(NULL, "reg1 operand %s should be r0 for XH instruction",
+						                     debug_rnames[inst.vii_reg1]);
+					u_int32_t u32 = cpu_state.cs_r[inst.vii_reg2].u << 16;
+					u32|= cpu_state.cs_r[inst.vii_reg2].u >> 16;
+					cpu_state.cs_r[inst.vii_reg2].u = u32;
+					break;
+				}
 					/*
-					case FLOAT_XH:
-						break;
 					case FLOAT_TRNC_SW:
 						break;
 					 */
