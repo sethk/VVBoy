@@ -181,7 +181,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	else if (seg == MEM_SEG_VSU)
 		src = vsu_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_NVC)
-		src = nvc_mem_emu2host(addr, size, &mask, &perms);
+		src = nvc_mem_emu2host(addr, &size, &mask, &perms);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -259,7 +259,7 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	else if (seg == MEM_SEG_VSU)
 		dest = vsu_mem_emu2host(addr, size, &perms);
 	else if (seg == MEM_SEG_NVC)
-		dest = nvc_mem_emu2host(addr, size, &mask, &perms);
+		dest = nvc_mem_emu2host(addr, &size, &mask, &perms);
 	else if (mem_segs[seg].ms_size)
 	{
 		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
@@ -2902,10 +2902,11 @@ nvc_test(void)
 
 	mem_test_size("nvc_regs", sizeof(nvc_regs), 11);
 	u_int32_t mask;
+	size_t size = 1;
 	int perms;
-	mem_test_addr("nvc_sdlr", nvc_mem_emu2host(0x02000010, 1, &mask, &perms), &(nvc_regs.nr_sdlr));
-	mem_test_addr("nvc_sdhr", nvc_mem_emu2host(0x02000014, 1, &mask, &perms), &(nvc_regs.nr_sdhr));
-	mem_test_addr("nvc_tcr", nvc_mem_emu2host(0x02000020, 1, &mask, &perms), &(nvc_regs.nr_tcr));
+	mem_test_addr("nvc_sdlr", nvc_mem_emu2host(0x02000010, &size, &mask, &perms), &(nvc_regs.nr_sdlr));
+	mem_test_addr("nvc_sdhr", nvc_mem_emu2host(0x02000014, &size, &mask, &perms), &(nvc_regs.nr_sdhr));
+	mem_test_addr("nvc_tcr", nvc_mem_emu2host(0x02000020, &size, &mask, &perms), &(nvc_regs.nr_tcr));
 }
 
 bool
@@ -3011,13 +3012,14 @@ nvc_input(/*enum*/ tk_keys key, bool state)
 }
 
 void *
-nvc_mem_emu2host(u_int32_t addr, size_t size, u_int32_t *maskp, int *permsp)
+nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
 {
-	if (size != 1)
+	if (*sizep != 1)
 	{
 		static bool ignore_size = false;
-		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %lu @ 0x%08x\n", size, addr))
+		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %lu @ 0x%08x\n", *sizep, addr))
 			return NULL;
+		*sizep = 1;
 	}
 	if (addr <= 0x02000028)
 	{
