@@ -1331,7 +1331,8 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u & inst.ci_v.v_imm16;
 			cpu_setfl_zs0(result);
-			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
+			if (inst.ci_v.v_reg2)
+				cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
 		}
 		case OP_XORI:
