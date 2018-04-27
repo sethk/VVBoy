@@ -520,6 +520,22 @@ wram_fini(void)
 		BCOND_BGT = 0b1111,
 	};
 
+	enum cpu_bstr
+	{
+		BSTR_SCH0BSU = 0b00000,
+		BSTR_SCH0BSD = 0b00001,
+		BSTR_SCH1BSU = 0b00010,
+		BSTR_SCH1BSD = 0b00011,
+		BSTR_ORBSU   = 0b01000,
+		BSTR_ANDBSU  = 0b01001,
+		BSTR_XORBSU  = 0b01010,
+		BSTR_MOVBSU  = 0b01011,
+		BSTR_ORNBSU  = 0b01100,
+		BSTR_ANDNBSU = 0b01101,
+		BSTR_XORNBSU = 0b01110,
+		BSTR_NOTBSU  = 0b01111,
+	};
+
 	enum cpu_regid
 	{
 		REGID_EIPC = 0,
@@ -890,8 +906,78 @@ cpu_shift_right(u_int32_t start, u_int32_t shift)
 }
 
 static bool
+cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
+           u_int32_t *bit_lengthp,
+           u_int32_t *dest_word_addrp, u_int32_t *dest_bit_offp)
+{
+	if ((*bit_lengthp % 8) != 0)
+	{
+		debug_runtime_errorf(NULL, "MOVBSU only multiple of 8 bit lengths supported");
+		return false;
+	}
+
+	u_int read_byte_size = (*bit_lengthp > 32) ? 4 : *bit_lengthp >> 3;
+	u_int32_t src_word;
+	if (!mem_read(*src_word_addrp, &src_word, read_byte_size, false))
+		return false;
+
+	if (*src_bit_offp & 31)
+	{
+		debug_runtime_errorf(NULL, "MOVBSU with src bit offset not supported");
+		return false;
+	}
+	if (*dest_bit_offp & 31)
+	{
+		debug_runtime_errorf(NULL, "MOVBSU with dest bit offset not supported");
+		return false;
+	}
+
+	if (!mem_write(*dest_word_addrp, &src_word, read_byte_size))
+		return false;
+	(*src_word_addrp)+= read_byte_size;
+	(*dest_word_addrp)+= read_byte_size;
+	(*bit_lengthp)-= read_byte_size << 3;
+	/*
+	u_int dest_bit_off = *dest_bit_offp & 31;
+	if (dest_bit_off)
+	{
+		u_int32_t src_mask = 0xffffffff >> dest_bit_off;
+		u_int32_t dest_read_bits = 31 - dest_bit_off;
+		if (*bit_lengthp < dest_read_bits)
+			src_mask&= ~(src_mask >> *bit_lengthp);
+		u_int32_t dest_word;
+		mem_read(*dest_word_addrp, &dest_word, 4, false);
+		word&= read_mask;
+	}
+	 */
+	/*
+	u_int write_bits = 32 - dest_read_bits;
+	u_int src_read_bits = (*bit_lengthp > write_bits) ? write_bits : *bit_lengthp;
+	 */
+	/*
+{
+	u_int32_t src_word;
+	if (!mem_read(*src_word_addr, &src_word, sizeof(src_word), false))
+		return false;
+	if (*dest_bit_off)
+	{
+	}
+	if (!mem_write(*dest_word_addr, &word, sizeof(word)))
+		return false;
+	(*src_word_addr)+= 4;
+	(*dest_word_addr)+= 4;
+	(*length)-= 32;
+	return true;
+}
+	 */
+	return true;
+}
+
+static bool
 cpu_exec(const union cpu_inst inst)
 {
+	u_int32_t old_pc = cpu_state.cs_pc;
+
 	switch (inst.ci_i.i_opcode)
 	{
 		case OP_MOV:
@@ -926,7 +1012,7 @@ cpu_exec(const union cpu_inst inst)
 				             debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, dest_addr_s));
 			}
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
-			break;
+			return true;
 		case OP_SAR:
 		{
 			u_int32_t start = cpu_state.cs_r[inst.ci_i.i_reg2].u;
@@ -1110,7 +1196,7 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_pc = cpu_state.cs_eipc;
 				cpu_state.cs_psw = cpu_state.cs_eipsw;
 			}
-			break;
+			return true;
 			/*
    OP_HALT  = 0b011010,
    */
@@ -1173,9 +1259,28 @@ cpu_exec(const union cpu_inst inst)
 		case OP_SEI:
 			cpu_state.cs_psw.psw_flags.f_id = 1;
 			break;
-			/*
-   OP_BSTR  = 0b011111,
-   */
+		case OP_BSTR:
+		{
+			u_int32_t *bit_lengthp = &(cpu_state.cs_r[28].u);
+			if (!*bit_lengthp)
+				break;
+
+			u_int32_t *src_word_addrp = &(cpu_state.cs_r[30].u);
+			u_int32_t *src_bit_offp = &(cpu_state.cs_r[27].u);
+			u_int32_t *dest_word_addrp = &(cpu_state.cs_r[29].u);
+			u_int32_t *dest_bit_offp = &(cpu_state.cs_r[26].u);
+
+			switch (inst.ci_ii.ii_imm5)
+			{
+				case BSTR_MOVBSU:
+					return cpu_movbsu(src_word_addrp, src_bit_offp, bit_lengthp, dest_word_addrp, dest_bit_offp);
+				default:
+				{
+					debug_runtime_errorf(NULL, "Unsupported bitstring instruction");
+					return false;
+				}
+			}
+		}
 		case OP_MOVEA:
 		{
 			u_int32_t imm = cpu_extend16(inst.ci_v.v_imm16);
@@ -1195,7 +1300,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t disp = cpu_inst_disp26(&inst);
 			cpu_state.cs_pc+= disp;
-			break;
+			return true;
 		}
 		case OP_JAL:
 		{
@@ -1213,7 +1318,7 @@ cpu_exec(const union cpu_inst inst)
 			}
 			cpu_state.cs_r[31].u = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
-			break;
+			return true;
 		}
 		case OP_ORI:
 		{
@@ -1450,6 +1555,7 @@ cpu_exec(const union cpu_inst inst)
 				{
 					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
 					cpu_state.cs_pc+= disp;
+					return true;
 				}
 				break;
 			}
@@ -1463,7 +1569,10 @@ cpu_exec(const union cpu_inst inst)
 		if (!debug_runtime_errorf(NULL, "r0 written to with non-zero value\n"))
 			return false;
 	}
-	++main_stats.ms_insts;
+
+	assert(cpu_state.cs_pc == old_pc);
+	cpu_state.cs_pc+= cpu_inst_size(&inst);
+
 	return true;
 }
 
@@ -1529,6 +1638,23 @@ static void
 cpu_assert_fpr(const char *dis)
 {
 	cpu_assert_flag(dis, "floating-point precision loss", cpu_state.cs_psw.psw_flags.f_fpr, 1);
+}
+
+static void
+cpu_assert_mem(u_int32_t addr, u_int32_t expected, u_int byte_size)
+{
+	u_int32_t actual;
+	assert(byte_size <= sizeof(actual));
+	if (!mem_read(addr, &(actual), sizeof(actual), false))
+		abort();
+	if (bcmp(&actual, &expected, byte_size))
+	{
+		debug_str_t actual_bin_s, expected_bin_s;
+		debug_runtime_errorf(NULL, "*** Test failure: memory at 0x%08x is\n\t%s, should be\n\t%s",
+		                     addr,
+		                     debug_format_binary(actual, byte_size * 8, actual_bin_s),
+		                     debug_format_binary(expected, byte_size * 8, expected_bin_s));
+	}
 }
 
 static void
@@ -1636,6 +1762,41 @@ cpu_test_subf(float left, float right, float result, bool overflow, bool underfl
 		cpu_assert_fpr(dis);
 }
 
+static void
+cpu_test_movbsu(const u_int8_t src_bytes[],
+                u_int32_t num_src_bytes,
+                const u_int8_t dest_fill,
+                u_int bit_length,
+                u_int src_word_off,
+                u_int src_bit_off,
+                u_int dest_word_off,
+                u_int dest_bit_off,
+                const u_int8_t dest_bytes[],
+                u_int32_t num_dest_bytes)
+{
+	for (u_int i = 0; i < num_src_bytes; ++i)
+		if (!mem_write(0x05000100 + i, &(src_bytes[i]), 1))
+			abort();
+
+	for (u_int i = 0; i < num_dest_bytes; ++i)
+		if (!mem_write(0x05000200 + i, &dest_fill, 1))
+			abort();
+
+	cpu_state.cs_r[30].u = 0x05000100 + src_word_off;
+	cpu_state.cs_r[29].u = 0x05000200 + dest_word_off;
+	cpu_state.cs_r[28].u = bit_length;
+	cpu_state.cs_r[27].u = src_bit_off;
+	cpu_state.cs_r[26].u = dest_bit_off;
+	union cpu_inst inst = {.ci_ii = {.ii_opcode = OP_BSTR, .ii_imm5 = BSTR_MOVBSU}};
+	u_int32_t old_pc = cpu_state.cs_pc;
+	do
+		cpu_exec(inst);
+	while (cpu_state.cs_pc == old_pc);
+
+	for (u_int i = 0; i < num_dest_bytes; ++i)
+		cpu_assert_mem(0x05000200 + i, dest_bytes[i], 1);
+}
+
 void
 cpu_test(void)
 {
@@ -1690,6 +1851,35 @@ cpu_test(void)
 	cpu_test_subf(-FLT_MAX, 0x1p102f, -FLT_MAX, false, false, true);
 	cpu_test_subf(-FLT_MAX, 0x1p103f, -INFINITY, true, false, false);
 
+	u_int8_t src_bytes1[] = {0xde, 0xad, 0xc0, 0xde};
+	cpu_test_movbsu(src_bytes1, sizeof(src_bytes1), 0xff, 32, 0, 0, 0, 0, src_bytes1, sizeof(src_bytes1));
+	u_int8_t dest_bytes1[] = {0xff, 0xff, 0xff, 0xff, 0xde, 0xad, 0xc0, 0xde, 0xff, 0xff, 0xff, 0xff};
+	cpu_test_movbsu(src_bytes1, sizeof(src_bytes1), 0xff, 32, 0, 0, 4, 0, dest_bytes1, sizeof(dest_bytes1));
+	u_int8_t dest_bytes2[] = {0xde, 0xad, 0xc0, 0xff};
+	cpu_test_movbsu(src_bytes1, sizeof(src_bytes1), 0xff, 24, 0, 0, 0, 0, dest_bytes2, sizeof(dest_bytes2));
+	//const u_int8_t src_byte1 =  {0b01000000};
+	//const u_int8_t dest_byte1 = {0b10000000};
+	//const u_int8_t dest_byte2 = {0b10101110};
+	//cpu_test_movbsu(&src_byte, sizeof(src_byte), 0b10101010, 1, 0, 1, 0, 5, &dest_byte, sizeof(dest_byte));
+	/*
+	const u_int8_t src_bytes2[] = {
+			0b01000110, 0b11000001, 0b01001110, 0b01011101,
+			0b10111010, 0b01110010, 0b10000011, 0b01100010,
+			0b01001110, 0b01011101, 0b01000110, 0b11000001,
+			0b10000011, 0b01100010, 0b10111010, 0b01110010,
+	};
+	cpu_test_movbsu(src_bytes2, sizeof(src_bytes2), 0b10101010, 128, 0, 0, 0, 0, src_bytes2, sizeof(src_bytes2));
+	const u_int8_t dest_bytes1[] = {
+			0b10101010,
+			0b01000110, 0b11000001, 0b01001110, 0b01011101,
+			0b10111010, 0b01110010, 0b10000011, 0b01100010,
+			0b01001110, 0b01011101, 0b01000110, 0b11000001,
+			0b10000011, 0b01100010, 0b10111010, 0b01110010,
+			0b10101010,
+	};
+	cpu_test_movbsu(src_bytes, sizeof(src_bytes), 0b10101010, 128, 0, 0, 0, 8, dest_bytes1, sizeof(dest_bytes1));
+	 */
+
 	cpu_reset();
 }
 
@@ -1714,7 +1904,6 @@ cpu_step(void)
 		fprintf(stderr, "TODO: bus error fetching inst from PC 0x%08x\n", cpu_state.cs_pc);
 		return false;
 	}
-	u_int32_t old_pc = cpu_state.cs_pc;
 
 	if (debug_trace_cpu)
 	{
@@ -1727,9 +1916,7 @@ cpu_step(void)
 	if (!cpu_exec(inst))
 		return false;
 
-	if (cpu_state.cs_pc == old_pc)
-		cpu_state.cs_pc+= cpu_inst_size(&inst);
-
+	++main_stats.ms_insts;
 	return true;
 }
 
@@ -3160,19 +3347,20 @@ debug_fini(void)
 	history_end(s_history);
 }
 
-static char *
-debug_format_binary(u_int n, u_int nbits)
+char *
+debug_format_binary(u_int n, u_int nbits, debug_str_t bin_s)
 {
-	static char bin[35] = "0b";
-	assert(nbits <= sizeof(bin) - 3);
-	char *end = bin + 2 + nbits;
+	bin_s[0] = '0';
+	bin_s[1] = 'b';
+	assert(nbits <= debug_str_len - 3);
+	char *end = bin_s + 2 + nbits;
 	*end-- = '\0';
 	while (nbits--)
 	{
 		*end-- = (n & 1) ? '1' : '0';
 		n>>= 1;
 	}
-	return bin;
+	return bin_s;
 }
 
 char *
@@ -3199,7 +3387,7 @@ debug_format_hex(const u_int8_t *bytes, u_int byte_size, debug_str_t s)
 }
 
 #if INTERFACE
-typedef char debug_str_t[64];
+typedef char debug_str_t[96];
 # define debug_str_len sizeof(debug_str_t)
 #endif // INTERFACE
 
@@ -3549,7 +3737,8 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 				break;
 			}
 			static char unknown[32];
-			snprintf(unknown, sizeof(unknown), "??? (%s)", debug_format_binary(inst->ci_i.i_opcode, 6));
+			debug_str_t bin_s;
+			snprintf(unknown, sizeof(unknown), "??? (%s)", debug_format_binary(inst->ci_i.i_opcode, 6, bin_s));
 			mnemonic = unknown;
 		}
 	}
@@ -3682,6 +3871,33 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 		case OP_SEI:
 			snprintf(decode, debug_str_len, "%s", mnemonic);
 			break;
+		case OP_BSTR:
+			switch (inst->ci_ii.ii_imm5)
+			{
+				case BSTR_SCH0BSU: mnemonic = "SCH0BSU"; break;
+				case BSTR_SCH0BSD: mnemonic = "SCH0BSD"; break;
+				case BSTR_SCH1BSU: mnemonic = "SCH1BSU"; break;
+				case BSTR_SCH1BSD: mnemonic = "SCH1BSD"; break;
+				case BSTR_ORBSU: mnemonic = "ORBSU"; break;
+				case BSTR_ANDBSU: mnemonic = "ANDBSU"; break;
+				case BSTR_XORBSU: mnemonic = "XORBSU"; break;
+				case BSTR_MOVBSU: mnemonic = "MOVBSU"; break;
+				case BSTR_ORNBSU: mnemonic = "ORNBSU"; break;
+				case BSTR_ANDNBSU: mnemonic = "ANDNBSU"; break;
+				case BSTR_XORNBSU: mnemonic = "XORNBSU"; break;
+				case BSTR_NOTBSU: mnemonic = "NOTBSU"; break;
+			}
+			snprintf(decode, debug_str_len, "%s", mnemonic);
+			if (regs)
+			{
+				debug_str_t src_start_s, dest_start_s /*, src_end_s, dest_end_s*/;
+				debug_format_addr(regs[30].u, src_start_s);
+				debug_format_addr(regs[29].u, dest_start_s);
+				u_int src_bit_off = regs[27].u & 31, dest_bit_off = regs[26].u & 31;
+				snprintf(decomp, debug_str_len, "[%s.%u..] <- [%s.%u..] (%u bits)",
+				         src_start_s, src_bit_off, dest_start_s, dest_bit_off, regs[28].u);
+			}
+			break;
 		case OP_SHL2:
 			debug_disasm_ii(decode, decomp, inst, "SHL", "0x%2$08x << %1$hu", regs);
 			break;
@@ -3804,7 +4020,10 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, const cpu_regs_t regs, 
 					debug_disasm_vii(decode, decomp, inst, "MPYHW", "%4$hi x %2$hi", regs);
 					break;
 				default:
-					snprintf(decode, debug_str_len, "TODO: FLOAT %s", debug_format_binary(inst->vii_subop, 6));
+				{
+					debug_str_t bin_s;
+					snprintf(decode, debug_str_len, "TODO: FLOAT %s", debug_format_binary(inst->vii_subop, 6, bin_s));
+				}
 			}
 			break;
 		}
@@ -4334,7 +4553,10 @@ debug_step(void)
 							{
 								u_int value;
 								if (debug_mem_read(addr, &value, int_size))
-									printf(" %s\n", debug_format_binary(value, int_size << 3));
+								{
+									debug_str_t bin_s;
+									printf(" %s\n", debug_format_binary(value, int_size << 3, bin_s));
+								}
 								addr+= int_size;
 							}
 							else if (!strcmp(format, "addr"))
