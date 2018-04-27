@@ -373,9 +373,8 @@ wram_init(void)
 void
 wram_add_syms(void)
 {
-	debug_create_symbol("HEAP", 0x05000000);
-	debug_create_symbol("GP", 0x05008000);
-	debug_create_symbol("STACK", 0x0500b000);
+	debug_create_symbol("GLOBAL", 0x05000000);
+	debug_create_symbol("STACK", 0x0500dfff);
 }
 
 void
