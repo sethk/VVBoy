@@ -24,7 +24,7 @@
 
 /* MEM */
 #if INTERFACE
-enum mem_segment
+	enum mem_segment
 	{
 		MEM_SEG_VIP = 0,
 		MEM_SEG_VSU = 1,
@@ -57,16 +57,16 @@ enum mem_segment
 struct mem_seg_desc mem_segs[(enum mem_segment)MEM_NSEGS];
 
 static const char *mem_seg_names[MEM_NSEGS] =
-		{
-				[MEM_SEG_VIP] = "VIP",
-				[MEM_SEG_VSU] = "VSU",
-				[MEM_SEG_NVC] = "NVC",
-				[3] = "Not Used (0x03000000-0x03ffffff)",
-				[MEM_SEG_CARTEX] = "CARTEX",
-				[MEM_SEG_WRAM] = "WRAM",
-				[MEM_SEG_SRAM] = "SRAM",
-				[MEM_SEG_ROM] = "ROM"
-		};
+{
+	[MEM_SEG_VIP] = "VIP",
+	[MEM_SEG_VSU] = "VSU",
+	[MEM_SEG_NVC] = "NVC",
+	[3] = "Not Used (0x03000000-0x03ffffff)",
+	[MEM_SEG_CARTEX] = "CARTEX",
+	[MEM_SEG_WRAM] = "WRAM",
+	[MEM_SEG_SRAM] = "SRAM",
+	[MEM_SEG_ROM] = "ROM"
+};
 
 #ifndef NDEBUG
 static bool
@@ -78,7 +78,7 @@ validate_seg_size(size_t size)
 #endif // !NDEBUG
 
 bool
-mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
+mem_seg_alloc(enum mem_segment seg, size_t size, int perms)
 {
 	assert(validate_seg_size(size));
 	mem_segs[seg].ms_ptr = malloc(size);
@@ -107,7 +107,7 @@ mem_seg_alloc(/*enum*/ mem_segment seg, size_t size, int perms)
 }
 
 bool
-mem_seg_mmap(/*enum*/ mem_segment seg, size_t size, int fd)
+mem_seg_mmap(enum mem_segment seg, size_t size, int fd)
 {
 	mem_segs[seg].ms_size = size;
 	mem_segs[seg].ms_ptr = mmap(NULL, size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
@@ -122,7 +122,7 @@ mem_seg_mmap(/*enum*/ mem_segment seg, size_t size, int fd)
 }
 
 static bool
-mem_seg_realloc(/*enum*/ mem_segment seg, size_t size)
+mem_seg_realloc(enum mem_segment seg, size_t size)
 {
 	assert(!mem_segs[seg].ms_is_mmap);
 	assert(validate_seg_size(size));
@@ -138,7 +138,7 @@ mem_seg_realloc(/*enum*/ mem_segment seg, size_t size)
 }
 
 void
-mem_seg_free(/*enum*/ mem_segment seg)
+mem_seg_free(enum mem_segment seg)
 {
 	if (!mem_segs[seg].ms_is_mmap)
 		free(mem_segs[seg].ms_ptr);
@@ -954,7 +954,7 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	u_int src_read_bits = (*bit_lengthp > write_bits) ? write_bits : *bit_lengthp;
 	 */
 	/*
-{
+	{
 	u_int32_t src_word;
 	if (!mem_read(*src_word_addr, &src_word, sizeof(src_word), false))
 		return false;
@@ -967,7 +967,7 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	(*dest_word_addr)+= 4;
 	(*length)-= 32;
 	return true;
-}
+	}
 	 */
 	return true;
 }
@@ -1926,7 +1926,7 @@ cpu_step(void)
 }
 
 void
-cpu_intr(/*enum*/ nvc_intlevel level)
+cpu_intr(enum nvc_intlevel level)
 {
 	if (!cpu_state.cs_psw.psw_flags.f_np && !cpu_state.cs_psw.psw_flags.f_ep && !cpu_state.cs_psw.psw_flags.f_id)
 	{
@@ -2022,7 +2022,7 @@ struct vip_affine
 };
 
 #if INTERFACE
-enum vip_world_bgm
+	enum vip_world_bgm
 	{
 		WORLD_BGM_NORMAL = 0b00,
 		WORLD_BGM_H_BIAS = 0b01,
@@ -2081,7 +2081,7 @@ struct vip_dram
 static struct vip_dram vip_dram;
 
 #if INTERFACE
-enum vip_intflag
+	enum vip_intflag
 	{
 		VIP_SCANERR = (1 << 0),
 		VIP_LFBEND = (1 << 1),
@@ -2222,7 +2222,7 @@ vip_reset(void)
 }
 
 static void
-vip_raise(/*enum*/ vip_intflag intflag)
+vip_raise(enum vip_intflag intflag)
 {
 	vip_regs.vr_intpnd|= intflag;
 	if (vip_regs.vr_intenb & intflag)
@@ -3032,7 +3032,7 @@ struct nvc_regs
 };
 
 #if INTERFACE
-enum nvc_intlevel
+	enum nvc_intlevel
 	{
 		NVC_INTKEY = 0,
 		NVC_INTTIM = 1,
@@ -3189,7 +3189,7 @@ nvc_step(void)
 u_int16_t nvc_keys;
 
 void
-nvc_input(/*enum*/ tk_keys key, bool state)
+nvc_input(enum tk_keys key, bool state)
 {
 	// TODO: handle multi-key mask
 	if (state)
@@ -3271,7 +3271,7 @@ nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
 	struct debug_disasm_context
 	{
 		u_int32_t ddc_regmask;
-	#define DEBUG_REGMASK_ALL (0xffffffff)
+#  define DEBUG_REGMASK_ALL (0xffffffff)
 		cpu_regs_t ddc_regs;
 	};
 
@@ -3472,12 +3472,12 @@ debug_format_addr(u_int32_t addr, debug_str_t s)
 }
 
 const char *debug_rnames[32] =
-		{
-				"r0", "r1", "hp", "sp", "gp", "tp", "r6", "r7",
-				"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-				"r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
-				"r24", "r25", "r26", "r27", "r28", "r29", "r30", "lp"
-		};
+{
+	"r0", "r1", "hp", "sp", "gp", "tp", "r6", "r7",
+	"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+	"r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
+	"r24", "r25", "r26", "r27", "r28", "r29", "r30", "lp"
+};
 
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
@@ -4111,9 +4111,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		snprintf(dis, debug_str_len, "%s", decode);
 	return dis;
 }
-
-// TODO: Shouldn't be needed
-struct debug_disasm_context;
 
 char *
 debug_disasm(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *context)
@@ -5060,7 +5057,7 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 
 /* MAIN */
 #if INTERFACE
-struct main_stats_t
+	struct main_stats_t
 	{
 		u_int32_t ms_start_ticks;
 		u_int ms_frames;
