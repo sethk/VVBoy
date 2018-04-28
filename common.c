@@ -3520,58 +3520,6 @@ debug_destroy_symbol(struct debug_symbol *debug_sym)
 	free(debug_sym);
 }
 
-// TODO: Combine with below
-static void
-debug_disasm_i(debug_str_t decode,
-               debug_str_t decomp,
-               const union cpu_inst *inst,
-               const char *mnemonic,
-               const char *op,
-               struct debug_disasm_context *context)
-{
-	snprintf(decode, debug_str_len, "%s %s, %s",
-	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
-	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-		snprintf(decomp, debug_str_len, "%i %s %i",
-		         context->ddc_regs[inst->ci_i.i_reg2].s, op, context->ddc_regs[inst->ci_i.i_reg1].s);
-}
-
-static void
-debug_disasm_i_fmt(debug_str_t decode,
-                   debug_str_t decomp,
-                   const union cpu_inst *inst,
-                   const char *mnemonic,
-                   const char *decomp_fmt,
-                   struct debug_disasm_context *context)
-{
-	snprintf(decode, debug_str_len, "%s %s, %s",
-	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
-	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-		snprintf(decomp, debug_str_len, decomp_fmt,
-		         debug_rnames[inst->ci_i.i_reg1],
-		         context->ddc_regs[inst->ci_i.i_reg1],
-		         debug_rnames[inst->ci_i.i_reg2],
-		         context->ddc_regs[inst->ci_i.i_reg2]);
-}
-
-static void
-debug_disasm_ii(debug_str_t decode,
-                debug_str_t decomp,
-                const union cpu_inst *inst,
-                const char *mnemonic,
-                const char *decomp_fmt,
-                struct debug_disasm_context *context)
-{
-	snprintf(decode, debug_str_len, "%s %hi, %s",
-	         mnemonic,
-	         cpu_extend5to16(inst->ci_ii.ii_imm5),
-	         debug_rnames[inst->ci_ii.ii_reg2]);
-	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-		snprintf(decomp, debug_str_len,
-		         decomp_fmt,
-		         inst->ci_ii.ii_imm5, context->ddc_regs[inst->ci_ii.ii_reg2], cpu_extend5to16(inst->ci_ii.ii_imm5));
-}
-
 struct debug_disasm_context *
 debug_current_context(void)
 {
@@ -3608,6 +3556,65 @@ debug_put_reg(struct debug_disasm_context *context, u_int rnum, union cpu_reg re
 }
 
 static void
+debug_clear_reg(struct debug_disasm_context *context, u_int rnum)
+{
+	if (context)
+		context->ddc_regmask &= ~(1 << rnum);
+}
+
+// TODO: Combine with below
+static void
+debug_disasm_i(debug_str_t decode, debug_str_t decomp, const union cpu_inst *inst, const char *mnemonic, const char *op, struct debug_disasm_context *context)
+{
+	snprintf(decode, debug_str_len, "%s %s, %s",
+	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
+		snprintf(decomp, debug_str_len, "%i %s %i",
+		         context->ddc_regs[inst->ci_i.i_reg2].s, op, context->ddc_regs[inst->ci_i.i_reg1].s);
+	if (inst->ci_i.i_opcode != OP_CMP)
+		debug_clear_reg(context, inst->ci_i.i_reg2);
+}
+
+static void
+debug_disasm_i_fmt(debug_str_t decode,
+                   debug_str_t decomp,
+                   const union cpu_inst *inst,
+                   const char *mnemonic,
+                   const char *decomp_fmt,
+                   struct debug_disasm_context *context)
+{
+	snprintf(decode, debug_str_len, "%s %s, %s",
+	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
+		snprintf(decomp, debug_str_len, decomp_fmt,
+		         debug_rnames[inst->ci_i.i_reg1],
+		         context->ddc_regs[inst->ci_i.i_reg1],
+		         debug_rnames[inst->ci_i.i_reg2],
+		         context->ddc_regs[inst->ci_i.i_reg2]);
+	debug_clear_reg(context, inst->ci_i.i_reg2);
+}
+
+static void
+debug_disasm_ii(debug_str_t decode,
+                debug_str_t decomp,
+                const union cpu_inst *inst,
+                const char *mnemonic,
+                const char *decomp_fmt,
+                struct debug_disasm_context *context)
+{
+	snprintf(decode, debug_str_len, "%s %hi, %s",
+	         mnemonic,
+	         cpu_extend5to16(inst->ci_ii.ii_imm5),
+	         debug_rnames[inst->ci_ii.ii_reg2]);
+	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
+		snprintf(decomp, debug_str_len,
+		         decomp_fmt,
+		         inst->ci_ii.ii_imm5, context->ddc_regs[inst->ci_ii.ii_reg2], cpu_extend5to16(inst->ci_ii.ii_imm5));
+	if (inst->ci_ii.ii_opcode != OP_SETF)
+		debug_clear_reg(context, inst->ci_ii.ii_reg2);
+}
+
+static void
 debug_disasm_v(debug_str_t decode,
                debug_str_t decomp,
                const union cpu_inst *inst,
@@ -3640,6 +3647,8 @@ debug_disasm_v(debug_str_t decode,
 				debug_put_reg(context, inst->ci_v.v_reg2, reg2);
 				break;
 			}
+			default:
+				debug_clear_reg(context, inst->ci_v.v_reg2);
 		}
 	}
 }
@@ -3669,6 +3678,7 @@ debug_disasm_vi(debug_str_t decode,
 			case OP_LD_H:
 			case OP_LD_W:
 				snprintf(decomp, debug_str_len, "[%s] -> %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
+				debug_clear_reg(context, inst->ci_vi.vi_reg2);
 				break;
 			case OP_ST_B:
 			{
@@ -3714,6 +3724,8 @@ debug_disasm_vi_fmt(debug_str_t decode,
 		         debug_rnames[inst->ci_vi.vi_reg2],
 		         context->ddc_regs[inst->ci_vi.vi_reg2].u);
 	}
+	// TODO: More specific clear
+	debug_clear_reg(context, inst->ci_vi.vi_reg2);
 }
 
 static void
@@ -3743,6 +3755,7 @@ debug_disasm_vii(debug_str_t decode,
 		         context->ddc_regs[inst->vii_reg1].f,
 		         debug_rnames[inst->vii_reg2],
 		         context->ddc_regs[inst->vii_reg2].f);
+	debug_clear_reg(context, inst->vii_reg2);
 }
 
 static char *
@@ -3817,6 +3830,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
 				snprintf(decomp, debug_str_len, "%i × %i",
 				         context->ddc_regs[inst->ci_i.i_reg1].s, context->ddc_regs[inst->ci_i.i_reg2].s);
+			debug_clear_reg(context, inst->ci_i.i_reg2);
 			break;
 		case OP_SUB:
 			snprintf(decode, debug_str_len, "%s %s, %s",
@@ -3826,6 +3840,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 				snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
 				         context->ddc_regs[inst->ci_i.i_reg2].s, context->ddc_regs[inst->ci_i.i_reg1].s,
 				         context->ddc_regs[inst->ci_i.i_reg2].u, context->ddc_regs[inst->ci_i.i_reg1].u);
+			debug_clear_reg(context, inst->ci_i.i_reg2);
 			break;
 		case OP_ADD:
 			debug_disasm_i_fmt(decode, decomp, inst, "ADD", "%3$s <- %4$d + %2$d (0x%4$08x + 0x%2$08x)", context);
@@ -3907,6 +3922,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
 			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		}
 		case OP_CMP2:
@@ -3961,6 +3977,11 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 				snprintf(decomp, debug_str_len, "[%s.%u..] <- [%s.%u..] (%u bits)",
 				         src_start_s, src_bit_off, dest_start_s, dest_bit_off, context->ddc_regs[28].u);
 			}
+			debug_clear_reg(context, 30);
+			debug_clear_reg(context, 29);
+			debug_clear_reg(context, 28);
+			debug_clear_reg(context, 27);
+			debug_clear_reg(context, 26);
 			break;
 		case OP_SHL2:
 			debug_disasm_ii(decode, decomp, inst, "SHL", "0x%2$08x << %1$hu", context);
@@ -3975,6 +3996,8 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		case OP_STSR:
 			snprintf(decode, debug_str_len, "%s %i, %s",
 			         mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
+			if (inst->ci_ii.ii_opcode == OP_STSR)
+				debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_JR:
 		case OP_JAL:
@@ -4003,6 +4026,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		case OP_XORI:
 			snprintf(decode, debug_str_len, "%s %hXh, %s, %s",
 			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
+			debug_clear_reg(context, inst->ci_v.v_reg2);
 			break;
 		case OP_ADDI:
 			debug_disasm_v(decode, decomp, inst, "ADDI", "%3$s <- 0x%2$08x + extend(0x%1$04hx)", context);
