@@ -1,3 +1,4 @@
+#include <sys/param.h> // MAX()
 #include <err.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -18,6 +19,10 @@ static struct func
 } *funcs = NULL;
 
 static int verbose = 0;
+static const u_int32_t rom_addr = MEM_SEG2ADDR(MEM_SEG_ROM);
+static u_int32_t rom_end;
+static u_int32_t base_addr = rom_addr;
+static u_int32_t func_end;
 
 static struct func *
 create_func(const struct debug_symbol *sym)
@@ -31,13 +36,25 @@ create_func(const struct debug_symbol *sym)
 	return func;
 }
 
+static bool
+func_addr_valid(u_int32_t func_addr)
+{
+	if ((func_addr & 1) != 0)
+		return false;
+	if (func_addr >= rom_addr && func_addr <= rom_end)
+		return true;
+	else if (func_addr >= base_addr && func_addr <= func_end)
+		return true;
+	return false;
+}
+
 static void
 upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u_int32_t caller_addr)
 {
-	if (func_addr < 0x07000000 || func_addr >= 0x07000000 + mem_segs[MEM_SEG_ROM].ms_size)
+	if (!func_addr_valid(func_addr))
 	{
 		if (verbose >= 1)
-			fprintf(stderr, "Not adding JMP target outside of ROM at 0x%08x\n", func_addr);
+			fprintf(stderr, "Not adding invalid JMP target 0x%08x\n", func_addr);
 		return;
 	}
 
@@ -68,7 +85,7 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 			{
 				snprintf(func_name, sizeof(func_name), "%s%u", basename, *func_sym_indexp);
 				++(*func_sym_indexp);
-			} while (debug_locate_symbol(func_name) != 0xffffffff);
+			} while (debug_locate_symbol(func_name) != DEBUG_ADDR_NONE);
 			sym = debug_create_symbol(func_name, func_addr);
 			rom_add_symbol(sym);
 		}
@@ -94,7 +111,7 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 static void
 create_entry_func(u_int32_t entry_addr)
 {
-	u_int32_t rom_addr = 0x07000000 + (entry_addr & mem_segs[MEM_SEG_ROM].ms_addrmask);
+	u_int32_t rom_addr = base_addr + (entry_addr & mem_segs[MEM_SEG_ROM].ms_addrmask);
 	u_int32_t offset;
 	struct debug_symbol *entry_sym = debug_resolve_addr(rom_addr, &offset);
 	assert(entry_sym);
@@ -144,8 +161,9 @@ show_disasm(union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *con
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-av] <file.vb> | <file.isx>\n", getprogname());
+	fprintf(stderr, "usage: %s [-av] [-b <base-addr>] <file.vb> | <file.isx>\n", getprogname());
 	fprintf(stderr, "\t-a\tDisassemble all sections, not just called functions\n");
+	fprintf(stderr, "\t-b <base-addr>\tSet the base load address\n");
 	fprintf(stderr, "\t-a\tIncrease verbosity level\n");
 	exit(64); // EX_USAGE
 }
@@ -156,7 +174,7 @@ main(int ac, char * const *av)
 	bool funcs_only = true;
 
 	int ch;
-	while ((ch = getopt(ac, av, "av")) != -1)
+	while ((ch = getopt(ac, av, "ab:v")) != -1)
 		switch (ch)
 		{
 			default:
@@ -166,6 +184,17 @@ main(int ac, char * const *av)
 				funcs_only = false;
 				break;
 
+			case 'b':
+			{
+				char *endp;
+				base_addr = strtoul(optarg, &endp, 0);
+				if (*endp != '\0')
+				{
+					fprintf(stderr, "Can't parse base address %s\n", optarg);
+					usage();
+				}
+				break;
+			}
 			case 'v':
 				++verbose;
 				break;
@@ -179,6 +208,16 @@ main(int ac, char * const *av)
 	if (!rom_load(av[0]))
 		return 1;
 
+	rom_end = MIN(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+	assert(rom_end > rom_addr);
+	func_end = MIN(base_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+	assert(func_end > base_addr);
+	if (verbose > 0)
+	{
+		fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, base_addr: 0x%08x, func_end: 0x%08x\n",
+		        rom_addr, rom_end, base_addr, func_end);
+	}
+
 	create_entry_func(0xfffffe00);
 	create_entry_func(0xfffffe10);
 	create_entry_func(0xfffffe20);
@@ -186,8 +225,8 @@ main(int ac, char * const *av)
 	create_entry_func(0xfffffe40);
 	create_entry_func(0xfffffff0);
 
-	u_int32_t begin = MEM_SEG2ADDR((enum mem_segment)MEM_SEG_ROM);
-	u_int32_t end = begin + mem_segs[MEM_SEG_ROM].ms_size;
+	u_int32_t begin = base_addr;
+	u_int32_t end = func_end;
 	u_int32_t pc = begin;
 	static u_int func_sym_index = 0;
 	static u_int entry_sym_index = 0;
@@ -245,6 +284,8 @@ main(int ac, char * const *av)
 			show_func(func->f_debug_sym, func);
 
 			pc = func->f_debug_sym->ds_addr;
+			end = MIN(pc + (u_int64_t)16384, CPU_MAX_PC); // Maximum function length
+			assert(end >= pc);
 			u_int32_t last_branch = 0;
 			struct debug_disasm_context context;
 			bzero(&context, sizeof(context));

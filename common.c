@@ -386,6 +386,7 @@ wram_fini(void)
 /* CPU */
 #if INTERFACE
 #	define CPU_INST_PER_USEC (10)
+#   define CPU_MAX_PC (0xfffffffe)
 
 	union cpu_reg {u_int32_t u; int32_t s; float f; int16_t s16; u_int8_t u8s[4];};
 	typedef union cpu_reg cpu_regs_t[32];
@@ -1292,12 +1293,28 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = cpu_add(cpu_state.cs_r[inst.ci_v.v_reg1].u, imm);
 			break;
 		}
-			/*
-		OP_JR    = 0b101010,
-		*/
 		case OP_JR:
 		{
 			u_int32_t disp = cpu_inst_disp26(&inst);
+
+			if (debug_trace_cpu_jmp)
+			{
+				u_int32_t target_pc = cpu_state.cs_pc + disp;
+				u_int32_t offset;
+				struct debug_symbol *target_sym;
+				if ((target_sym = debug_resolve_addr(target_pc, &offset)))
+				{
+					struct debug_symbol *current_sym;
+					if ((current_sym = debug_resolve_addr(cpu_state.cs_pc, &offset)) != target_sym)
+					{
+						debug_str_t addr_s, target_pc_s;
+						debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": Non-local JR to %s",
+									 debug_format_addr(cpu_state.cs_pc, addr_s),
+									 debug_format_addrsym(target_pc, target_sym, target_pc_s));
+					}
+				}
+			}
+
 			cpu_state.cs_pc+= disp;
 			return true;
 		}
@@ -1891,7 +1908,7 @@ cpu_test(void)
 bool
 cpu_step(void)
 {
-	if (debug_break != 0xffffffff && cpu_state.cs_pc == debug_break)
+	if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
 	{
 		fprintf(stderr, "\nStopped at breakpoint\n");
 		debugging = true;
@@ -3267,6 +3284,7 @@ nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
 		struct debug_symbol *ds_next;
 		enum isx_symbol_type ds_type;
 	};
+# define DEBUG_ADDR_NONE (0xffffffff)
 
 	struct debug_disasm_context
 	{
@@ -3289,7 +3307,7 @@ bool debug_trace_vip = false;
 bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
-u_int32_t debug_break = 0xffffffff;
+u_int32_t debug_break = DEBUG_ADDR_NONE;
 
 struct debug_watch
 {
@@ -3440,7 +3458,7 @@ debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
 	return match_sym;
 }
 
-static const char *
+const char *
 debug_format_addrsym(u_int32_t addr, struct debug_symbol *sym, debug_str_t s)
 {
 	char human[32];
@@ -4216,7 +4234,7 @@ debug_locate_symbol(const char *s)
 	for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
 		if (!strcmp(sym->ds_name, s))
 			return sym->ds_addr;
-	return 0xffffffff;
+	return DEBUG_ADDR_NONE;
 }
 
 static bool
@@ -4256,7 +4274,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 #if 0
 			fprintf(stderr, "Sym name: \"%s\"\n", sym_name);
 #endif // 0
-			if ((base = debug_locate_symbol(sym_name)) == 0xffffffff)
+			if ((base = debug_locate_symbol(sym_name)) == DEBUG_ADDR_NONE)
 			{
 				warnx("Symbol not found: %s", s);
 				return false;
@@ -4564,7 +4582,7 @@ debug_step(void)
 					}
 					else
 					{
-						debug_break = 0xffffffff;
+						debug_break = DEBUG_ADDR_NONE;
 						printf("Cleared breakpoint\n");
 					}
 				}
@@ -4808,7 +4826,7 @@ debug_step(void)
 					else if (argc == 2)
 					{
 						u_int32_t addr = debug_locate_symbol(argv[1]);
-						if (addr != 0xffffffff)
+						if (addr != DEBUG_ADDR_NONE)
 							printf("%s = 0x%08x\n", argv[1], addr);
 						else
 							printf("Symbol %s not found\n", argv[1]);
@@ -4819,7 +4837,7 @@ debug_step(void)
 						if (!debug_parse_addr(argv[2], &addr))
 							continue;
 
-						if (debug_locate_symbol(argv[1]) == 0xffffffff)
+						if (debug_locate_symbol(argv[1]) == DEBUG_ADDR_NONE)
 						{
 							struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
 							rom_add_symbol(sym);
