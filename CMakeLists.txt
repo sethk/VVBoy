@@ -19,10 +19,13 @@ set(GEN_HEADERS vvboy.h common.h rom.h vvbdis.h)
 add_executable(makeheaders vendor/makeheaders/makeheaders.c)
 target_compile_options(makeheaders PUBLIC -Wno-sign-compare -Wno-unused-parameter -Wno-unused-function
         -Wno-unused-const-variable)
-add_custom_command(OUTPUT ${GEN_HEADERS}
+add_custom_target(GenHeaders
         COMMAND makeheaders -v ${ALL_SOURCES} ${HEADERS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        BYPRODUCTS ${GEN_HEADERS}
         DEPENDS makeheaders ${ALL_SOURCES} ${HEADERS})
 
 add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES})
+add_dependencies(vvbdis GenHeaders)
 add_executable(vvboy ${VVBOY_SOURCES} vvboy.h ${COMMON_SOURCES} ${TK_SOURCES})
+add_dependencies(vvboy GenHeaders)
