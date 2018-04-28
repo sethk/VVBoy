@@ -134,11 +134,11 @@ fetch_inst(union cpu_inst *inst, u_int32_t pc)
 }
 
 static void
-show_disasm(union cpu_inst *inst, u_int32_t pc)
+show_disasm(union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *context)
 {
 	debug_str_t addr_s;
 	printf(DEBUG_ADDR_FMT ":", debug_format_addr((pc), addr_s));
-	printf(" %s\n", debug_disasm(inst, pc, NULL));
+	printf(" %s\n", debug_disasm(inst, pc, context));
 }
 
 static void
@@ -191,13 +191,13 @@ main(int ac, char * const *av)
 	u_int32_t pc = begin;
 	static u_int func_sym_index = 0;
 	static u_int entry_sym_index = 0;
-	union cpu_inst prev_inst1, prev_inst2;
-	bzero(&prev_inst1, sizeof(prev_inst1));
-	bzero(&prev_inst2, sizeof(prev_inst2));
+	struct debug_disasm_context context;
+	bzero(&context, sizeof(context));
 	while (pc < end)
 	{
 		union cpu_inst inst;
 		fetch_inst(&inst, pc);
+		debug_disasm(&inst, pc, &context);
 
 		switch ((enum cpu_opcode)inst.ci_i.i_opcode)
 		{
@@ -213,43 +213,26 @@ main(int ac, char * const *av)
 			}
 			case OP_JMP:
 			{
+				const union cpu_reg *jmp_reg;
+
 				if (verbose >= 2)
 					fprintf(stderr, "Found JMP at 0x%08x: %s\n", pc, debug_disasm(&inst, pc, NULL));
-				if (inst.ci_v.v_reg1 == 31)
+				if (inst.ci_i.i_reg1 == 31)
 				{
 					if (verbose >= 2)
 						fputs("JMP [lp] is return, skipping\n", stderr);
 				}
-				else if (prev_inst2.ci_v.v_opcode == OP_MOVHI && prev_inst2.ci_v.v_reg1 == 0)
+				else if ((jmp_reg = debug_get_reg(&context, inst.ci_i.i_reg1)))
 				{
-					u_int reg2 = prev_inst2.ci_v.v_reg2;
-					if (prev_inst1.ci_v.v_opcode == OP_MOVEA && prev_inst1.ci_v.v_reg1 == reg2)
-					{
-						if (inst.ci_i.i_reg1 == prev_inst2.ci_v.v_reg2)
-						{
-							u_int32_t high = prev_inst2.ci_v.v_imm16 << 16;
-							int32_t imm = cpu_extend16(prev_inst1.ci_v.v_imm16);
-							u_int32_t func_addr = high + imm;
-							upsert_func("entry", func_addr, &entry_sym_index, pc);
-							break;
-						}
-					}
-					else if (verbose >= 1)
-					{
-						fputs("JMP not preceded by MOVEA\n", stderr);
-						fprintf(stderr, "prev_inst1: %s\n", debug_disasm(&prev_inst1, 0x0, NULL));
-					}
+					upsert_func("entry", jmp_reg->u, &entry_sym_index, pc);
+					bzero(&context, sizeof(context));
 				}
 				else if (verbose >= 1)
-				{
-					fputs("JMP not preceded by MOVHI, skipping\n", stderr);
-					fprintf(stderr, "prev_inst2: %s\n", debug_disasm(&prev_inst2, 0x0, NULL));
-				}
+					fprintf(stderr, "Can't read %s for JMP target, skipping\n", debug_rnames[inst.ci_i.i_reg1]);
+				break;
 			}
 		}
 
-		prev_inst2 = prev_inst1;
-		prev_inst1 = inst;
 		pc+= cpu_inst_size(&inst);
 	}
 
@@ -263,11 +246,13 @@ main(int ac, char * const *av)
 
 			pc = func->f_debug_sym->ds_addr;
 			u_int32_t last_branch = 0;
+			struct debug_disasm_context context;
+			bzero(&context, sizeof(context));
 			while (pc < end)
 			{
 				union cpu_inst inst;
 				fetch_inst(&inst, pc);
-				show_disasm(&inst, pc);
+				show_disasm(&inst, pc, &context);
 
 				if (inst.ci_i.i_opcode == OP_BCOND)
 				{
@@ -300,11 +285,14 @@ main(int ac, char * const *av)
 	else
 	{
 		struct debug_symbol *sym = NULL;
+		struct debug_disasm_context context;
+		bzero(&context, sizeof(context));
 		pc = begin;
 		while (pc < end)
 		{
 			u_int32_t offset;
 			struct debug_symbol *next_sym = debug_resolve_addr(pc, &offset);
+			struct debug_disasm_context *context = NULL;
 			if (next_sym != sym)
 			{
 				sym = next_sym;
@@ -317,11 +305,12 @@ main(int ac, char * const *av)
 							break;
 					}
 					show_func(sym, func);
+					bzero(&context, sizeof(context));
 				}
 			}
 			union cpu_inst inst;
 			fetch_inst(&inst, pc);
-			show_disasm(&inst, pc);
+			show_disasm(&inst, pc, context);
 			pc+= cpu_inst_size(&inst);
 		}
 	}
