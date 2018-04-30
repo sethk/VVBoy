@@ -4206,6 +4206,7 @@ static const struct debug_help
 				{'v', "", "Show VIP info (aliases: vip)"},
 				{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
 				{'t', "[ cpu | cpu.jmp | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
+				{'j', "<addr>", "Jump to <addr> (aliases: jump)"},
 				{'N', "nvc", "Show NVC info (aliases: nvc)"},
 				{'S', "[<name> [<addr>]]", "Add a debug symbol\n"
 					"\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>\n"
@@ -5052,6 +5053,20 @@ debug_step(void)
 						debug_show_tracing("nvc.tim", &debug_trace_nvc_tim);
 						debug_show_tracing("mem", &debug_trace_mem);
 					}
+				}
+				else if (!strcmp(argv[0], "j") || !strcmp(argv[0], "jump"))
+				{
+					if (argc != 2)
+					{
+						debug_usage('j');
+						continue;
+					}
+
+					u_int32_t addr;
+					if (!debug_parse_addr(argv[1], &addr))
+						printf("Could not parse address %s\n", argv[1]);
+
+					cpu_state.cs_pc = addr;
 				}
 				else
 					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
