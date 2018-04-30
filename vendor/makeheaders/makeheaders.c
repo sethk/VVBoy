@@ -113,9 +113,8 @@ struct InStream {
 **          struct Xyzzy;
 **
 ** Not every object has a forward declaration.  If it does, thought, the
-** forward declaration will be contained in the zFwd field for C and
-** the zFwdCpp for C++.  The zDecl field contains the complete 
-** declaration text.  
+** forward declaration will be contained in the zFwd field.  The zDecl field
+** contains the complete declaration text.
 */
 typedef struct Decl Decl;
 struct Decl {
@@ -125,7 +124,6 @@ struct Decl {
   char *zFile;       /* File from which extracted.  */
   char *zIf;         /* Surround the declaration with this #if */
   char *zFwd;        /* A forward declaration.  NULL if there is none. */
-  char *zFwdCpp;     /* Use this forward declaration for C++. */
   char *zDecl;       /* A full declaration of this object */
   char *zExtra;      /* Extra declaration text inserted into class objects */
   int extraType;     /* Last public:, protected: or private: in zExtraDecl */
@@ -145,8 +143,8 @@ struct Decl {
 ** header file in order to prevent duplicate declarations and definitions.
 ** DP_Forward is set after the object has been given a forward declaration
 ** and DP_Declared is set after the object gets a full declarations.
-** (Example:  A forward declaration is "typedef struct Abc Abc;" and the
-** full declaration is "struct Abc { int a; float b; };".)
+** (Example:  A forward declaration is "struct Abc;" and the full declaration
+** is "struct Abc { int a; float b; };".)
 **
 ** The DP_Export and DP_Local flags are more permanent.  They mark objects
 ** that have EXPORT scope and LOCAL scope respectively.  If both of these
@@ -1551,21 +1549,11 @@ static int ProcessTypeDecl(Token *pList, int flags, int *pReset){
   }
   pDecl->pComment = pList->pComment;
   StringInit(&str);
-  StringAppend(&str,"typedef ",0);
   StringAppend(&str,pList->zText,pList->nText);
-  StringAppend(&str," ",0);
-  StringAppend(&str,pName->zText,pName->nText);
   StringAppend(&str," ",0);
   StringAppend(&str,pName->zText,pName->nText);
   StringAppend(&str,";\n",2);
   pDecl->zFwd = StrDup(StringGet(&str),0);
-  StringReset(&str);
-  StringInit(&str);
-  StringAppend(&str,pList->zText,pList->nText);
-  StringAppend(&str," ",0);
-  StringAppend(&str,pName->zText,pName->nText);
-  StringAppend(&str,";\n",2);
-  pDecl->zFwdCpp = StrDup(StringGet(&str),0);
   StringReset(&str);
   if( flags & PS_Export ){
     DeclSetProperty(pDecl,DP_Export);
@@ -1573,8 +1561,9 @@ static int ProcessTypeDecl(Token *pList, int flags, int *pReset){
     DeclSetProperty(pDecl,DP_Local);
   }
 
-  /* Here's something weird.  ANSI-C doesn't allow a forward declaration
-  ** of an enumeration.  So we have to build the typedef into the
+  /* ANSI-C doesn't allow a forward declaration of an enumeration because the
+  ** largest value can change the size of the integer type used to store
+  ** instances of that enum.  So we have to build the typedef into the
   ** definition.
   */
   if( pDecl->zDecl && DeclHasProperty(pDecl, TY_Enumeration) ){
@@ -2571,11 +2560,11 @@ static void DeclareObject(
   int doneTypedef = 0;   /* True if a typedef has been done for this object */
 
   /* printf("BEGIN %s of %s\n",needFullDecl?"FULL":"PROTOTYPE",pDecl->zName);*/
-  /* 
+  isCpp = (pState->flags & DP_Cplusplus) != 0;
+  /*
   ** For any object that has a forward declaration, go ahead and do the
   ** forward declaration first.
   */
-  isCpp = (pState->flags & DP_Cplusplus) != 0;
   for(p=pDecl; p; p=p->pSameName){
     if( p->zFwd ){
       if( !DeclHasProperty(p,DP_Forward) ){
@@ -2585,7 +2574,7 @@ static void DeclareObject(
           doneTypedef = 1;
         }
         ChangeIfContext(p->zIf,pState);
-        StringAppend(pState->pStr,isCpp ? p->zFwdCpp : p->zFwd,0);
+        StringAppend(pState->pStr,p->zFwd,0);
       }
     }
   }
