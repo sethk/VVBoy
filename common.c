@@ -52,7 +52,7 @@
 #endif // INTERFACE
 
 #define INIT_DEAD_MEM 1
-#define DEAD_MEM_PATTERN (0xdeadc0de)
+#define DEAD_MEM_PATTERN (0) // (0xdeadc0de)
 
 struct mem_seg_desc mem_segs[(enum mem_segment)MEM_NSEGS];
 
