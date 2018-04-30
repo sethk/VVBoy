@@ -2332,7 +2332,7 @@ vip_fb_read_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 }
 
 u_int32_t
-vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
+vip_fb_read_argb_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 {
 	// TODO: Read column table
 	u_int8_t pixel = vip_fb_read_slow(fb, x, y);
@@ -2423,6 +2423,20 @@ vip_frame_clock(void)
 	vip_raise(intflags);
 }
 
+static void
+vip_scan_out(u_int fb_index, bool right)
+{
+	const u_int8_t *fb;
+	if (fb_index == 0)
+		fb = (right) ? vip_vrm.vv_right0 : vip_vrm.vv_left0;
+	else
+		fb = (right) ? vip_vrm.vv_right1 : vip_vrm.vv_left1;
+
+	u_int32_t argb[384 * 224];
+	vip_fb_convert(fb, argb);
+	tk_blit(argb, right);
+}
+
 void
 vip_step(void)
 {
@@ -2481,15 +2495,14 @@ vip_step(void)
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 1;
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB0 start\n");
-				tk_blit(vip_vrm.vv_left0, false);
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 1;
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB1 start\n");
-				tk_blit(vip_vrm.vv_left1, false);
 			}
+			vip_scan_out(vip_disp_index, false);
 		}
 	}
 	else if (scanner_usec == 7500 && vip_regs.vr_dpstts.vd_synce)
@@ -2520,15 +2533,14 @@ vip_step(void)
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 1;
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB0 start\n");
-				tk_blit(vip_vrm.vv_right0, true);
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 1;
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB1 start\n");
-				tk_blit(vip_vrm.vv_right1, true);
 			}
+			vip_scan_out(vip_disp_index, true);
 		}
 	}
 	else if (scanner_usec == 17500 && vip_regs.vr_dpstts.vd_synce)

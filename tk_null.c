@@ -37,7 +37,7 @@ tk_step(void)
 }
 
 void
-tk_blit(const u_int8_t *fb __unused, bool right __unused)
+tk_blit(const u_int32_t *argb_fb __unused, bool right __unused)
 {
 }
 

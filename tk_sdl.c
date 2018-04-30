@@ -14,7 +14,6 @@ static bool tk_running = false;
 static SDL_Window *sdl_window;
 static SDL_Renderer *sdl_renderer;
 static SDL_Texture *sdl_textures[2];
-static u_int32_t sdl_frame[384 * 224];
 static SDL_Window *sdl_debug_window;
 static SDL_GameController *sdl_controller;
 static SDL_Renderer *sdl_debug_renderer;
@@ -263,16 +262,13 @@ tk_quit(void)
 }
 
 void
-tk_blit(const u_int8_t *fb, bool right)
+tk_blit(const u_int32_t *fb_argb, bool right)
 {
 	if (!right)
 		SDL_RenderClear(sdl_renderer);
 
 	SDL_Texture *texture = sdl_textures[(right) ? 0 : 1];
-	for (u_int x = 0; x < 384; ++x)
-		for (u_int y = 0; y < 224; ++y)
-			sdl_frame[y * 384 + x] = vip_fb_read_argb(fb, x, y);
-	SDL_UpdateTexture(texture, NULL, sdl_frame, 384 * sizeof(*sdl_frame));
+	SDL_UpdateTexture(texture, NULL, fb_argb, 384 * sizeof(*fb_argb));
 	SDL_RenderCopy(sdl_renderer, texture, NULL, NULL);
 
 	if (right)
