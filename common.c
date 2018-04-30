@@ -2115,7 +2115,7 @@ static struct vip_dram vip_dram;
 
 static const enum vip_intflag vip_dpints =
 		VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
-static const enum vip_intflag vip_xpints = VIP_XPEND | VIP_TIMEERR;
+static const enum vip_intflag vip_xpints = VIP_SBHIT | VIP_XPEND | VIP_TIMEERR;
 
 struct vip_dpctrl
 {
@@ -2179,6 +2179,8 @@ struct vip_regs
 
 static struct vip_regs vip_regs;
 static u_int vip_disp_index = 0;
+static u_int vip_frame_cycles = 0;
+static u_int32_t vip_row_mask = (1 << 28) - 1;
 static u_int32_t vip_world_mask = ~0;
 bool vip_use_bright = true;
 
@@ -2245,7 +2247,15 @@ vip_raise(enum vip_intflag intflag)
 {
 	vip_regs.vr_intpnd|= intflag;
 	if (vip_regs.vr_intenb & intflag)
+	{
+		if (debug_vip_intflags & intflag)
+		{
+			fprintf(stderr, "Stopped on VIP interrupt %u\n", intflag);
+			debugging = true;
+		}
+
 		cpu_intr(NVC_INTVIP);
+	}
 }
 
 static void
@@ -2580,52 +2590,12 @@ vip_draw_finish(u_int fb_index)
 void
 vip_frame_clock(void)
 {
-	static unsigned frame_cycles = 0;
 	enum vip_intflag intflags = VIP_FRAMESTART;
 
 	if (debug_trace_vip)
 		debug_tracef("vip", "FRAMESTART\n");
 
-	if (vip_regs.vr_dpctrl.vd_dprst)
-	{
-		if (debug_trace_vip)
-			debug_tracef("vip", "DPRST\n");
-		vip_regs.vr_dpctrl.vd_dprst = 0;
-		vip_regs.vr_intenb&= ~vip_dpints;
-		vip_regs.vr_intpnd&= ~vip_dpints;
-		frame_cycles = 0;
-	}
-	else
-	{
-		if (vip_regs.vr_intclr & vip_regs.vr_intpnd)
-		{
-			vip_regs.vr_intpnd&= ~vip_regs.vr_intclr;
-			vip_regs.vr_intclr = 0;
-		}
-		/*
-		 * TODO
-		if (vip_regs.vr_dpctrl.vd_lock != vip_regs.vr_dpctrl.vd_lock)
-		{
-			if (trace_vip)
-				printf("VIP: LOCK=%d\n", vip_regs.vr_dpctrl.vd_lock);
-			vip_regs.vr_dpstts.vd_lock = vip_regs.vr_dpctrl.vd_lock;
-		}
-		*/
-		if (vip_regs.vr_dpctrl.vd_synce != vip_regs.vr_dpstts.vd_synce)
-		{
-			if (debug_trace_vip)
-				debug_tracef("vip", "SYNCE=%d\n", vip_regs.vr_dpctrl.vd_synce);
-			vip_regs.vr_dpstts.vd_synce = vip_regs.vr_dpctrl.vd_synce;
-		}
-		if (vip_regs.vr_dpctrl.vd_disp != vip_regs.vr_dpstts.vd_disp)
-		{
-			if (debug_trace_vip)
-				debug_tracef("vip", "DISP=%d\n", vip_regs.vr_dpctrl.vd_disp);
-			vip_regs.vr_dpstts.vd_disp = vip_regs.vr_dpctrl.vd_disp;
-		}
-	}
-
-	if (frame_cycles == 0)
+	if (vip_frame_cycles == 0)
 	{
 		intflags|= VIP_GAMESTART;
 		if (debug_trace_vip)
@@ -2658,18 +2628,61 @@ vip_frame_clock(void)
 			// else TODO: OVERTIME
 		}
 	}
-	if (frame_cycles == vip_regs.vr_frmcyc)
-		frame_cycles = 0;
+	if (vip_frame_cycles == vip_regs.vr_frmcyc)
+		vip_frame_cycles = 0;
 	else
-		frame_cycles++;
+		vip_frame_cycles++;
 
 	vip_raise(intflags);
+}
+
+static void
+vip_draw_step(u_int fb_index, u_int scanner_usec)
+{
+	// Slow path does everything at the end
+	if (scanner_usec == 10000)
+		vip_draw_finish(fb_index);
 }
 
 void
 vip_step(void)
 {
-	static unsigned scanner_usec = 0;
+	static u_int scanner_usec = 0;
+
+	if (vip_regs.vr_dpctrl.vd_dprst)
+	{
+		if (debug_trace_vip)
+			debug_tracef("vip", "DPRST\n");
+		vip_regs.vr_dpctrl.vd_dprst = 0;
+		vip_regs.vr_intenb&= ~vip_dpints;
+		vip_regs.vr_intpnd&= ~vip_dpints;
+		vip_frame_cycles = 0;
+	}
+	else
+	{
+		if (vip_regs.vr_intclr & vip_regs.vr_intpnd)
+		{
+			vip_regs.vr_intpnd&= ~vip_regs.vr_intclr;
+			vip_regs.vr_intclr = 0;
+		}
+		if (vip_regs.vr_dpctrl.vd_lock != vip_regs.vr_dpctrl.vd_lock)
+		{
+			debug_runtime_errorf(NULL, "VIP: LOCK=%d\n", vip_regs.vr_dpctrl.vd_lock);
+			vip_regs.vr_dpstts.vd_lock = vip_regs.vr_dpctrl.vd_lock;
+		}
+		if (vip_regs.vr_dpctrl.vd_synce != vip_regs.vr_dpstts.vd_synce)
+		{
+			if (debug_trace_vip)
+				debug_tracef("vip", "SYNCE=%d\n", vip_regs.vr_dpctrl.vd_synce);
+			vip_regs.vr_dpstts.vd_synce = vip_regs.vr_dpctrl.vd_synce;
+		}
+		if (vip_regs.vr_dpctrl.vd_disp != vip_regs.vr_dpstts.vd_disp)
+		{
+			if (debug_trace_vip)
+				debug_tracef("vip", "DISP=%d\n", vip_regs.vr_dpctrl.vd_disp);
+			vip_regs.vr_dpstts.vd_disp = vip_regs.vr_dpctrl.vd_disp;
+		}
+	}
 
 	if (scanner_usec == 0)
 		vip_frame_clock();
@@ -2690,12 +2703,6 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB0 start\n");
 				tk_blit(vip_vrm.vv_left0, false);
-				if (vip_regs.vr_intenb & VIP_SBHIT)
-				{
-					static bool ignore_sbhit = false;
-					debug_runtime_errorf(&ignore_sbhit, "SBHIT enabled");
-				}
-				// TODO: SBHIT
 			}
 			else
 			{
@@ -2703,7 +2710,6 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB1 start\n");
 				tk_blit(vip_vrm.vv_left1, false);
-				// TODO: SBHIT
 			}
 		}
 	}
@@ -2723,18 +2729,7 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB1 finish\n");
 			}
-
-			//vip_raise(VIP_LFBEND);
-		}
-	}
-	else if (scanner_usec == 10000)
-	{
-		if (vip_regs.vr_xpstts.vx_xpen)
-		{
-			if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
-				vip_draw_finish(0);
-			else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
-				vip_draw_finish(1);
+			vip_raise(VIP_LFBEND);
 		}
 	}
 	else if (scanner_usec == 12500 && vip_regs.vr_dpstts.vd_synce)
@@ -2747,7 +2742,6 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB0 start\n");
 				tk_blit(vip_vrm.vv_right0, true);
-				// TODO: SBHIT
 			}
 			else
 			{
@@ -2755,7 +2749,6 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB1 start\n");
 				tk_blit(vip_vrm.vv_right1, true);
-				// TODO: SBHIT
 			}
 		}
 	}
@@ -2776,12 +2769,18 @@ vip_step(void)
 					debug_tracef("vip", "Display R:FB1 finish\n");
 			}
 
-			if (vip_regs.vr_intenb & (VIP_LFBEND | VIP_RFBEND))
-				debug_runtime_errorf(NULL, "VIP_LFBEND | VIP_RFBEND enabled");
-			//vip_raise(VIP_RFBEND);
+			vip_raise(VIP_RFBEND);
 			vip_disp_index = (vip_disp_index + 1) % 2;
 			++main_stats.ms_frames;
 		}
+	}
+
+	if (vip_regs.vr_xpstts.vx_xpen && (scanner_usec % 250) == 0)
+	{
+		if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
+			vip_draw_step(0, scanner_usec);
+		else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
+			vip_draw_step(1, scanner_usec);
 	}
 
 	if (scanner_usec == 19999)
@@ -2902,6 +2901,19 @@ vip_test(void)
 	assert(vip_mem_emu2host(0x78000, 2, &perms) == &(vip_vrm.vv_chr0));
 	assert(vip_mem_emu2host(0x7e000, 2, &perms) == &(vip_vrm.vv_chr3));
 #endif // !NDEBUG
+}
+
+void
+vip_toggle_rows(void)
+{
+	if (vip_row_mask == (1 << 28) - 1)
+		vip_row_mask = 1;
+	else
+	{
+		vip_row_mask <<= 1;
+		if (!vip_row_mask)
+			vip_row_mask = (1 << 28) - 1;
+	}
 }
 
 void
@@ -3308,6 +3320,7 @@ bool debug_trace_cpu = false;
 bool debug_trace_cpu_jmp = false;
 bool debug_trace_mem = false;
 bool debug_trace_vip = false;
+u_int16_t debug_vip_intflags = 0;
 bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
