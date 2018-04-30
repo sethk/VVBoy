@@ -65,7 +65,7 @@ void tk_fini(void)
 {
 }
 
-enum tk_error_state
+enum debug_error_state
 tk_runtime_error(const char *msg, bool allow_always_ignore __unused)
 {
 	fprintf(stderr, "\n*** %s\n", msg);

@@ -16,16 +16,15 @@ set(TK_SOURCES tk_sdl.c)
 set(VVBOY_SOURCES vvboy.c)
 set(VVBDIS_SOURCES vvbdis.c tk_null.c)
 set(ALL_SOURCES ${COMMON_SOURCES} ${TK_SOURCES} ${VVBOY_SOURCES} ${VVBDIS_SOURCES})
-set(HEADERS tk.h)
 set(GEN_HEADERS vvboy.h common.h rom.h vvbdis.h)
 add_executable(makeheaders vendor/makeheaders/makeheaders.c)
 target_compile_options(makeheaders PUBLIC -Wno-sign-compare -Wno-unused-parameter -Wno-unused-function
         -Wno-unused-const-variable)
 add_custom_target(GenHeaders
-        COMMAND makeheaders -v ${ALL_SOURCES} ${HEADERS}
+        COMMAND makeheaders -v ${ALL_SOURCES}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         BYPRODUCTS ${GEN_HEADERS}
-        DEPENDS makeheaders ${ALL_SOURCES} ${HEADERS})
+        DEPENDS makeheaders ${ALL_SOURCES})
 
 add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES})
 add_dependencies(vvbdis GenHeaders)

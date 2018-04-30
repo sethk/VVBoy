@@ -2850,6 +2850,26 @@ struct nvc_regs
 		NVC_INTCOM = 3,
 		NVC_INTVIP = 4
 	};
+
+	enum nvc_key
+	{
+		KEY_PWR = (1 << 0),
+		KEY_SGN = (1 << 1),
+		KEY_A = (1 << 2),
+		KEY_B = (1 << 3),
+		KEY_RT = (1 << 4),
+		KEY_LT = (1 << 5),
+		KEY_RU = (1 << 6),
+		KEY_RR = (1 << 7),
+		KEY_LR = (1 << 8),
+		KEY_LL = (1 << 9),
+		KEY_LD = (1 << 10),
+		KEY_LU = (1 << 11),
+		KEY_STA = (1 << 12),
+		KEY_SEL = (1 << 13),
+		KEY_RL = (1 << 14),
+		KEY_RD = (1 << 15)
+	};
 #endif // INTERFACE
 
 static struct nvc_regs nvc_regs;
@@ -3003,7 +3023,7 @@ nvc_step(void)
 u_int16_t nvc_keys;
 
 void
-nvc_input(enum tk_keys key, bool state)
+nvc_input(enum nvc_key key, bool state)
 {
 	// TODO: handle multi-key mask
 	if (state)
@@ -3094,6 +3114,14 @@ nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
 	extern bool debug_trace_vip;
 
 # define DEBUG_ADDR_FMT "%-26s"
+
+	enum debug_error_state
+	{
+		ERROR_IGNORE,
+		ERROR_ALWAYS_IGNORE,
+		ERROR_DEBUG,
+		ERROR_ABORT
+	};
 #endif // INTERFACE
 
 bool debugging = false;

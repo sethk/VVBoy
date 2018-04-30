@@ -316,7 +316,7 @@ tk_fini(void)
     SDL_Quit();
 }
 
-enum tk_error_state
+enum debug_error_state
 tk_runtime_error(const char *msg, bool allow_always_ignore)
 {
 	static const SDL_MessageBoxButtonData all_buttons[] =
@@ -361,5 +361,5 @@ tk_runtime_error(const char *msg, bool allow_always_ignore)
 			};
 	int buttonid;
 	SDL_ShowMessageBox(&data, &buttonid);
-	return (enum tk_error_state)buttonid;
+	return (enum debug_error_state)buttonid;
 }
