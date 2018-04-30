@@ -2366,12 +2366,21 @@ vip_fb_read_argb_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 }
 
 u_int8_t
-vip_bgsc_read_slow(struct vip_bgsc *vb, u_int chr_x, u_int chr_y)
+vip_bgsc_read_slow(struct vip_bgsc *vb, u_int chr_x, u_int chr_y, bool *opaquep)
 {
 	struct vip_chr *vc = vip_chr_find_slow(vb->vb_chrno);
 	u_int8_t pixel = vip_chr_read_slow(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
-	u_int8_t plt = vip_regs.vr_gplt[vb->vb_gplts];
-	return (plt >> pixel) & 0b11;
+	if (pixel)
+	{
+		*opaquep = true;
+		u_int8_t plt = vip_regs.vr_gplt[vb->vb_gplts];
+		return (plt >> (pixel << 1)) & 0b11;
+	}
+	else
+	{
+		*opaquep = false;
+		return 0;
+	}
 }
 
 void
@@ -2688,6 +2697,7 @@ vip_test(void)
 	assert(vip_mem_emu2host(0x3e000, 8, &perms) == &(vip_dram.vd_oam));
 	assert(vip_mem_emu2host(0x5f800, 2, &perms) == &(vip_regs.vr_intpnd));
 	assert(vip_mem_emu2host(0x5f820, 2, &perms) == &(vip_regs.vr_dpstts));
+	assert(vip_mem_emu2host(0x5f866, 2, &perms) == &(vip_regs.vr_gplt[3]));
 	assert(vip_mem_emu2host(0x5f870, 2, &perms) == &(vip_regs.vr_bkcol));
 	assert(vip_mem_emu2host(0x78000, 2, &perms) == &(vip_vrm.vv_chr0));
 	assert(vip_mem_emu2host(0x7e000, 2, &perms) == &(vip_vrm.vv_chr3));
@@ -4017,7 +4027,7 @@ static const struct debug_help
 				{'i', "", "Show CPU info (aliases: info)"},
 				{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
 						          "\t\tFormats: h (hex), i (instructions), b (binary), a (address), C (VIP CHR),"
-				                                             " O (VIP OAM), B (VIP BGSC)\n"
+				                                             " O (VIP OAM), B (VIP BGSC), T (Scanner Column Table)\n"
 						          "\t\t\tW (VIP WORLD_ATT)\n"
 						          "\t\tSizes: b (byte), h (half-word), w (word)\n"
 						          "\t\tAddresses can be numeric or [<reg#>], <offset>[<reg#>], <sym>, <sym>+<offset>"},
@@ -4484,7 +4494,7 @@ debug_step(void)
 						for (u_int objIndex = 0; objIndex < count; ++objIndex)
 						{
 							debug_str_t addr_s;
-							printf("%s:", debug_format_addr(addr, addr_s));
+							printf("%s: ", debug_format_addr(addr, addr_s));
 							if (format[0] == 'h' && strlen(format) <= 2)
 							{
 								u_int value;
@@ -4560,6 +4570,26 @@ debug_step(void)
 								debug_format_world_att(buf, sizeof(buf), &att);
 								fputs(buf, stdout);
 								addr+= sizeof(att);
+							}
+							else if (!strcmp(format, "T"))
+							{
+								struct vip_ctc ctc;
+								if (!debug_mem_read(addr, &ctc, sizeof(ctc)))
+									break;
+								printf("REPEAT: %hhu, LENGTH: %hhu\n", ctc.vc_repeat, ctc.vc_length);
+								addr+= sizeof(ctc);
+							}
+							else if (!strcmp(format, "P"))
+							{
+								u_int16_t plt;
+								if (!debug_mem_read(addr, &plt, sizeof(plt)))
+									break;
+								debug_str_t b01_s, b10_s, b11_s;
+								printf("0b01 = %s, 0b10 = %s, 0b11 = %s\n",
+								       debug_format_binary((plt >> 2) & 0b11, 2, b01_s),
+								       debug_format_binary((plt >> 4) & 0b11, 2, b10_s),
+								       debug_format_binary((plt >> 6) & 0b11, 2, b11_s));
+								addr+= sizeof(plt);
 							}
 							else
 							{
@@ -4800,9 +4830,12 @@ debug_step(void)
 							{
 								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-										debug_draw(bg_x * 8 + chr_x,
-										           bg_y * 8 + chr_y,
-										           vip_bgsc_read_slow(vb, chr_x, chr_y));
+									{
+										bool opaque;
+										u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
+										if (opaque)
+											debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
+									}
 								++vb;
 							}
 						tk_debug_flip();

@@ -53,7 +53,8 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base,
                struct vip_world_att *vwa,
                u_int win_x, u_int win_y,
                bool right,
-               union vip_params *vp)
+               union vip_params *vp,
+               bool *opaquep)
 {
 	int x, y;
 	if ((enum vip_world_bgm)vwa->vwa_bgm == WORLD_BGM_AFFINE)
@@ -98,7 +99,7 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base,
 	else
 		vb = &(bgmap_base[(bg_y % height_chrs) * width_chrs + (bg_x % width_chrs)]);
 
-	return vip_bgsc_read_slow(vb, chr_x, chr_y);
+	return vip_bgsc_read_slow(vb, chr_x, chr_y, opaquep);
 }
 
 static void
@@ -169,7 +170,7 @@ vip_draw_finish(u_int fb_index)
 						u_int8_t pixel = vip_chr_read_slow(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
 						if (pixel)
 						{
-							pixel = (plt >> pixel) & 0b11;
+							pixel = (plt >> (pixel << 1)) & 0b11;
 							if (obj->vo_jlon)
 								vip_fb_write(left_fb, scr_l_x + chr_x, obj->vo_jy + chr_y, pixel);
 							if (obj->vo_jron)
@@ -201,14 +202,16 @@ vip_draw_finish(u_int fb_index)
 				{
 					if (vwa->vwa_lon)
 					{
-						u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, win_x, win_y, false, params);
-						if (pixel)
+						bool opaque;
+						u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, win_x, win_y, false, params, &opaque);
+						if (opaque)
 							vip_fb_write(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
 					}
 					if (vwa->vwa_ron)
 					{
-						u_int8_t pixel =  vip_bgmap_read(bgmap_base, vwa, win_x, win_y, true, params);
-						if (pixel)
+						bool opaque;
+						u_int8_t pixel =  vip_bgmap_read(bgmap_base, vwa, win_x, win_y, true, params, &opaque);
+						if (opaque)
 							vip_fb_write(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
 					}
 				}
