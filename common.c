@@ -976,7 +976,9 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 static bool
 cpu_exec(const union cpu_inst inst)
 {
+#ifndef NDEBUG
 	u_int32_t old_pc = cpu_state.cs_pc;
+#endif // !NDEBUG
 
 	switch (inst.ci_i.i_opcode)
 	{
@@ -2855,8 +2857,10 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 				break;
 		}
 
+#ifndef NDEBUG
 		u_int16_t *regp = (u_int16_t *)&vip_regs + reg_num;
 		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (addr & 0x7e)));
+#endif // !NDEBUG
 
 		return (u_int8_t *)&vip_regs + (addr & 0x7e);
 	}
