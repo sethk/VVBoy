@@ -17,6 +17,11 @@ tk_init(void)
 	return true;
 }
 
+void
+tk_update_caption(const char *caption __unused)
+{
+}
+
 u_int32_t
 tk_get_ticks(void)
 {

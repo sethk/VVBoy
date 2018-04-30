@@ -53,6 +53,8 @@ main(int ac, char * const *av)
 	if (!main_init())
 		return EX_OSERR;
 
+	main_update_caption(NULL);
+
 	main_reset();
 
 	if (self_test)

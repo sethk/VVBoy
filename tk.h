@@ -30,6 +30,7 @@ enum tk_error_state
 };
 
 extern bool tk_init(void);
+extern void tk_update_caption(const char *caption);
 extern u_int32_t tk_get_ticks(void);
 extern void tk_delay(u_int ticks);
 extern void tk_main(void);

@@ -5165,18 +5165,29 @@ main_fini(void)
 	sram_fini();
 }
 
+void
+main_update_caption(const char *stats)
+{
+	char caption[100];
+	snprintf(caption, sizeof(caption), (stats) ? "%s: %s [%s]" : "%s: %s", "VVBoy", rom_name, stats);
+	tk_update_caption(caption);
+}
+
 static void
 main_restart_clock(void)
 {
 	u_int32_t ticks = tk_get_ticks();
 	if (main_stats.ms_insts > 0)
 	{
+		char stats_s[100];
 		u_int32_t delta = ticks - main_stats.ms_start_ticks;
 		float fps = (float)main_stats.ms_frames / ((float)delta / 1000);
 		debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts\n",
 		             main_stats.ms_frames, delta, fps,
 		             main_stats.ms_insts,
 		             main_stats.ms_intrs);
+		snprintf(stats_s, sizeof(stats_s), "%.3g EMU FPS", fps);
+		main_update_caption(stats_s);
 	}
 
 	main_stats.ms_start_ticks = ticks;

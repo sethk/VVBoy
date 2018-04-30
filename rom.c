@@ -13,13 +13,15 @@
 #include "rom.h"
 
 #if INTERFACE
-enum isx_symbol_type
+	enum isx_symbol_type
 	{
 		ISX_SYMBOL_CONST = 0,
 		ISX_SYMBOL_POINTER = 16,
 		ISX_SYMBOL_END = 214
 	};
 #endif // INTERFACE
+
+char *rom_name = NULL;
 
 #define ROM_BASE_ADDR 0x07000000
 #define ROM_MIN_SIZE 1024lu
@@ -351,6 +353,11 @@ rom_load(const char *fn)
 	else if (errno != ENOENT)
 		warn("Could not open symbol file %s", rom_symbol_fn);
 
+	const char *sep = strrchr(fn, '/');
+	const char *name = (sep) ? sep + 1 : fn;
+	size_t name_len = (ext) ? ext - name : strlen(name);
+	rom_name = strndup(name, name_len);
+
 	debug_add_syms();
 
 	return status;
@@ -379,6 +386,9 @@ rom_unload(void)
 		fclose(rom_symbol_fp);
 	if (rom_symbol_fn)
 		free(rom_symbol_fn);
+
+	if (rom_name)
+		free(rom_name);
 
 	debug_clear_syms();
 }
