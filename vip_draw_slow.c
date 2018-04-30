@@ -160,6 +160,7 @@ vip_draw_finish(u_int fb_index)
 				if ((vip_world_mask & (1 << world_index)) == 0)
 					continue;
 
+				u_int8_t plt = vip_regs.vr_jplt[obj->vo_jplts];
 				int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
 				struct vip_chr *vc = vip_chr_find_slow(obj->vo_jca);
 				for (u_int chr_x = 0; chr_x < 8; ++chr_x)
@@ -168,13 +169,13 @@ vip_draw_finish(u_int fb_index)
 						u_int8_t pixel = vip_chr_read_slow(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
 						if (pixel)
 						{
+							pixel = (plt >> pixel) & 0b11;
 							if (obj->vo_jlon)
 								vip_fb_write(left_fb, scr_l_x + chr_x, obj->vo_jy + chr_y, pixel);
 							if (obj->vo_jron)
 								vip_fb_write(right_fb, scr_r_x + chr_x, obj->vo_jy + chr_y, pixel);
 						}
 					}
-				// TODO PLTS
 			}
 			--obj_group;
 		}

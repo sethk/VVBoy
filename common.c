@@ -2369,7 +2369,9 @@ u_int8_t
 vip_bgsc_read_slow(struct vip_bgsc *vb, u_int chr_x, u_int chr_y)
 {
 	struct vip_chr *vc = vip_chr_find_slow(vb->vb_chrno);
-	return vip_chr_read_slow(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
+	u_int8_t pixel = vip_chr_read_slow(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
+	u_int8_t plt = vip_regs.vr_gplt[vb->vb_gplts];
+	return (plt >> pixel) & 0b11;
 }
 
 void
