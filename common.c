@@ -2085,6 +2085,12 @@ cpu_intr(enum nvc_intlevel level)
 		struct vip_affine vp_affine;
 	};
 
+	struct vip_ctc
+	{
+		u_int8_t vc_length;
+		u_int8_t vc_repeat;
+	};
+
 	struct vip_dram
 	{
 		union
@@ -2093,7 +2099,8 @@ cpu_intr(enum nvc_intlevel level)
 			u_int16_t s_param_tbl[0xec00];
 		} vd_shared;
 		struct vip_world_att vd_world_atts[32];
-		u_int8_t vd_clm_tbl[0x400];
+		struct vip_ctc vd_left_clm_tbl[256];
+		struct vip_ctc vd_right_clm_tbl[256];
 		struct vip_oam vd_oam[1024];
 	};
 #endif // INTERFACE
@@ -2172,6 +2179,9 @@ struct vip_dram vip_dram;
 		u_int16_t vr_jplt[4];
 		u_int16_t vr_bkcol;
 	};
+
+#   define VIP_MAX_BRIGHT (212)
+
 #endif // INTERFACE
 
 static const enum vip_intflag vip_dpints =
@@ -2332,15 +2342,13 @@ vip_fb_read_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 }
 
 u_int32_t
-vip_fb_read_argb_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
+vip_fb_read_argb_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t repeat)
 {
-	// TODO: Read column table
+	assert(repeat == 0);
 	u_int8_t pixel = vip_fb_read_slow(fb, x, y);
-	u_int8_t intensity = 0;
+	u_int32_t intensity = 0;
 	if (vip_use_bright)
 	{
-		//u_int8_t total = vip_regs.vr_brta + vip_regs.vr_brtb + vip_regs.vr_brtc + vip_regs.vr_rest + 5;
-		//u_int8_t repeat;
 		switch (pixel)
 		{
 			case 3:
@@ -2358,6 +2366,8 @@ vip_fb_read_argb_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 			case 0:
 				break;
 		}
+		intensity = (intensity * (repeat + 1) * 256) / VIP_MAX_BRIGHT;
+		assert(intensity <= 0xff);
 	}
 	else // For debugging
 		intensity = pixel | (pixel << 2) | (pixel << 4) | (pixel << 6);
@@ -2440,9 +2450,10 @@ vip_scan_out(u_int fb_index, bool right)
 		fb = (right) ? vip_vrm.vv_right0 : vip_vrm.vv_left0;
 	else
 		fb = (right) ? vip_vrm.vv_right1 : vip_vrm.vv_left1;
+	const struct vip_ctc *ctcs = (right) ? vip_dram.vd_right_clm_tbl : vip_dram.vd_left_clm_tbl;
 
 	u_int32_t argb[384 * 224];
-	vip_fb_convert(fb, argb);
+	vip_fb_convert(fb, ctcs, argb);
 	tk_blit(argb, right);
 }
 

@@ -239,10 +239,12 @@ vip_draw_step(u_int fb_index, u_int scanner_usec)
 }
 
 void
-vip_fb_convert(const u_int8_t *fb, u_int32_t *argb)
+vip_fb_convert(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t *argb)
 {
-	for (u_int y = 0; y < 224; ++y)
-		for (u_int x = 0; x < 384; ++x)
-			argb[y * 384 + x] = vip_fb_read_argb_slow(fb, x, y);
-
+	for (u_int x = 0; x < 384; ++x)
+	{
+		const struct vip_ctc *ctc = &(clm_tbl[17 + x / 4]);
+		for (u_int y = 0; y < 224; ++y)
+			argb[y * 384 + x] = vip_fb_read_argb_slow(fb, x, y, ctc->vc_repeat);
+	}
 }
