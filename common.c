@@ -1983,27 +1983,25 @@ cpu_intr(enum nvc_intlevel level)
 }
 
 /* VIP */
-struct vip_chr
-{
-	u_int16_t vc_rows[8];
-};
-
-struct vip_vrm
-{
-	u_int8_t vv_left0[0x6000];
-	struct vip_chr vv_chr0[512];
-	u_int8_t vv_left1[0x6000];
-	struct vip_chr vv_chr1[512];
-	u_int8_t vv_right0[0x6000];
-	struct vip_chr vv_chr2[512];
-	u_int8_t vv_right1[0x6000];
-	struct vip_chr vv_chr3[512];
-};
-
-static struct vip_vrm vip_vrm;
-
 #if INTERFACE
-struct vip_bgsc
+	struct vip_chr
+	{
+		u_int16_t vc_rows[8];
+	};
+
+	struct vip_vrm
+	{
+		u_int8_t vv_left0[0x6000];
+		struct vip_chr vv_chr0[512];
+		u_int8_t vv_left1[0x6000];
+		struct vip_chr vv_chr1[512];
+		u_int8_t vv_right0[0x6000];
+		struct vip_chr vv_chr2[512];
+		u_int8_t vv_right1[0x6000];
+		struct vip_chr vv_chr3[512];
+	};
+
+	struct vip_bgsc
 	{
 		unsigned vb_chrno : 11 __attribute__((packed));
 		unsigned vb_rfu1 : 1 __attribute__((packed));
@@ -2011,6 +2009,11 @@ struct vip_bgsc
 		unsigned vb_bhflp : 1 __attribute__((packed));
 		unsigned vb_gplts : 2 __attribute__((packed));
 	};
+
+#   define vip_bgseg_width (64)
+#   define vip_bgseg_height (64)
+
+	typedef struct vip_bgsc vip_bgseg_t[vip_bgseg_width * vip_bgseg_height];
 
 	struct vip_oam
 	{
@@ -2025,22 +2028,17 @@ struct vip_bgsc
 		unsigned vo_jhflp : 1 __attribute__((packed));
 		unsigned vo_jplts : 2 __attribute__((packed));
 	};
-#endif // INTERFACE
 
-static const u_int vip_bgseg_width = 64, vip_bgseg_height = 64;
-typedef struct vip_bgsc vip_bgseg_t[vip_bgseg_width * vip_bgseg_height];
+	struct vip_affine
+	{
+		int16_t va_mx;
+		int16_t va_mp;
+		int16_t va_my;
+		int16_t va_dx;
+		int16_t va_dy;
+		u_int16_t va_rfu[3];
+	};
 
-struct vip_affine
-{
-	int16_t va_mx;
-	int16_t va_mp;
-	int16_t va_my;
-	int16_t va_dx;
-	int16_t va_dy;
-	u_int16_t va_rfu[3];
-};
-
-#if INTERFACE
 	enum vip_world_bgm
 	{
 		WORLD_BGM_NORMAL = 0b00,
@@ -2070,34 +2068,37 @@ struct vip_affine
 		u_int16_t vwa_h;
 		u_int16_t vwa_param_base;
 		u_int16_t vwa_over_chrno;
-		u_int16_t vwa_reserved[5];
+		u_int16_t vwa_max_scr_y;
+		u_int16_t vwa_first_obj;
+		u_int16_t vwa_last_obj;
+		u_int16_t vwa_reserved[2];
+	};
+
+	struct vip_hbias
+	{
+		int16_t vh_hofstl, vh_hofstr;
+	};
+
+	union vip_params
+	{
+		struct vip_hbias vp_hbias;
+		struct vip_affine vp_affine;
+	};
+
+	struct vip_dram
+	{
+		union
+		{
+			vip_bgseg_t s_bgsegs[14];
+			u_int16_t s_param_tbl[0xec00];
+		} vd_shared;
+		struct vip_world_att vd_world_atts[32];
+		u_int8_t vd_clm_tbl[0x400];
+		struct vip_oam vd_oam[1024];
 	};
 #endif // INTERFACE
 
-struct vip_hbias
-{
-	int16_t vh_hofstl, vh_hofstr;
-};
-
-union vip_params
-{
-	struct vip_hbias vp_hbias;
-	struct vip_affine vp_affine;
-};
-
-struct vip_dram
-{
-	union
-	{
-		vip_bgseg_t s_bgsegs[14];
-		u_int16_t s_param_tbl[0xec00];
-	} vd_shared;
-	struct vip_world_att vd_world_atts[32];
-	u_int8_t vd_clm_tbl[0x400];
-	struct vip_oam vd_oam[1024];
-};
-
-static struct vip_dram vip_dram;
+struct vip_dram vip_dram;
 
 #if INTERFACE
 	enum vip_intflag
@@ -2111,77 +2112,79 @@ static struct vip_dram vip_dram;
 		VIP_XPEND = (1 << 14),
 		VIP_TIMEERR = (1 << 15)
 	};
+
+	struct vip_dpctrl
+	{
+		unsigned vd_dprst: 1 __attribute__((packed));
+		unsigned vd_disp : 1 __attribute__((packed));
+		unsigned vd_dpbsy_l_fb0 : 1 __attribute__((packed));
+		unsigned vd_dpbsy_r_fb0 : 1 __attribute__((packed));
+		unsigned vd_dpbsy_l_fb1 : 1 __attribute__((packed));
+		unsigned vd_dpbsy_r_fb1 : 1 __attribute__((packed));
+		unsigned vd_scanrdy : 1 __attribute__((packed));
+		unsigned vd_fclk : 1 __attribute__((packed));
+		unsigned vd_re : 1 __attribute__((packed));
+		unsigned vd_synce : 1 __attribute__((packed));
+		unsigned vd_lock : 1 __attribute__((packed));
+		unsigned vd_unused : 5 __attribute__((packed));
+	};
+
+	struct vip_xpctrl
+	{
+		unsigned vx_xprst : 1 __attribute__((packed));
+		unsigned vx_xpen : 1 __attribute__((packed));
+		unsigned vx_xpbsy_fb0 : 1 __attribute__((packed));
+		unsigned vx_xpbsy_fb1 : 1 __attribute__((packed));
+		unsigned vx_overtime : 1 __attribute__((packed));
+		unsigned vx_unused : 3 __attribute__((packed));
+		unsigned vx_sbcount : 5 __attribute__((packed)); // AKA sbcmp
+		unsigned vx_unused2 : 2 __attribute__((packed));
+		unsigned vx_sbout : 1 __attribute__((packed));
+	};
+
+	struct vip_regs
+	{
+		u_int16_t vr_intpnd;
+		u_int16_t vr_intenb;
+		u_int16_t vr_intclr;
+		u_int16_t vr_rfu1[13];
+		struct vip_dpctrl vr_dpstts;
+		struct vip_dpctrl vr_dpctrl;
+		u_int8_t vr_brta;
+		u_int8_t vr_rfu2;
+		u_int8_t vr_brtb;
+		u_int8_t vr_rfu3;
+		u_int8_t vr_brtc;
+		u_int8_t vr_rfu4;
+		u_int8_t vr_rest;
+		u_int8_t vr_rfu5;
+		u_int16_t vr_frmcyc;
+		u_int16_t vr_undef2;
+		u_int16_t vr_cta;
+		u_int16_t vr_undef3[7];
+		struct vip_xpctrl vr_xpstts;
+		struct vip_xpctrl vr_xpctrl;
+		u_int16_t vr_ver;
+		u_int16_t vr_undef4;
+		u_int16_t vr_spt[4];
+		u_int16_t vr_undef5[8];
+		u_int16_t vr_gplt[4];
+		u_int16_t vr_jplt[4];
+		u_int16_t vr_bkcol;
+	};
 #endif // INTERFACE
 
 static const enum vip_intflag vip_dpints =
 		VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
 static const enum vip_intflag vip_xpints = VIP_SBHIT | VIP_XPEND | VIP_TIMEERR;
 
-struct vip_dpctrl
-{
-	unsigned vd_dprst: 1;
-	unsigned vd_disp : 1;
-	unsigned vd_dpbsy_l_fb0 : 1;
-	unsigned vd_dpbsy_r_fb0 : 1;
-	unsigned vd_dpbsy_l_fb1 : 1;
-	unsigned vd_dpbsy_r_fb1 : 1;
-	unsigned vd_scanrdy : 1;
-	unsigned vd_fclk : 1;
-	unsigned vd_re : 1;
-	unsigned vd_synce : 1;
-	unsigned vd_lock : 1;
-	unsigned vd_unused : 5;
-} __attribute__((packed));
+struct vip_vrm vip_vrm;
+struct vip_regs vip_regs;
+u_int32_t vip_row_mask = (1 << 28) - 1;
+u_int32_t vip_world_mask = ~0;
 
-struct vip_xpctrl
-{
-	unsigned vx_xprst : 1;
-	unsigned vx_xpen : 1;
-	unsigned vx_xpbsy_fb0 : 1;
-	unsigned vx_xpbsy_fb1 : 1;
-	unsigned vx_overtime : 1;
-	unsigned vx_unused : 3;
-	unsigned vx_sbcount : 5; // AKA sbcmp
-	unsigned vx_unused2 : 2;
-	unsigned vx_sbout : 1;
-} __attribute__((packed));
-
-struct vip_regs
-{
-	u_int16_t vr_intpnd;
-	u_int16_t vr_intenb;
-	u_int16_t vr_intclr;
-	u_int16_t vr_rfu1[13];
-	struct vip_dpctrl vr_dpstts;
-	struct vip_dpctrl vr_dpctrl;
-	u_int8_t vr_brta;
-	u_int8_t vr_rfu2;
-	u_int8_t vr_brtb;
-	u_int8_t vr_rfu3;
-	u_int8_t vr_brtc;
-	u_int8_t vr_rfu4;
-	u_int8_t vr_rest;
-	u_int8_t vr_rfu5;
-	u_int16_t vr_frmcyc;
-	u_int16_t vr_undef2;
-	u_int16_t vr_cta;
-	u_int16_t vr_undef3[7];
-	struct vip_xpctrl vr_xpstts;
-	struct vip_xpctrl vr_xpctrl;
-	u_int16_t vr_ver;
-	u_int16_t vr_undef4;
-	u_int16_t vr_spt[4];
-	u_int16_t vr_undef5[8];
-	u_int16_t vr_gplt[4];
-	u_int16_t vr_jplt[4];
-	u_int16_t vr_bkcol;
-};
-
-static struct vip_regs vip_regs;
 static u_int vip_disp_index = 0;
 static u_int vip_frame_cycles = 0;
-static u_int32_t vip_row_mask = (1 << 28) - 1;
-static u_int32_t vip_world_mask = ~0;
 bool vip_use_bright = true;
 
 bool
@@ -2242,7 +2245,7 @@ vip_reset(void)
 	// TODO: set initial reg states
 }
 
-static void
+void
 vip_raise(enum vip_intflag intflag)
 {
 	vip_regs.vr_intpnd|= intflag;
@@ -2290,8 +2293,8 @@ vip_clear_finish(u_int fb_index)
 	}
 }
 
-static struct vip_chr *
-vip_chr_find(u_int chrno)
+struct vip_chr *
+vip_chr_find_slow(u_int chrno)
 {
 	if (chrno < 512)
 		return &(vip_vrm.vv_chr0[chrno]);
@@ -2308,8 +2311,8 @@ vip_chr_find(u_int chrno)
 	}
 }
 
-static u_int8_t
-vip_chr_read(const struct vip_chr *vc, u_int x, u_int y, bool hflip, bool vflip)
+u_int8_t
+vip_chr_read_slow(const struct vip_chr *vc, u_int x, u_int y, bool hflip, bool vflip)
 {
 	assert(x < 8);
 	assert(y < 8);
@@ -2321,7 +2324,7 @@ vip_chr_read(const struct vip_chr *vc, u_int x, u_int y, bool hflip, bool vflip)
 }
 
 u_int8_t
-vip_fb_read(const u_int8_t *fb, u_int16_t x, u_int16_t y)
+vip_fb_read_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 {
 	u_int offset = x * 224 + y;
 	u_int shift = (offset % 4) * 2;
@@ -2332,7 +2335,7 @@ u_int32_t
 vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 {
 	// TODO: Read column table
-	u_int8_t pixel = vip_fb_read(fb, x, y);
+	u_int8_t pixel = vip_fb_read_slow(fb, x, y);
 	u_int8_t intensity = 0;
 	if (vip_use_bright)
 	{
@@ -2362,229 +2365,11 @@ vip_fb_read_argb(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 	return 0xff000000 | (intensity << 16) | (intensity << 8) | intensity;
 }
 
-void
-vip_fb_write(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
+u_int8_t
+vip_bgsc_read_slow(struct vip_bgsc *vb, u_int chr_x, u_int chr_y)
 {
-	if (x < 384 && y < 224)
-	{
-		u_int offset = x * 224 + y;
-		u_int shift = (offset % 4) * 2;
-		u_int8_t mask = ~(0b11 << shift);
-		fb[offset / 4] = (fb[offset / 4] & mask) | (value << shift);
-	}
-}
-
-static void
-vip_draw_start(u_int fb_index)
-{
-	u_int8_t *left_fb, *right_fb;
-
-	if (debug_trace_vip)
-		debug_tracef("vip", "Draw FB%u start\n", fb_index);
-
-	if (fb_index == 0)
-	{
-		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
-		left_fb = vip_vrm.vv_left0;
-		right_fb = vip_vrm.vv_right0;
-	}
-	else
-	{
-		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
-		left_fb = vip_vrm.vv_left1;
-		right_fb = vip_vrm.vv_right1;
-	}
-
-	u_int8_t bg_pixel = vip_regs.vr_bkcol & 0b11;
-	bg_pixel|= bg_pixel << 2;
-	bg_pixel|= bg_pixel << 4;
-	memset(left_fb, bg_pixel, sizeof(vip_vrm.vv_left0));
-	memset(right_fb, bg_pixel, sizeof(vip_vrm.vv_right0));
-}
-
-static u_int8_t
-vip_bgsc_read(struct vip_bgsc *vb, u_int chr_x, u_int chr_y)
-{
-	struct vip_chr *vc = vip_chr_find(vb->vb_chrno);
-	return vip_chr_read(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
-}
-
-static u_int8_t
-vip_bgmap_read(struct vip_bgsc *bgmap_base,
-               struct vip_world_att *vwa,
-               u_int win_x, u_int win_y,
-               bool right,
-               union vip_params *vp)
-{
-	int x, y;
-	if (vwa->vwa_bgm == WORLD_BGM_AFFINE)
-	{
-		float mx = (float)vp->vp_affine.va_mx / (1 << 3);
-		float my = (float)vp->vp_affine.va_my / (1 << 3);
-		float dx = (float)vp->vp_affine.va_dx / (1 << 9);
-		float dy = (float)vp->vp_affine.va_dy / (1 << 9);
-		int bias_x = win_x;
-		//assert(vp->vp_affine.va_mp > -256 && vp->vp_affine.va_mp < 255);
-		if ((vp->vp_affine.va_mp >= 0) == right)
-			bias_x+= vp->vp_affine.va_mp;
-		x = (int)lroundf(mx + dx * bias_x);
-		y = (int)lroundf(my + dy * bias_x);
-	}
-	else
-	{
-		if (right)
-			x = vwa->vwa_mx + vwa->vwa_mp + win_x;
-		else
-			x = vwa->vwa_mx - vwa->vwa_mp + win_x;
-		y = vwa->vwa_my + win_y;
-
-		if (vwa->vwa_bgm == WORLD_BGM_H_BIAS)
-		{
-			if (right)
-				x += vp->vp_hbias.vh_hofstr;
-			else
-				x += vp->vp_hbias.vh_hofstl;
-		}
-	}
-
-	u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width,
-			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
-	int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8;
-	u_int chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
-	struct vip_bgsc *vb;
-	if (bg_x >= 0 && (u_int)bg_x < width_chrs && bg_y >= 0 && (u_int)bg_y < height_chrs)
-		vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
-	else if (vwa->vwa_over)
-		vb = &(bgmap_base[vwa->vwa_over_chrno]);
-	else
-		vb = &(bgmap_base[(bg_y % height_chrs) * width_chrs + (bg_x % width_chrs)]);
-
-	return vip_bgsc_read(vb, chr_x, chr_y);
-}
-
-static void
-vip_draw_finish(u_int fb_index)
-{
-	assert(fb_index <= 1);
-
-	u_int8_t *left_fb = (fb_index) ? vip_vrm.vv_left1 : vip_vrm.vv_left0;
-	u_int8_t *right_fb = (fb_index) ? vip_vrm.vv_right1 : vip_vrm.vv_right0;
-
-	int obj_group = 3;
-	u_int world_index = 31;
-	do
-	{
-		struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
-
-		if (debug_trace_vip)
-		{
-			char buf[1024];
-			debug_format_world_att(buf, sizeof(buf), vwa);
-			debug_tracef("vip", "WORLD_ATT[%u]: %s", world_index, buf);
-		}
-
-		if (vwa->vwa_end)
-			break;
-
-		if (!vwa->vwa_lon && !vwa->vwa_ron)
-			continue;
-
-		if (vwa->vwa_bgm == WORLD_BGM_OBJ)
-		{
-			if (obj_group < 0)
-			{
-				debug_runtime_errorf(NULL, "VIP already searched 4 OBJ groups for worlds");
-				break;
-			}
-
-			int start_index;
-			if (obj_group > 0)
-				start_index = (vip_regs.vr_spt[obj_group - 1] + 1) & 0x3ff;
-			else
-				start_index = 0;
-
-			for (int obj_index = vip_regs.vr_spt[obj_group] & 0x3ff; obj_index >= start_index; --obj_index)
-			{
-				assert(obj_index >= 0 && obj_index < 1024);
-				struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
-
-				if (debug_trace_vip)
-				{
-					debug_str_t oamstr;
-					debug_format_oam(oamstr, obj);
-					debug_tracef("vip", "OBJ[%u]: %s\n", obj->vo_jca, oamstr);
-				}
-
-				if (!obj->vo_jlon && !obj->vo_jron)
-					continue;
-
-				if ((vip_world_mask & (1 << world_index)) == 0)
-					continue;
-
-				int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
-				struct vip_chr *vc = vip_chr_find(obj->vo_jca);
-				for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-					for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-					{
-						u_int8_t pixel = vip_chr_read(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
-						if (pixel)
-						{
-							if (obj->vo_jlon)
-								vip_fb_write(left_fb, scr_l_x + chr_x, obj->vo_jy + chr_y, pixel);
-							if (obj->vo_jron)
-								vip_fb_write(right_fb, scr_r_x + chr_x, obj->vo_jy + chr_y, pixel);
-						}
-					}
-				// TODO PLTS
-			}
-			--obj_group;
-		}
-		else
-		{
-			if ((vip_world_mask & (1 << world_index)) == 0)
-				continue;
-
-			u_int16_t *param_tbl;
-			if (vwa->vwa_bgm == WORLD_BGM_H_BIAS || vwa->vwa_bgm == WORLD_BGM_AFFINE)
-				param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
-
-			struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
-			for (u_int win_y = 0; win_y <= vwa->vwa_h; ++win_y)
-			{
-				union vip_params *params;
-				if (vwa->vwa_bgm == WORLD_BGM_H_BIAS)
-					params = (union vip_params *)((struct vip_hbias *)param_tbl + win_y);
-				else if (vwa->vwa_bgm == WORLD_BGM_AFFINE)
-					params = (union vip_params *)((struct vip_affine *)param_tbl + win_y);
-
-				for (u_int win_x = 0; win_x <= vwa->vwa_w; ++win_x)
-				{
-					if (vwa->vwa_lon)
-					{
-						u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, win_x, win_y, false, params);
-						if (pixel)
-							vip_fb_write(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
-					}
-					if (vwa->vwa_ron)
-					{
-						u_int8_t pixel =  vip_bgmap_read(bgmap_base, vwa, win_x, win_y, true, params);
-						if (pixel)
-							vip_fb_write(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
-					}
-				}
-			}
-		}
-	} while (--world_index > 0);
-
-	if (debug_trace_vip)
-		debug_tracef("vip", "Draw FB%u finish\n", fb_index);
-
-	if (fb_index == 0)
-		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
-	else
-		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
-
-	vip_raise(VIP_XPEND);
+	struct vip_chr *vc = vip_chr_find_slow(vb->vb_chrno);
+	return vip_chr_read_slow(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
 }
 
 void
@@ -2634,14 +2419,6 @@ vip_frame_clock(void)
 		vip_frame_cycles++;
 
 	vip_raise(intflags);
-}
-
-static void
-vip_draw_step(u_int fb_index, u_int scanner_usec)
-{
-	// Slow path does everything at the end
-	if (scanner_usec == 10000)
-		vip_draw_finish(fb_index);
 }
 
 void
@@ -2885,7 +2662,7 @@ vip_test(void)
 	static_assert(sizeof(vip_dram) == 0x20000, "sizeof(vip_dram) should be 0x20000");
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
-	mem_test_size("vip_world_att", sizeof(vip_world_att), 32);
+	mem_test_size("vip_world_att", sizeof(struct vip_world_att), 32);
 #ifndef NDEBUG
 	int perms;
 	mem_test_addr("world_att[1]",
@@ -3562,7 +3339,7 @@ debug_destroy_symbol(struct debug_symbol *debug_sym)
 struct debug_disasm_context *
 debug_current_context(void)
 {
-	static debug_disasm_context context;
+	static struct debug_disasm_context context;
 	bcopy(cpu_state.cs_r, context.ddc_regs, sizeof(cpu_state.cs_r));
 	context.ddc_regmask = DEBUG_REGMASK_ALL;
 	return &context;
@@ -4981,14 +4758,16 @@ debug_step(void)
 							{
 								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-										debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, vip_bgsc_read(vb, chr_x, chr_y));
+										debug_draw(bg_x * 8 + chr_x,
+										           bg_y * 8 + chr_y,
+										           vip_bgsc_read_slow(vb, chr_x, chr_y));
 								++vb;
 							}
 						tk_debug_flip();
 					}
 					else if (!strcmp(argv[1], "CHR"))
 					{
-						struct vip_chr *vc;
+						const struct vip_chr *vc;
 						switch (atoi(argv[2]))
 						{
 							case 0:
@@ -5010,7 +4789,7 @@ debug_step(void)
 								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
 										debug_draw(x * 8 + chr_x, y * 8 + chr_y,
-										           vip_chr_read(vc, chr_x, chr_y, false, false));
+										           vip_chr_read_slow(vc, chr_x, chr_y, false, false));
 								++vc;
 							}
 						tk_debug_flip();
