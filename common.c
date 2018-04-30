@@ -3078,10 +3078,14 @@ struct nvc_regs
 static struct nvc_regs nvc_regs;
 static u_int nvc_next_tick;
 static u_int nvc_timer_frac;
+static u_int nvc_inst_per_usec = CPU_INST_PER_USEC;
 
 bool
 nvc_init(void)
 {
+	if (getenv("INST_PER_USEC"))
+		nvc_inst_per_usec = atoi(getenv("INST_PER_USEC"));
+
 	return cpu_init();
 }
 
@@ -3212,7 +3216,7 @@ nvc_step(void)
 		nvc_next_tick = (nvc_next_tick + tick_usec) % 1000000;
 	}
 
-	for (u_int x = 0; x < CPU_INST_PER_USEC; ++x)
+	for (u_int x = 0; x < nvc_inst_per_usec; ++x)
 		if (!cpu_step())
 			return false;
 
