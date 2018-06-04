@@ -2393,6 +2393,14 @@ vip_bgsc_read_slow(struct vip_bgsc *vb, u_int chr_x, u_int chr_y, bool *opaquep)
 	}
 }
 
+static void
+vip_update_sbcount(u_int sbcount)
+{
+	vip_regs.vr_xpstts.vx_sbcount = sbcount;
+	if (vip_regs.vr_xpctrl.vx_sbcount == vip_regs.vr_xpstts.vx_sbcount)
+		vip_raise(VIP_SBHIT);
+}
+
 void
 vip_frame_clock(void)
 {
@@ -2430,7 +2438,20 @@ vip_frame_clock(void)
 		if (vip_regs.vr_xpstts.vx_xpen)
 		{
 			if (!vip_regs.vr_xpstts.vx_xpbsy_fb0 && !vip_regs.vr_xpstts.vx_xpbsy_fb1)
-				vip_draw_start(!vip_disp_index);
+			{
+				u_int fb_index = !vip_disp_index;
+
+				if (debug_trace_vip)
+					debug_tracef("vip", "Draw FB%u start\n", fb_index);
+
+				if (fb_index == 0)
+					vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
+				else
+					vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
+
+				vip_draw_start(fb_index);
+				vip_update_sbcount(0);
+			}
 			// else TODO: OVERTIME
 		}
 	}
@@ -2589,15 +2610,63 @@ vip_step(void)
 	if (vip_regs.vr_xpstts.vx_xpen && (scanner_usec % 250) == 0)
 	{
 		if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
-			vip_draw_step(0, scanner_usec);
+			vip_xp_step(0);
 		else if (vip_regs.vr_xpstts.vx_xpbsy_fb1)
-			vip_draw_step(1, scanner_usec);
+			vip_xp_step(1);
 	}
 
 	if (scanner_usec == 19999)
 		scanner_usec = 0;
 	else
 		++scanner_usec;
+}
+
+void
+vip_xp_step(u_int fb_index)
+{
+	if (vip_regs.vr_xpstts.vx_sbout)
+	{
+		vip_regs.vr_xpstts.vx_sbout = 0;
+
+		if (vip_regs.vr_xpstts.vx_sbcount < 27)
+			vip_update_sbcount(vip_regs.vr_xpstts.vx_sbcount + 1);
+		else
+		{
+			vip_draw_finish(fb_index);
+
+			if (debug_trace_vip)
+				debug_tracef("vip", "Draw FB%u finish\n", fb_index);
+
+			if (fb_index == 0)
+				vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
+			else
+				vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
+
+			vip_regs.vr_xpstts.vx_sbcount = 0;
+			vip_raise(VIP_XPEND);
+		}
+	}
+	else
+	{
+		if (debug_trace_vip)
+			debug_tracef("vip", "Draw FB%u SBCOUNT=%u\n", fb_index, vip_regs.vr_xpstts.vx_sbcount);
+
+		u_int8_t *left_fb, *right_fb;
+		if (fb_index == 0)
+		{
+			left_fb = vip_vrm.vv_left0;
+			right_fb = vip_vrm.vv_right0;
+		}
+		else
+		{
+			left_fb = vip_vrm.vv_left1;
+			right_fb = vip_vrm.vv_right1;
+		}
+
+		vip_draw_8rows(left_fb, right_fb, vip_regs.vr_xpstts.vx_sbcount * 8);
+
+		vip_regs.vr_xpstts.vx_sbout = 1;
+	}
 }
 
 void

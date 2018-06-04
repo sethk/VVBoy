@@ -8,7 +8,7 @@
 
 #include "vip_draw_slow.h"
 
-void
+static void
 vip_fb_write(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
 {
 	if (x < 384 && y < 224)
@@ -25,18 +25,13 @@ vip_draw_start(u_int fb_index)
 {
 	u_int8_t *left_fb, *right_fb;
 
-	if (debug_trace_vip)
-		debug_tracef("vip", "Draw FB%u start\n", fb_index);
-
 	if (fb_index == 0)
 	{
-		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
 		left_fb = vip_vrm.vv_left0;
 		right_fb = vip_vrm.vv_right0;
 	}
 	else
 	{
-		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
 		left_fb = vip_vrm.vv_left1;
 		right_fb = vip_vrm.vv_right1;
 	}
@@ -102,7 +97,7 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base,
 	return vip_bgsc_read_slow(vb, chr_x, chr_y, opaquep);
 }
 
-static void
+void
 vip_draw_finish(u_int fb_index)
 {
 	assert(fb_index <= 1);
@@ -218,24 +213,12 @@ vip_draw_finish(u_int fb_index)
 			}
 		}
 	} while (--world_index > 0);
-
-	if (debug_trace_vip)
-		debug_tracef("vip", "Draw FB%u finish\n", fb_index);
-
-	if (fb_index == 0)
-		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
-	else
-		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
-
-	vip_raise(VIP_XPEND);
 }
 
 void
-vip_draw_step(u_int fb_index, u_int scanner_usec)
+vip_draw_8rows(u_int8_t *left_fb __unused, u_int8_t *right_fb __unused, const u_int min_scr_y __unused)
 {
-	// Slow path does everything at the end
-	if (scanner_usec == 10000)
-		vip_draw_finish(fb_index);
+	// Slow path does everything in vip_draw_finish()
 }
 
 void
