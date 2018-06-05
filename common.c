@@ -2765,7 +2765,7 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 }
 
 bool
-vip_clip(u_int scr_clip_y, u_int scr_clip_height, int scr_y, u_int win_height, struct vip_vspan *vspan)
+vip_clip_vspan(u_int scr_clip_y, u_int scr_clip_height, int scr_y, u_int win_height, struct vip_vspan *vspan)
 {
 	int max_scr_y = scr_y + win_height;
 	if (max_scr_y <= (int)scr_clip_y)
@@ -2804,13 +2804,13 @@ vip_test_clip(int scr_clip_y,
               u_int expect_height)
 {
 	struct vip_vspan vspan;
-	bool overlap = vip_clip(scr_clip_y, scr_clip_height, scr_y, win_height, &vspan);
+	bool overlap = vip_clip_vspan(scr_clip_y, scr_clip_height, scr_y, win_height, &vspan);
 	if (overlap != expect_overlap ||
 			(overlap && (vspan.vvs_scr_y != expect_scr_y ||
 					vspan.vvs_win_y != expect_win_y ||
 					vspan.vvs_height != expect_height)))
 	{
-		debug_runtime_errorf(NULL, "vip_clip(scr_clip_y, scr_clip_height, scr_y, height) (%u, %u, %d, %u)"
+		debug_runtime_errorf(NULL, "vip_clip_vspan(scr_clip_y, scr_clip_height, scr_y, height) (%u, %u, %d, %u)"
 		                           " -> overlap %d vspan{%u, %u, %u} should be overlap %d vspan{%u, %u, %u}",
 		                     scr_clip_y, scr_clip_height, scr_y, win_height,
 		                     overlap,
