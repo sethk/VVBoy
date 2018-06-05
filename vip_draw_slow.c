@@ -44,8 +44,8 @@ vip_draw_start(u_int fb_index)
 }
 
 static u_int8_t
-vip_bgmap_read(struct vip_bgsc *bgmap_base,
-               struct vip_world_att *vwa,
+vip_bgmap_read(const struct vip_bgsc *bgmap_base,
+               const struct vip_world_att *vwa,
                u_int win_x, u_int win_y,
                bool right,
                union vip_params *vp,
@@ -86,7 +86,7 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base,
 			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
 	int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8;
 	u_int chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
-	struct vip_bgsc *vb;
+	const struct vip_bgsc *vb;
 	if (bg_x >= 0 && (u_int)bg_x < width_chrs && bg_y >= 0 && (u_int)bg_y < height_chrs)
 		vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
 	else if (vwa->vwa_over)
@@ -97,14 +97,47 @@ vip_bgmap_read(struct vip_bgsc *bgmap_base,
 	return vip_bgsc_read_slow(vb, chr_x, chr_y, opaquep);
 }
 
-void
-vip_draw_finish(u_int fb_index)
+static void
+vip_draw_bgmap_row(const struct vip_world_att *vwa,
+                   u_int16_t *param_tbl,
+                   struct vip_bgsc *bgmap_base,
+                   u_int win_y,
+                   u_int scr_y,
+                   u_int8_t *left_fb, u_int8_t *right_fb)
 {
-	assert(fb_index <= 1);
+	union vip_params *params;
+	if (vwa->vwa_bgm == WORLD_BGM_H_BIAS)
+		params = (union vip_params *)((struct vip_hbias *)param_tbl + win_y);
+	else if (vwa->vwa_bgm == WORLD_BGM_AFFINE)
+		params = (union vip_params *)((struct vip_affine *)param_tbl + win_y);
 
-	u_int8_t *left_fb = (fb_index) ? vip_vrm.vv_left1 : vip_vrm.vv_left0;
-	u_int8_t *right_fb = (fb_index) ? vip_vrm.vv_right1 : vip_vrm.vv_right0;
+	for (u_int win_x = 0; win_x <= vwa->vwa_w; ++win_x)
+	{
+		if (vwa->vwa_lon)
+		{
+			bool opaque;
+			u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, win_x, win_y, false, params, &opaque);
+			if (opaque)
+				vip_fb_write(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, scr_y, pixel);
+		}
+		if (vwa->vwa_ron)
+		{
+			bool opaque;
+			u_int8_t pixel =  vip_bgmap_read(bgmap_base, vwa, win_x, win_y, true, params, &opaque);
+			if (opaque)
+				vip_fb_write(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
+		}
+	}
+}
 
+void
+vip_draw_finish(u_int fb_index __unused)
+{
+}
+
+void
+vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
+{
 	int obj_group = 3;
 	u_int world_index = 31;
 	do
@@ -158,7 +191,7 @@ vip_draw_finish(u_int fb_index)
 
 				u_int8_t plt = vip_regs.vr_jplt[obj->vo_jplts];
 				int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
-				struct vip_chr *vc = vip_chr_find_slow(obj->vo_jca);
+				struct vip_chr *vc = VIP_CHR_FIND(obj->vo_jca);
 				for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 					for (u_int chr_y = 0; chr_y < 8; ++chr_y)
 					{
@@ -184,41 +217,20 @@ vip_draw_finish(u_int fb_index)
 			if (vwa->vwa_bgm == WORLD_BGM_H_BIAS || vwa->vwa_bgm == WORLD_BGM_AFFINE)
 				param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
 
-			struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
-			for (u_int win_y = 0; win_y <= vwa->vwa_h; ++win_y)
+			struct vip_vspan vspan;
+			if (vip_clip(min_scr_y, 8, vwa->vwa_gy, vwa->vwa_h, &vspan))
 			{
-				union vip_params *params;
-				if (vwa->vwa_bgm == WORLD_BGM_H_BIAS)
-					params = (union vip_params *)((struct vip_hbias *)param_tbl + win_y);
-				else if (vwa->vwa_bgm == WORLD_BGM_AFFINE)
-					params = (union vip_params *)((struct vip_affine *)param_tbl + win_y);
-
-				for (u_int win_x = 0; win_x <= vwa->vwa_w; ++win_x)
+				struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
+				while (vspan.vvs_height > 0)
 				{
-					if (vwa->vwa_lon)
-					{
-						bool opaque;
-						u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, win_x, win_y, false, params, &opaque);
-						if (opaque)
-							vip_fb_write(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
-					}
-					if (vwa->vwa_ron)
-					{
-						bool opaque;
-						u_int8_t pixel =  vip_bgmap_read(bgmap_base, vwa, win_x, win_y, true, params, &opaque);
-						if (opaque)
-							vip_fb_write(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
-					}
+					vip_draw_bgmap_row(vwa, param_tbl, bgmap_base, vspan.vvs_win_y, vspan.vvs_scr_y, left_fb, right_fb);
+					++vspan.vvs_scr_y;
+					++vspan.vvs_win_y;
+					--vspan.vvs_height;
 				}
 			}
 		}
 	} while (--world_index > 0);
-}
-
-void
-vip_draw_8rows(u_int8_t *left_fb __unused, u_int8_t *right_fb __unused, const u_int min_scr_y __unused)
-{
-	// Slow path does everything in vip_draw_finish()
 }
 
 void

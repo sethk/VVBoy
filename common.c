@@ -2001,6 +2001,8 @@ cpu_intr(enum nvc_intlevel level)
 		struct vip_chr vv_chr3[512];
 	};
 
+#   define VIP_CHR_FIND(chrno) &(vip_vrm.vv_chr0[(((chrno) & 0x600) << 2) | (chrno) & 0x1ff])
+
 	struct vip_bgsc
 	{
 		unsigned vb_chrno : 11 __attribute__((packed));
@@ -2182,6 +2184,12 @@ struct vip_dram vip_dram;
 
 #   define VIP_MAX_BRIGHT (212)
 
+	struct vip_vspan
+	{
+		u_int vvs_scr_y;
+		u_int vvs_win_y;
+		u_int vvs_height;
+	};
 #endif // INTERFACE
 
 static const enum vip_intflag vip_dpints =
@@ -2376,9 +2384,9 @@ vip_fb_read_argb_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t rep
 }
 
 u_int8_t
-vip_bgsc_read_slow(struct vip_bgsc *vb, u_int chr_x, u_int chr_y, bool *opaquep)
+vip_bgsc_read_slow(const struct vip_bgsc *vb, u_int chr_x, u_int chr_y, bool *opaquep)
 {
-	struct vip_chr *vc = vip_chr_find_slow(vb->vb_chrno);
+	struct vip_chr *vc = VIP_CHR_FIND(vb->vb_chrno);
 	u_int8_t pixel = vip_chr_read_slow(vc, chr_x, chr_y, vb->vb_bhflp, vb->vb_bvflp);
 	if (pixel)
 	{
@@ -2663,7 +2671,8 @@ vip_xp_step(u_int fb_index)
 			right_fb = vip_vrm.vv_right1;
 		}
 
-		vip_draw_8rows(left_fb, right_fb, vip_regs.vr_xpstts.vx_sbcount * 8);
+		if ((vip_row_mask & (1 << vip_regs.vr_xpstts.vx_sbcount)) != 0)
+			vip_draw_8rows(left_fb, right_fb, vip_regs.vr_xpstts.vx_sbcount * 8);
 
 		vip_regs.vr_xpstts.vx_sbout = 1;
 	}
@@ -2755,6 +2764,62 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 		return NULL;
 }
 
+bool
+vip_clip(u_int scr_clip_y, u_int scr_clip_height, int scr_y, u_int win_height, struct vip_vspan *vspan)
+{
+	int max_scr_y = scr_y + win_height;
+	if (max_scr_y <= (int)scr_clip_y)
+		return false;
+
+	u_int max_clip_y = scr_clip_y + scr_clip_height;
+	if (scr_y >= (int)max_clip_y)
+		return false;
+
+	if (max_scr_y > (int)max_clip_y)
+		win_height = max_clip_y - scr_y;
+
+	if (scr_y < (int)scr_clip_y)
+	{
+		vspan->vvs_scr_y = scr_clip_y;
+		vspan->vvs_win_y = scr_clip_y - scr_y;
+		vspan->vvs_height = win_height - vspan->vvs_win_y;
+	}
+	else
+	{
+		vspan->vvs_scr_y = (u_int)scr_y;
+		vspan->vvs_win_y = 0;
+		vspan->vvs_height = win_height;
+	}
+	return true;
+}
+
+static void
+vip_test_clip(int scr_clip_y,
+              u_int scr_clip_height,
+              int scr_y,
+              u_int win_height,
+              bool expect_overlap,
+              u_int expect_scr_y,
+              u_int expect_win_y,
+              u_int expect_height)
+{
+	struct vip_vspan vspan;
+	bool overlap = vip_clip(scr_clip_y, scr_clip_height, scr_y, win_height, &vspan);
+	if (overlap != expect_overlap ||
+			(overlap && (vspan.vvs_scr_y != expect_scr_y ||
+					vspan.vvs_win_y != expect_win_y ||
+					vspan.vvs_height != expect_height)))
+	{
+		debug_runtime_errorf(NULL, "vip_clip(scr_clip_y, scr_clip_height, scr_y, height) (%u, %u, %d, %u)"
+		                           " -> overlap %d vspan{%u, %u, %u} should be overlap %d vspan{%u, %u, %u}",
+		                     scr_clip_y, scr_clip_height, scr_y, win_height,
+		                     overlap,
+		                     vspan.vvs_scr_y, vspan.vvs_win_y, vspan.vvs_height,
+		                     expect_overlap,
+		                     expect_scr_y, expect_win_y, expect_height);
+	}
+}
+
 void
 vip_test(void)
 {
@@ -2782,6 +2847,26 @@ vip_test(void)
 	assert(vip_mem_emu2host(0x78000, 2, &perms) == &(vip_vrm.vv_chr0));
 	assert(vip_mem_emu2host(0x7e000, 2, &perms) == &(vip_vrm.vv_chr3));
 #endif // !NDEBUG
+
+	vip_test_clip(5, 5, 5, 5, true, 5, 0, 5);
+	vip_test_clip(5, 5, 4, 6, true, 5, 1, 5);
+	vip_test_clip(5, 5, 6, 4, true, 6, 0, 4);
+	vip_test_clip(5, 5, 5, 4, true, 5, 0, 4);
+	vip_test_clip(5, 5, 5, 6, true, 5, 0, 5);
+	vip_test_clip(5, 5, 4, 5, true, 5, 1, 4);
+	vip_test_clip(5, 5, 6, 3, true, 6, 0, 3);
+	vip_test_clip(5, 5, 4, 6, true, 5, 1, 5);
+	vip_test_clip(5, 5, 6, 5, true, 6, 0, 4);
+	vip_test_clip(5, 5, 0, 5, false, 0, 0, 0);
+	vip_test_clip(5, 5, 10, 5, false, 0, 0, 0);
+
+	for (u_int chrno = 0; chrno < 2048; ++chrno)
+	{
+		struct vip_chr *slow_vc = vip_chr_find_slow(chrno);
+		struct vip_chr *fast_vc = VIP_CHR_FIND(chrno);
+		if (fast_vc != slow_vc)
+			debug_runtime_errorf(NULL, "vip_chr_find_slow(%d) = %p, VIP_CHR_FIND() = %p", chrno, slow_vc, fast_vc);
+	}
 }
 
 void
@@ -2795,6 +2880,7 @@ vip_toggle_rows(void)
 		if (!vip_row_mask)
 			vip_row_mask = (1 << 28) - 1;
 	}
+	debug_tracef("vip", "Row mask 0x%08x\n", vip_row_mask);
 }
 
 void
