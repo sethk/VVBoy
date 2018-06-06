@@ -2170,7 +2170,7 @@ cpu_intr(enum nvc_intlevel level)
 		unsigned vwa_lon : 1 __attribute__((packed));
 		int16_t vwa_gx;
 		int16_t vwa_gp;
-		u_int16_t vwa_gy;
+		int16_t vwa_gy;
 		int16_t vwa_mx;
 		int16_t vwa_mp;
 		u_int16_t vwa_my;
@@ -4592,21 +4592,29 @@ debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa
 {
 	debug_str_t flags_s;
 	size_t bufoff = 0;
-	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%u, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
+	const char *bgm_s;
+	switch (vwa->vwa_bgm)
+	{
+		case WORLD_BGM_NORMAL: bgm_s = "NORMAL"; break;
+		case WORLD_BGM_AFFINE: bgm_s = "AFFINE"; break;
+		case WORLD_BGM_H_BIAS: bgm_s = "H_BIAS"; break;
+		case WORLD_BGM_OBJ: bgm_s = "OBJ"; break;
+	}
+	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%s, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
 	                  debug_format_flags(flags_s,
 	                                     "LON", vwa->vwa_lon,
 	                                     "RON", vwa->vwa_ron,
 	                                     "OVER", vwa->vwa_over,
 	                                     "END", vwa->vwa_end,
 	                                     NULL),
-	                  vwa->vwa_bgm,
+	                  bgm_s,
 	                  vwa->vwa_scx,
 	                  vwa->vwa_scy,
 	                  vwa->vwa_bgmap_base);
 	if (!vwa->vwa_end && (vwa->vwa_lon || vwa->vwa_ron))
 	{
 		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-		                  "\tGX=%hd, GP=%hd, GY=%hu, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
+		                  "\tGX=%hd, GP=%hd, GY=%hd, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
 		                  vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
 		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
 		                  "\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu\n", vwa->vwa_param_base, vwa->vwa_over_chrno);
