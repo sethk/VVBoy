@@ -5317,6 +5317,8 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 #endif // INTERFACE
 
 u_int32_t main_usec;
+static bool main_paused;
+static int main_speed;
 struct main_stats_t main_stats;
 
 bool
@@ -5341,7 +5343,12 @@ void
 main_update_caption(const char *stats)
 {
 	char caption[100];
-	snprintf(caption, sizeof(caption), (stats) ? "%s: %s [%s]" : "%s: %s", "VVBoy", rom_name, stats);
+	size_t offset = 0;
+	offset+= snprintf(caption, sizeof(caption), (stats) ? "%s: %s [%s]" : "%s: %s", "VVBoy", rom_name, stats);
+	if (main_paused)
+		offset+= snprintf(caption + offset, sizeof(caption) - offset, " *Paused*");
+	else if (main_speed != 0)
+		offset += snprintf(caption + offset, sizeof(caption) - offset, " *Speed %gx*", pow(2.0, main_speed));
 	tk_update_caption(caption);
 }
 
@@ -5375,6 +5382,9 @@ main_reset(void)
 {
 	main_restart_clock();
 
+	main_paused = false;
+	main_speed = 0;
+
 	vip_reset();
 	vsu_reset();
 	nvc_reset();
@@ -5392,6 +5402,24 @@ main_step(void)
 		main_restart_clock();
 
 	return true;
+}
+
+void
+main_toggle_paused(void)
+{
+	main_paused = !main_paused;
+	main_update_caption(NULL);
+}
+
+void
+main_toggle_speed(void)
+{
+	if (main_speed == -3)
+		main_speed = 0;
+	else
+		--main_speed;
+
+	main_update_caption(NULL);
 }
 
 void
@@ -5424,7 +5452,14 @@ main_unblock_sigint(void)
 void
 main_frame(void)
 {
-	while (main_step() && (main_usec % 20000) != 0);
+	u_int main_frame_usec = 20000;
+
+	if (main_paused)
+		return;
+	if (main_speed != 0)
+		main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
+
+	while (main_step() && (main_usec % main_frame_usec) != 0);
 
 	// Check SIGINT -> Debugger
 	sigset_t sigpend;
