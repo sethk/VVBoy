@@ -2562,7 +2562,7 @@ vip_scan_out(u_int fb_index, bool right)
 		fb = (right) ? vip_vrm.vv_right1 : vip_vrm.vv_left1;
 	const struct vip_ctc *ctcs = (right) ? vip_dram.vd_right_clm_tbl : vip_dram.vd_left_clm_tbl;
 
-	u_int32_t argb[384 * 224];
+	u_int32_t argb[224 * 384];
 	vip_fb_convert(fb, ctcs, argb);
 	tk_blit(argb, right);
 }

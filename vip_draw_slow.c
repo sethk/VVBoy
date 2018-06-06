@@ -331,12 +331,55 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 }
 
 void
-vip_fb_convert(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t *argb)
+vip_fb_convert_slow(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t *argb)
 {
 	for (u_int x = 0; x < 384; ++x)
 	{
 		const struct vip_ctc *ctc = &(clm_tbl[17 + x / 4]);
 		for (u_int y = 0; y < 224; ++y)
-			argb[y * 384 + x] = vip_fb_read_argb_slow(fb, x, y, ctc->vc_repeat);
+			argb[x * 224 + y] = vip_fb_read_argb_slow(fb, x, y, ctc->vc_repeat);
+	}
+}
+
+void
+vip_fb_convert(const u_int8_t *fb __unused, const struct vip_ctc *clm_tbl, u_int32_t *argb)
+{
+	const struct vip_ctc *ctc = clm_tbl + 17;
+	for (u_int col_group = 0; col_group < 96; ++col_group)
+	{
+		u_int32_t lut[4];
+		lut[0] = 0xff000000;
+		if (vip_use_bright)
+		{
+			u_int8_t int_lut[3];
+			int_lut[0] = vip_regs.vr_brta + 1;
+			int_lut[1] = int_lut[0] + vip_regs.vr_brtb + 1;
+			int_lut[2] = int_lut[1] + vip_regs.vr_brtc + 1;
+			for (u_int i = 0; i < 3; ++i)
+			{
+				u_int32_t intensity = (int_lut[i] * (ctc->vc_repeat + 1) * 256) / VIP_MAX_BRIGHT;
+				assert(intensity <= 0xff);
+				lut[1 + i] = 0xff000000 | (intensity << 16) | (intensity << 8) | intensity;
+			}
+		}
+		else
+		{
+			lut[1] = 0xff555555;
+			lut[2] = 0xffaaaaaa;
+			lut[3] = 0xffffffff;
+		}
+
+		for (u_int col_offset = 0; col_offset < 4; ++col_offset)
+		{
+			for (u_int row_group = 0; row_group < 56; ++row_group)
+			{
+				*argb++ = lut[*fb & 0x3];
+				*argb++ = lut[(*fb >> 2) & 0x3];
+				*argb++ = lut[(*fb >> 4) & 0x3];
+				*argb++ = lut[(*fb >> 6) & 0x3];
+				++fb;
+			}
+		}
+		++ctc;
 	}
 }

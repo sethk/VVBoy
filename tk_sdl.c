@@ -48,8 +48,8 @@ tk_init(void)
 		if (!(sdl_textures[i] = SDL_CreateTexture(sdl_renderer,
 		                                          SDL_PIXELFORMAT_ARGB8888,
 		                                          SDL_TEXTUREACCESS_STREAMING,
-		                                          384,
-		                                          224)))
+		                                          224,
+		                                          384)))
 		{
 			fprintf(stderr, "SDL: Could not create texture: %s", SDL_GetError());
 			return false;
@@ -268,8 +268,11 @@ tk_blit(const u_int32_t *fb_argb, bool right)
 		SDL_RenderClear(sdl_renderer);
 
 	SDL_Texture *texture = sdl_textures[(right) ? 0 : 1];
-	SDL_UpdateTexture(texture, NULL, fb_argb, 384 * sizeof(*fb_argb));
-	SDL_RenderCopy(sdl_renderer, texture, NULL, NULL);
+	SDL_UpdateTexture(texture, NULL, fb_argb, 224 * sizeof(*fb_argb));
+	SDL_Rect src_rect = {.x = 0, .y = 0, .w = 224, .h = 384};
+	SDL_Rect dest_rect = {.x = 0, .y = 0, .w = 224 * 2, .h = 384 * 2};
+	SDL_Point center = {.x = 384, .y = 384};
+	SDL_RenderCopyEx(sdl_renderer, texture, &src_rect, &dest_rect, 90.0, &center, SDL_FLIP_VERTICAL);
 
 	if (right)
 		SDL_RenderPresent(sdl_renderer);
