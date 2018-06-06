@@ -10,6 +10,8 @@
 # warning Problems with game controller GUIDs on macOS with version 2.0.5
 #endif
 
+#define VSYNC (true)
+
 static bool tk_running = false;
 static SDL_Window *sdl_window;
 static SDL_Renderer *sdl_renderer;
@@ -37,7 +39,8 @@ tk_init(void)
 		fprintf(stderr, "SDL: Couldn't create window: %s", SDL_GetError());
 		return false;
 	}
-	if (!(sdl_renderer = SDL_CreateRenderer(sdl_window, -1, SDL_RENDERER_PRESENTVSYNC)))
+	Uint32 flags = (VSYNC) ? SDL_RENDERER_PRESENTVSYNC : 0;
+	if (!(sdl_renderer = SDL_CreateRenderer(sdl_window, -1, flags)))
 	{
 		fprintf(stderr, "SDL: Couldn't create renderer: %s", SDL_GetError());
 		return false;
