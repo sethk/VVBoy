@@ -385,7 +385,7 @@ wram_fini(void)
 
 /* CPU */
 #if INTERFACE
-#	define CPU_INST_PER_USEC (10)
+#	define CPU_INST_PER_USEC (20)
 #   define CPU_MAX_PC (0xfffffffe)
 
 	union cpu_reg {u_int32_t u; int32_t s; float f; int16_t s16; u_int8_t u8s[4];};
@@ -610,11 +610,13 @@ struct cpu_state
 };
 
 static struct cpu_state cpu_state;
+static u_int cpu_wait;
 
 bool
 cpu_init(void)
 {
 	cpu_state.cs_r[0].u = 0; // Read-only
+	cpu_wait = 1;
 
 	return true;
 }
@@ -937,6 +939,9 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	(*src_word_addrp)+= read_byte_size;
 	(*dest_word_addrp)+= read_byte_size;
 	(*bit_lengthp)-= read_byte_size << 3;
+
+	cpu_wait = 48; // Just an average; actually dependent on size/alignment
+
 	/*
 	u_int dest_bit_off = *dest_bit_offp & 31;
 	if (dest_bit_off)
@@ -1014,6 +1019,9 @@ cpu_exec(const union cpu_inst inst)
 				             debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, dest_addr_s));
 			}
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
+
+			cpu_wait = 3;
+
 			return true;
 		case OP_SAR:
 		{
@@ -1042,6 +1050,9 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != sign_bits32to64);
 			cpu_state.cs_r[30].u = (u_int64_t)result >> 32;
 			cpu_state.cs_r[inst.ci_i.i_reg2].u = result & 0xffffffff;
+
+			cpu_wait = 13;
+
 			break;
 		}
 		case OP_DIV:
@@ -1055,6 +1066,9 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_psw.psw_flags.f_ov = (left < 0 && right < 0 && cpu_state.cs_psw.psw_flags.f_s);
 			cpu_state.cs_r[30].u = left % right;
 			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
+
+			cpu_wait = 38;
+
 			break;
 		}
 		case OP_MULU:
@@ -1067,6 +1081,9 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_psw.psw_flags.f_ov = (signbits != 0 && signbits != sign_bits32to64);
 			cpu_state.cs_r[30].u = result >> 32;
 			cpu_state.cs_r[inst.ci_i.i_reg2].u = result & 0xffffffff;
+
+			cpu_wait = 13;
+
 			break;
 		}
 		case OP_DIVU:
@@ -1080,6 +1097,9 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_psw.psw_flags.f_ov = 0;
 			cpu_state.cs_r[30].u = left % right;
 			cpu_state.cs_r[inst.ci_i.i_reg2].u = result;
+
+			cpu_wait = 36;
+
 			break;
 		}
 		case OP_OR:
@@ -1171,6 +1191,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 			/*
    OP_TRAP  = 0b011000,
+			 cpu_wait = 15;
    */
 		case OP_RETI:
 			if (!cpu_state.cs_psw.psw_flags.f_ep)
@@ -1198,6 +1219,9 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_pc = cpu_state.cs_eipc;
 				cpu_state.cs_psw = cpu_state.cs_eipsw;
 			}
+
+			cpu_wait = 10;
+
 			return true;
 			/*
    OP_HALT  = 0b011010,
@@ -1318,6 +1342,9 @@ cpu_exec(const union cpu_inst inst)
 			}
 
 			cpu_state.cs_pc+= disp;
+
+			cpu_wait = 3;
+
 			return true;
 		}
 		case OP_JAL:
@@ -1336,6 +1363,9 @@ cpu_exec(const union cpu_inst inst)
 			}
 			cpu_state.cs_r[31].u = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
+
+			cpu_wait = 3;
+
 			return true;
 		}
 		case OP_ORI:
@@ -1376,6 +1406,9 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, value, 1);
+
+			cpu_wait = 3; // 1-2 for successive loads
+
 			break;
 		}
 		case OP_LD_H:
@@ -1392,6 +1425,9 @@ cpu_exec(const union cpu_inst inst)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, value, 2);
+
+			cpu_wait = 3; // 1-2 for successive loads
+
 			break;
 		}
 		case OP_LD_W:
@@ -1402,6 +1438,9 @@ cpu_exec(const union cpu_inst inst)
 				return false;
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, cpu_state.cs_r[inst.ci_vi.vi_reg2].u, 4);
+
+			cpu_wait = 3; // 1-2 for successive loads
+
 			break;
 		}
 		case OP_ST_B:
@@ -1413,6 +1452,9 @@ cpu_exec(const union cpu_inst inst)
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, value, 1);
+
+			//cpu_wait = 1; // 2 for successive stores
+
 			break;
 		}
 		case OP_ST_H:
@@ -1424,6 +1466,9 @@ cpu_exec(const union cpu_inst inst)
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, value, 2);
+
+			//cpu_wait = 1; // 2 for successive stores
+
 			break;
 		}
 		case OP_ST_W:
@@ -1435,10 +1480,14 @@ cpu_exec(const union cpu_inst inst)
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, value, 4);
+
+			//cpu_wait = 1; // 2 for successive stores
+
 			break;
 		}
 			/*
    OP_CAXI  = 0b111010,
+			 cpu_wait = 22;
    */
 		case OP_FLOAT:
 			switch (inst.vii_subop)
@@ -1449,12 +1498,18 @@ cpu_exec(const union cpu_inst inst)
 					if (cpu_float_reserved(left) || cpu_float_reserved(right))
 						return false;
 					cpu_subf(left, right);
+
+					cpu_wait = 8; // 7-10
+
 					break;
 				}
 				case FLOAT_CVT_WS:
 					cpu_state.cs_r[inst.vii_reg2].f = (float)cpu_state.cs_r[inst.vii_reg1].s;
 					if ((int32_t)cpu_state.cs_r[inst.vii_reg2].f != cpu_state.cs_r[inst.vii_reg1].s)
 						cpu_state.cs_psw.psw_flags.f_fpr = 1;
+
+					cpu_wait = 10; // 5-16
+
 					break;
 				case FLOAT_CVT_SW:
 				{
@@ -1472,6 +1527,9 @@ cpu_exec(const union cpu_inst inst)
 					cpu_state.cs_r[inst.vii_reg2].s = (int32_t)lroundf(source);
 					if ((double)cpu_state.cs_r[inst.vii_reg2].s != source)
 						cpu_state.cs_psw.psw_flags.f_fpr = 1;
+
+					cpu_wait = 11; // 9-14
+
 					break;
 				}
 				case FLOAT_ADDF_S:
@@ -1483,6 +1541,9 @@ cpu_exec(const union cpu_inst inst)
 					cpu_setfl_float_zsoc(result);
 					cpu_setfl_float(result);
 					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+
+					cpu_wait = 18; // 9-28
+
 					break;
 				}
 				case FLOAT_SUBF_S:
@@ -1493,6 +1554,9 @@ cpu_exec(const union cpu_inst inst)
 					double result = cpu_subf(left, right);
 					cpu_setfl_float(result);
 					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+
+					cpu_wait = 20; // 12-28
+
 					break;
 				}
 				case FLOAT_MULF_S:
@@ -1504,6 +1568,9 @@ cpu_exec(const union cpu_inst inst)
 					cpu_setfl_float_zsoc(result);
 					cpu_setfl_float(result);
 					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+
+					cpu_wait = 19; // 8-30
+
 					break;
 				}
 				case FLOAT_DIVF_S:
@@ -1534,6 +1601,9 @@ cpu_exec(const union cpu_inst inst)
 					cpu_setfl_float_zsoc(result);
 					cpu_setfl_float(result);
 					cpu_state.cs_r[inst.vii_reg2].f = (float)result;
+
+					cpu_wait = 44;
+
 					break;
 				}
 				case FLOAT_XB:
@@ -1558,6 +1628,7 @@ cpu_exec(const union cpu_inst inst)
 				}
 					/*
 					case FLOAT_TRNC_SW:
+					 cpu_wait = 11; // 8-14
 						break;
 					 */
 				case FLOAT_MPYHW:
@@ -1579,8 +1650,12 @@ cpu_exec(const union cpu_inst inst)
 				{
 					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
 					cpu_state.cs_pc+= disp;
+
+					cpu_wait = 3;
+
 					return true;
 				}
+
 				break;
 			}
 			debug_runtime_errorf(NULL, "TODO: execute instruction");
@@ -1910,6 +1985,12 @@ cpu_test(void)
 bool
 cpu_step(void)
 {
+	if (cpu_wait > 1)
+	{
+		--cpu_wait;
+		return true;
+	}
+
 	if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
 	{
 		fprintf(stderr, "\nStopped at breakpoint\n");
