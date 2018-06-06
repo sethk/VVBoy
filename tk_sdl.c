@@ -136,11 +136,12 @@ tk_frame(void)
 	{
 		Sint32 jitter = 20 - (now - last_ticks);
 #define JITTER_LPF (0.1)
+#define MIN_INTERVAL (10) // Setting a timer shorter than this is pointless due to scheduling granularity
 		smooth_jitter = smooth_jitter * (1.0 - JITTER_LPF) + (float)jitter * JITTER_LPF;
-		smooth_interval = fminf(fmaxf(smooth_interval + smooth_jitter, 10), 25);
+		smooth_interval = fminf(fmaxf(smooth_interval + smooth_jitter, MIN_INTERVAL), 25);
 
 		/*
-		//static u_int trace = 0;
+		static u_int trace = 0;
 		if ((++trace % 20) == 0)
 			debug_tracef("sdl", "tk_frame_tick() smooth_interval = %g, jitter %d, smooth_jitter %g\n",
 					smooth_interval, jitter, smooth_jitter);
@@ -148,7 +149,11 @@ tk_frame(void)
 	}
 	last_ticks = now;
 
-	SDL_AddTimer(lroundf(smooth_interval), tk_frame_tick, NULL);
+	Uint32 interval = lroundf(smooth_interval);
+	if (interval > MIN_INTERVAL)
+		SDL_AddTimer(interval, tk_frame_tick, NULL);
+	else
+		tk_frame_tick(interval, NULL);
 
 	main_frame();
 }
