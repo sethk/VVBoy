@@ -2298,6 +2298,13 @@ struct vip_dram vip_dram;
 		u_int vvs_win_y;
 		u_int vvs_height;
 	};
+
+	struct vip_hspan
+	{
+		u_int vhs_scr_x;
+		int vhs_win_x;
+		u_int vhs_width;
+	};
 #endif // INTERFACE
 
 static const enum vip_intflag vip_dpints =
@@ -2897,6 +2904,34 @@ vip_clip_vspan(u_int scr_clip_y, u_int scr_clip_height, int scr_y, u_int win_hei
 		vspan->vvs_scr_y = (u_int)scr_y;
 		vspan->vvs_win_y = 0;
 		vspan->vvs_height = win_height;
+	}
+	return true;
+}
+
+bool
+vip_clip_hspan(int scr_x, int win_x, u_int win_width, struct vip_hspan *hspan)
+{
+	int max_scr_x = scr_x + win_width;
+	if (max_scr_x <= 0)
+		return false;
+
+	if (scr_x >= 384)
+		return false;
+
+	if (max_scr_x > 384)
+		win_width = 384 - scr_x;
+
+	if (scr_x < 0)
+	{
+		hspan->vhs_scr_x = 0;
+		hspan->vhs_win_x = win_x - scr_x;
+		hspan->vhs_width = win_width + scr_x;
+	}
+	else
+	{
+		hspan->vhs_scr_x = (u_int)scr_x;
+		hspan->vhs_win_x = win_x;
+		hspan->vhs_width = win_width;
 	}
 	return true;
 }

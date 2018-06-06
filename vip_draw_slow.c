@@ -8,17 +8,26 @@
 
 #include "vip_draw_slow.h"
 
+#pragma GCC diagnostic warning "-Wunused-parameter"
+#pragma GCC diagnostic warning "-Wunused-function"
+#pragma GCC diagnostic warning "-Wunused-variable"
+
 static void
 vip_fb_write(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
 {
 	assert(y < 224);
-	if (x < 384)
-	{
-		u_int offset = x * 224 + y;
-		u_int shift = (offset % 4) * 2;
-		u_int8_t mask = ~(0b11 << shift);
-		fb[offset / 4] = (fb[offset / 4] & mask) | (value << shift);
-	}
+	assert(x < 384);
+	u_int offset = x * 224 + y;
+	u_int shift = (offset % 4) * 2;
+	u_int8_t mask = ~(0b11 << shift);
+	fb[offset / 4] = (fb[offset / 4] & mask) | (value << shift);
+}
+
+static void
+vip_fb_write_clip(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
+{
+	if (x < 384 && y < 224)
+		vip_fb_write(fb, x, y, value);
 }
 
 void
@@ -116,7 +125,7 @@ vip_bgmap_read(const struct vip_bgsc *bgmap_base, const struct vip_world_att *vw
 	return vip_bgsc_read_slow(vb, chr_x, chr_y, opaquep);
 }
 
-static void
+static void __unused
 vip_draw_bgmap_row_slow(const struct vip_world_att *vwa,
                         u_int16_t *param_tbl,
                         struct vip_bgsc *bgmap_base,
@@ -137,14 +146,14 @@ vip_draw_bgmap_row_slow(const struct vip_world_att *vwa,
 			bool opaque;
 			u_int8_t pixel = vip_bgmap_read_slow(bgmap_base, vwa, win_x, win_y, false, params, &opaque);
 			if (opaque)
-				vip_fb_write(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, scr_y, pixel);
+				vip_fb_write_clip(left_fb, vwa->vwa_gx - vwa->vwa_gp + win_x, scr_y, pixel);
 		}
 		if (vwa->vwa_ron)
 		{
 			bool opaque;
 			u_int8_t pixel = vip_bgmap_read_slow(bgmap_base, vwa, win_x, win_y, true, params, &opaque);
 			if (opaque)
-				vip_fb_write(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, vwa->vwa_gy + win_y, pixel);
+				vip_fb_write_clip(right_fb, vwa->vwa_gx + vwa->vwa_gp + win_x, scr_y, pixel);
 		}
 	}
 }
@@ -153,9 +162,12 @@ static void
 vip_draw_bgmap_row(const struct vip_bgsc *bgmap_base,
                    const struct vip_world_att *vwa,
                    u_int y, u_int scr_y,
-                   int x, int scr_x, u_int width,
+                   const struct vip_hspan *hspan,
                    u_int8_t *fb)
 {
+	u_int width = hspan->vhs_width;
+	int x = hspan->vhs_win_x;
+	u_int scr_x = hspan->vhs_scr_x;
 	while (width > 0)
 	{
 		bool opaque;
@@ -172,19 +184,15 @@ static void
 vip_draw_bgmap(const struct vip_bgsc *bgmap_base,
                const struct vip_world_att *vwa,
                const struct vip_vspan *vspan,
-               int scr_x,
+               const struct vip_hspan *hspan,
                u_int8_t *fb)
 {
 	u_int height = vspan->vvs_height;
 	u_int y = vwa->vwa_my + vspan->vvs_win_y;
-	int x = vwa->vwa_mx - vwa->vwa_mp;
 	u_int scr_y = vspan->vvs_scr_y;
 	while (height > 0)
 	{
-		vip_draw_bgmap_row(bgmap_base, vwa,
-		                   y, scr_y,
-		                   x, scr_x, vwa->vwa_w + 1,
-		                   fb);
+		vip_draw_bgmap_row(bgmap_base, vwa, y, scr_y, hspan, fb);
 		++y;
 		++scr_y;
 		--height;
@@ -206,9 +214,9 @@ vip_draw_obj_row(const struct vip_oam *obj,
 		{
 			pixel = (plt >> (pixel << 1)) & 0b11;
 			if (obj->vo_jlon)
-				vip_fb_write(left_fb, scr_l_x + chr_x, scr_y, pixel);
+				vip_fb_write_clip(left_fb, scr_l_x + chr_x, scr_y, pixel);
 			if (obj->vo_jron)
-				vip_fb_write(right_fb, scr_r_x + chr_x, scr_y, pixel);
+				vip_fb_write_clip(right_fb, scr_r_x + chr_x, scr_y, pixel);
 		}
 	}
 }
@@ -301,10 +309,18 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 					{
 						struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
 
-						if (vwa->vwa_lon)
-							vip_draw_bgmap(bgmap_base, vwa, &vspan, vwa->vwa_gx - vwa->vwa_gp, left_fb);
-						if (vwa->vwa_ron)
-							vip_draw_bgmap(bgmap_base, vwa, &vspan, vwa->vwa_gx + vwa->vwa_gp, right_fb);
+						struct vip_hspan left_hspan;
+						if (vwa->vwa_lon && vip_clip_hspan(vwa->vwa_gx - vwa->vwa_gp,
+						                                   vwa->vwa_mx - vwa->vwa_mp,
+						                                   vwa->vwa_w + 1,
+						                                   &left_hspan))
+							vip_draw_bgmap(bgmap_base, vwa, &vspan, &left_hspan, left_fb);
+						struct vip_hspan right_hspan;
+						if (vwa->vwa_ron && vip_clip_hspan(vwa->vwa_gx + vwa->vwa_gp,
+						                                   vwa->vwa_mx + vwa->vwa_mp,
+						                                   vwa->vwa_w + 1,
+						                                   &right_hspan))
+							vip_draw_bgmap(bgmap_base, vwa, &vspan, &right_hspan, right_fb);
 						break;
 					}
 
@@ -318,11 +334,16 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 
 						while (vspan.vvs_height > 0)
 						{
-							vip_draw_bgmap_row_slow(vwa, param_tbl, bgmap_base, vspan.vvs_win_y, vspan.vvs_scr_y, left_fb, right_fb);
+							vip_draw_bgmap_row_slow(vwa,
+							                        param_tbl,
+							                        bgmap_base,
+							                        vspan.vvs_win_y, vspan.vvs_scr_y,
+							                        left_fb, right_fb);
 							++vspan.vvs_scr_y;
 							++vspan.vvs_win_y;
 							--vspan.vvs_height;
 						}
+						break;
 					}
 				}
 			}
