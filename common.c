@@ -165,7 +165,7 @@ mem_size_ceil(u_int32_t size)
 }
 
 static bool
-mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
+mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
@@ -177,29 +177,36 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 	int perms;
 
 	if (seg == MEM_SEG_VIP)
-		src = vip_mem_emu2host(addr, size, &perms);
-	else if (seg == MEM_SEG_VSU)
-		src = vsu_mem_emu2host(addr, size, &perms);
-	else if (seg == MEM_SEG_NVC)
-		src = nvc_mem_emu2host(addr, &size, &mask, &perms);
-	else if (mem_segs[seg].ms_size)
 	{
-		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
-
-		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
-		{
-			if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
-				return false;
-			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
-		}
-
-		src = mem_segs[seg].ms_ptr + offset;
-		perms = mem_segs[seg].ms_perms;
+		src = vip_mem_emu2host(addr, size, &perms);
+		*mem_waitp = 8;
 	}
 	else
 	{
-		src = NULL;
-		perms = 0;
+		if (seg == MEM_SEG_VSU)
+			src = vsu_mem_emu2host(addr, size, &perms);
+		else if (seg == MEM_SEG_NVC)
+			src = nvc_mem_emu2host(addr, &size, &mask, &perms);
+		else if (mem_segs[seg].ms_size)
+		{
+			u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
+
+			if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
+			{
+				if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
+					return false;
+				offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
+			}
+
+			src = mem_segs[seg].ms_ptr + offset;
+			perms = mem_segs[seg].ms_perms;
+		}
+		else
+		{
+			src = NULL;
+			perms = 0;
+		}
+		*mem_waitp = 2;
 	}
 
 	if (!src)
@@ -246,7 +253,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec)
 }
 
 static bool
-mem_write(u_int32_t addr, const void *src, size_t size)
+mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 {
 	assert(size > 0);
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
@@ -255,29 +262,37 @@ mem_write(u_int32_t addr, const void *src, size_t size)
 	u_int32_t mask = 0xffffffff;
 
 	if (seg == MEM_SEG_VIP)
-		dest = vip_mem_emu2host(addr, size, &perms);
-	else if (seg == MEM_SEG_VSU)
-		dest = vsu_mem_emu2host(addr, size, &perms);
-	else if (seg == MEM_SEG_NVC)
-		dest = nvc_mem_emu2host(addr, &size, &mask, &perms);
-	else if (mem_segs[seg].ms_size)
 	{
-		u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
-
-		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
-		{
-			if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
-				return false;
-			offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
-		}
-
-		dest = mem_segs[seg].ms_ptr + offset;
-		perms = mem_segs[seg].ms_perms;
+		dest = vip_mem_emu2host(addr, size, &perms);
+		*mem_waitp = 4;
 	}
 	else
 	{
-		dest = NULL;
-		perms = 0;
+		if (seg == MEM_SEG_VSU)
+			dest = vsu_mem_emu2host(addr, size, &perms);
+		else if (seg == MEM_SEG_NVC)
+			dest = nvc_mem_emu2host(addr, &size, &mask, &perms);
+		else if (mem_segs[seg].ms_size)
+		{
+			u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
+
+			if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
+			{
+				if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
+					return false;
+				offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
+			}
+
+			dest = mem_segs[seg].ms_ptr + offset;
+			perms = mem_segs[seg].ms_perms;
+		}
+		else
+		{
+			dest = NULL;
+			perms = 0;
+		}
+
+		*mem_waitp = 2;
 	}
 
 	if (!dest)
@@ -663,7 +678,8 @@ cpu_inst_disp26(const union cpu_inst *inst)
 bool
 cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 {
-	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true))
+	u_int mem_wait;
+	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true, &mem_wait))
 	{
 		printf("Could not read instruction at 0x%08x\n", addr);
 		return false;
@@ -671,7 +687,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
 	if (cpu_inst_size(inst) == 4)
 	{
-		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2, true))
+		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2, true, &mem_wait))
 		{
 			printf("Could not read instruction at 0x%08x\n", addr + 2);
 			return false;
@@ -918,10 +934,14 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 		return false;
 	}
 
+	cpu_wait = 48; // Just an average; actually dependent on size/alignment
+
 	u_int read_byte_size = (*bit_lengthp > 32) ? 4 : *bit_lengthp >> 3;
 	u_int32_t src_word;
-	if (!mem_read(*src_word_addrp, &src_word, read_byte_size, false))
+	u_int mem_wait;
+	if (!mem_read(*src_word_addrp, &src_word, read_byte_size, false, &mem_wait))
 		return false;
+	cpu_wait+= mem_wait;
 
 	if (*src_bit_offp & 31)
 	{
@@ -934,13 +954,12 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 		return false;
 	}
 
-	if (!mem_write(*dest_word_addrp, &src_word, read_byte_size))
+	if (!mem_write(*dest_word_addrp, &src_word, read_byte_size, &mem_wait))
 		return false;
+	cpu_wait+= mem_wait;
 	(*src_word_addrp)+= read_byte_size;
 	(*dest_word_addrp)+= read_byte_size;
 	(*bit_lengthp)-= read_byte_size << 3;
-
-	cpu_wait = 48; // Just an average; actually dependent on size/alignment
 
 	/*
 	u_int dest_bit_off = *dest_bit_offp & 31;
@@ -1398,7 +1417,8 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int8_t value;
-			if (!mem_read(addr, &value, sizeof(value), false))
+			u_int mem_wait;
+			if (!mem_read(addr, &value, sizeof(value), false, &mem_wait))
 				return false;
 			if ((value & 0x80) == 0x80)
 				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffffff00 | value;
@@ -1407,7 +1427,7 @@ cpu_exec(const union cpu_inst inst)
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, value, 1);
 
-			cpu_wait = 3; // 1-2 for successive loads
+			cpu_wait = 3 + mem_wait; // 1-2 for successive loads
 
 			break;
 		}
@@ -1416,7 +1436,8 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int16_t value;
-			if (!mem_read(addr, &value, sizeof(value), false))
+			u_int mem_wait;
+			if (!mem_read(addr, &value, sizeof(value), false, &mem_wait))
 				return false;
 			// TODO: Use (int16_t) here
 			if ((value & 0x8000) == 0x8000)
@@ -1426,7 +1447,7 @@ cpu_exec(const union cpu_inst inst)
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, value, 2);
 
-			cpu_wait = 3; // 1-2 for successive loads
+			cpu_wait = 3 + mem_wait; // 1-2 for successive loads
 
 			break;
 		}
@@ -1434,12 +1455,13 @@ cpu_exec(const union cpu_inst inst)
 		case OP_IN_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
-			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r), false))
+			u_int mem_wait;
+			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r), false, &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, cpu_state.cs_r[inst.ci_vi.vi_reg2].u, 4);
 
-			cpu_wait = 3; // 1-2 for successive loads
+			cpu_wait = 3 + mem_wait; // 1-2 for successive loads
 
 			break;
 		}
@@ -1448,12 +1470,13 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xff;
-			if (!mem_write(addr, &value, sizeof(value)))
+			u_int mem_wait;
+			if (!mem_write(addr, &value, sizeof(value), &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, value, 1);
 
-			//cpu_wait = 1; // 2 for successive stores
+			cpu_wait = 1 + mem_wait; // 2 for successive stores
 
 			break;
 		}
@@ -1462,12 +1485,13 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xffff;
-			if (!mem_write(addr, &value, sizeof(value)))
+			u_int mem_wait;
+			if (!mem_write(addr, &value, sizeof(value), &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, value, 2);
 
-			//cpu_wait = 1; // 2 for successive stores
+			cpu_wait = 1 + mem_wait; // 2 for successive stores
 
 			break;
 		}
@@ -1476,12 +1500,13 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u;
-			if (!mem_write(addr, &value, sizeof(value)))
+			u_int mem_wait;
+			if (!mem_write(addr, &value, sizeof(value), &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, value, 4);
 
-			//cpu_wait = 1; // 2 for successive stores
+			cpu_wait = 1 + mem_wait; // 2 for successive stores
 
 			break;
 		}
@@ -1744,7 +1769,8 @@ cpu_assert_mem(u_int32_t addr, u_int32_t expected, u_int byte_size)
 {
 	u_int32_t actual;
 	assert(byte_size <= sizeof(actual));
-	if (!mem_read(addr, &(actual), sizeof(actual), false))
+	u_int mem_wait;
+	if (!mem_read(addr, &(actual), sizeof(actual), false, &mem_wait))
 		abort();
 	if (bcmp(&actual, &expected, byte_size))
 	{
@@ -1873,12 +1899,13 @@ cpu_test_movbsu(const u_int8_t src_bytes[],
                 const u_int8_t dest_bytes[],
                 u_int32_t num_dest_bytes)
 {
+	u_int mem_wait;
 	for (u_int i = 0; i < num_src_bytes; ++i)
-		if (!mem_write(0x05000100 + i, &(src_bytes[i]), 1))
+		if (!mem_write(0x05000100 + i, &(src_bytes[i]), 1, &mem_wait))
 			abort();
 
 	for (u_int i = 0; i < num_dest_bytes; ++i)
-		if (!mem_write(0x05000200 + i, &dest_fill, 1))
+		if (!mem_write(0x05000200 + i, &dest_fill, 1, &mem_wait))
 			abort();
 
 	cpu_state.cs_r[30].u = 0x05000100 + src_word_off;
@@ -4317,7 +4344,8 @@ debug_usage(char ch)
 static bool
 debug_mem_read(u_int32_t addr, void *dest, size_t size)
 {
-	if (mem_read(addr, dest, size, false))
+	u_int mem_wait;
+	if (mem_read(addr, dest, size, false, &mem_wait))
 		return true;
 	else
 	{
