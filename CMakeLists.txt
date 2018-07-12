@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.9)
 project(vvboy)
 
 add_compile_options(-Wall -Wextra -Wformat -Werror)
-add_definitions(-DDEBUG)
+set(CMAKE_C_FLAGS_RELEASE "-O3")
 find_library(EDIT_LIB edit)
 link_libraries(${EDIT_LIB})
 find_package(SDL2 REQUIRED)
@@ -20,6 +20,7 @@ set(GEN_HEADERS vvboy.h common.h rom.h vvbdis.h)
 add_executable(makeheaders vendor/makeheaders/makeheaders.c)
 target_compile_options(makeheaders PUBLIC -Wno-sign-compare -Wno-unused-parameter -Wno-unused-function
         -Wno-unused-const-variable)
+target_compile_definitions(makeheaders PUBLIC -DDEBUG)
 add_custom_target(GenHeaders
         COMMAND makeheaders -v ${ALL_SOURCES}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
