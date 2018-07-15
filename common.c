@@ -21,6 +21,9 @@
 #include <err.h>
 #include <histedit.h>
 #include <float.h>
+#include <OpenGL/gl3.h>
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include <cimgui/cimgui.h>
 
 /* MEM */
 #if INTERFACE
@@ -2598,7 +2601,7 @@ vip_scan_out(u_int fb_index, bool right)
 
 	u_int32_t argb[224 * 384];
 	vip_fb_convert(fb, ctcs, argb);
-	tk_blit(argb, right);
+	gl_blit(argb, right);
 }
 
 void
@@ -4352,7 +4355,6 @@ static const struct debug_help
 				{'w', "( read | write | all | none ) <addr>",
 					"Add or remove a debug watch\n\t\tUse without arguments to display watches"},
 				{'W', "<mask>", "Set world drawing mask (aliases: world)"},
-				{'D', "<type> <index>", "Draw some debug info\nTypes: BGSEG, CHR"},
 		};
 
 static void
@@ -4634,16 +4636,6 @@ static void
 debug_show_tracing(const char *name, bool *tracep)
 {
 	printf("%s tracing is %s\n", name, (*tracep) ? "on" : "off");
-}
-
-static void
-debug_draw(u_int x, u_int y, u_int8_t pixel)
-{
-	u_int32_t argb = pixel;
-	argb|= argb << 2;
-	argb|= argb << 4;
-	argb|= (argb << 8) | (argb << 16);
-	tk_debug_draw(x, y, argb);
 }
 
 struct debug_watch *
@@ -5130,66 +5122,6 @@ debug_step(void)
 						continue;
 					}
 				}
-				else if (!strcmp(argv[0], "D") || !strcmp(argv[0], "draw"))
-				{
-					if (argc != 3)
-					{
-						debug_usage('D');
-						continue;
-					}
-
-					u_int draw_index = atoi(argv[2]);
-
-					if (!strcmp(argv[1], "BGSEG"))
-					{
-						struct vip_bgsc *vb = vip_dram.vd_shared.s_bgsegs[draw_index];
-						for (u_int bg_y = 0; bg_y < 64; ++bg_y)
-							for (u_int bg_x = 0; bg_x < 64; ++bg_x)
-							{
-								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-									{
-										bool opaque;
-										u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
-										if (opaque)
-											debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
-									}
-								++vb;
-							}
-						tk_debug_flip();
-					}
-					else if (!strcmp(argv[1], "CHR"))
-					{
-						const struct vip_chr *vc;
-						switch (atoi(argv[2]))
-						{
-							case 0:
-								vc = vip_vrm.vv_chr0;
-								break;
-							case 1:
-								vc = vip_vrm.vv_chr1;
-								break;
-							case 2:
-								vc = vip_vrm.vv_chr2;
-								break;
-							case 3:
-								vc = vip_vrm.vv_chr3;
-								break;
-						}
-						for (u_int y = 0; y < 64; ++y)
-							for (u_int x = 0; x < 64; ++x)
-							{
-								for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-									for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-										debug_draw(x * 8 + chr_x, y * 8 + chr_y,
-										           vip_chr_read_slow(vc, chr_x, chr_y, false, false));
-								++vc;
-							}
-						tk_debug_flip();
-					}
-					else
-						debug_usage('D');
-				}
 				else if (!strcmp(argv[0], "t"))
 				{
 					if (argc > 1)
@@ -5305,6 +5237,465 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	return false;
 }
 
+/* GL */
+enum gl_texture
+{
+	TEXTURE_LEFT,
+	TEXTURE_RIGHT,
+	TEXTURE_DEBUG,
+	NUM_TEXTURES
+};
+static GLuint gl_textures[NUM_TEXTURES];
+static GLuint gl_vao, gl_vbo;
+static GLuint gl_program;
+static GLint gl_color_uniform;
+static u_int32_t gl_debug_frame[512 * 512];
+
+static bool
+gl_check_errors(const char *desc)
+{
+	bool none = true;
+	GLenum error;
+	while ((error = glGetError()) != GL_NO_ERROR)
+	{
+		const char *err_desc;
+		switch (error)
+		{
+			default:
+			{
+				static char unknown_err_desc[10];
+				snprintf(unknown_err_desc, sizeof(unknown_err_desc), "%08x", error);
+				err_desc = unknown_err_desc;
+				break;
+			}
+
+			case GL_INVALID_ENUM: err_desc = "GL_INVALID_ENUM"; break;
+			case GL_INVALID_VALUE: err_desc = "GL_INVALID_VALUE"; break;
+			case GL_INVALID_OPERATION: err_desc = "GL_INVALID_OPERATION"; break;
+			case GL_OUT_OF_MEMORY: err_desc = "GL_OUT_OF_MEMORY"; break;
+		}
+
+		debug_runtime_errorf(NULL, "GL error during %s: %s\n", desc, err_desc);
+		none = false;
+	}
+	return none;
+}
+
+static bool
+gl_check_program(GLuint program, GLenum pname,
+                 const char *desc,
+                 void (*get_func)(GLuint, GLenum, GLint *),
+                 void (*log_func)(GLuint, GLsizei, GLsizei *, GLchar *))
+{
+	GLint status;
+	get_func(program, pname, &status);
+	if (status != GL_TRUE)
+	{
+		char log[256];
+		log_func(program, sizeof(log), NULL, log);
+		debug_runtime_errorf(NULL, "%s failed: %s", desc, log);
+		return false;
+	}
+	return true;
+}
+
+bool
+gl_init(void)
+{
+	enum
+	{
+		ATTRIB_POSITION,
+		ATTRIB_TEX_COORD
+	};
+
+	static const GLchar * vertex_shader_src =
+			"#version 150\n"
+			"in vec2 i_position;\n"
+            "in vec2 i_tex_coord;\n"
+			"out vec2 v_tex_coord;\n"
+			"void main() {\n"
+            "    v_tex_coord = i_tex_coord;\n"
+			"    gl_Position = vec4(i_position, 0.0, 1.0);\n"
+			"}\n";
+
+	static const GLchar * fragment_shader_src =
+			"#version 150\n"
+            "in vec2 v_tex_coord;\n"
+			"out vec4 o_color;\n"
+			"uniform sampler2D tex;\n"
+			"uniform vec4 color;\n"
+			"void main() {\n"
+			"    o_color = texture(tex, v_tex_coord) * color;\n"
+			"}\n";
+
+	GLuint vertex_shader, fragment_shader;
+
+	vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+	fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+	gl_check_errors("create shaders");
+
+	glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
+	glCompileShader(vertex_shader);
+	gl_check_program(vertex_shader, GL_COMPILE_STATUS, "compile vertex program", glGetShaderiv, glGetShaderInfoLog);
+
+	glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
+	glCompileShader(fragment_shader);
+	gl_check_program(fragment_shader, GL_COMPILE_STATUS, "compile fragment program", glGetShaderiv, glGetShaderInfoLog);
+
+	gl_program = glCreateProgram();
+	glAttachShader(gl_program, vertex_shader);
+	glAttachShader(gl_program, fragment_shader);
+	gl_check_errors("attach shaders");
+
+	glBindAttribLocation(gl_program, ATTRIB_POSITION, "i_position");
+	glBindAttribLocation(gl_program, ATTRIB_TEX_COORD, "i_tex_coord");
+	glLinkProgram(gl_program);
+	if (!gl_check_program(gl_program, GL_LINK_STATUS, "link program", glGetProgramiv, glGetProgramInfoLog))
+		return false;
+
+	gl_color_uniform = glGetUniformLocation(gl_program, "color");
+	gl_check_errors("get color uniform");
+
+	glUseProgram(gl_program);
+	gl_check_errors("use program");
+
+	glDisable(GL_DEPTH_TEST);
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+
+	glGenVertexArrays(1, &gl_vao);
+	glGenBuffers(1, &gl_vbo);
+	glBindVertexArray(gl_vao);
+	glBindBuffer(GL_ARRAY_BUFFER, gl_vao);
+	if (!gl_check_errors("bind vertex buffers"))
+		return false;
+
+	glEnableVertexAttribArray(ATTRIB_POSITION);
+	glEnableVertexAttribArray(ATTRIB_TEX_COORD);
+
+	glVertexAttribPointer(ATTRIB_POSITION, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, (void *)(0 * sizeof(GLfloat)));
+	glVertexAttribPointer(ATTRIB_TEX_COORD, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, (void *)(2 * sizeof(GLfloat)));
+	if (!gl_check_errors("set attribute pointer"))
+		return false;
+
+	const GLfloat g_vertex_buffer_data[] = {
+			// x, y, u, v
+			-1, -1, 1.0, 0.0,
+			1, -1, 1.0, 1.0,
+			1, 1, 0.0, 1.0,
+
+			-1, -1, 1.0, 0.0,
+			1, 1, 0.0, 1.0,
+			-1, 1, 0.0, 0.0
+	};
+
+	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
+	if (!gl_check_errors("update buffer data"))
+		return false;
+
+	glGenTextures(NUM_TEXTURES, gl_textures);
+	for (u_int i = 0; i < NUM_TEXTURES; ++i)
+	{
+		glBindTexture(GL_TEXTURE_2D, gl_textures[i]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
+	if (!gl_check_errors("set up textures"))
+		return false;
+
+	return true;
+}
+
+void
+gl_fini(void)
+{
+	glDeleteTextures(2, gl_textures);
+	gl_check_errors("delete textures");
+}
+
+void
+gl_blit(const u_int32_t *fb_argb, bool right)
+{
+	glBindTexture(GL_TEXTURE_2D, gl_textures[(right) ? TEXTURE_RIGHT : TEXTURE_LEFT]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 224, 384, 0, GL_RGBA, GL_UNSIGNED_BYTE, fb_argb);
+	gl_check_errors("update texture");
+}
+
+void
+gl_clear(void)
+{
+	glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void
+gl_draw(void)
+{
+	glViewport(0, 0, tk_width, tk_height);
+	gl_check_errors("set viewport");
+
+	glUseProgram(gl_program);
+	glBindVertexArray(gl_vao);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glBlendEquation(GL_FUNC_ADD);
+
+	static bool draw_left = true;
+	static bool draw_right = true;
+
+	if (igBeginMainMenuBar())
+	{
+		if (igBeginMenu("GL", true))
+		{
+			if (igMenuItem("Draw left", NULL, draw_left, true))
+				draw_left = !draw_left;
+			if (igMenuItem("Draw right", NULL, draw_right, true))
+				draw_right = !draw_right;
+
+			igEndMenu();
+		}
+
+		igEndMainMenuBar();
+	}
+
+	if (draw_left)
+	{
+		glBindTexture(GL_TEXTURE_2D, gl_textures[TEXTURE_LEFT]);
+		glUniform4f(gl_color_uniform, 1.0, 0, 0, 1.0);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		gl_check_errors("draw left");
+	}
+
+	if (draw_right)
+	{
+		glBindTexture(GL_TEXTURE_2D, gl_textures[TEXTURE_RIGHT]);
+		glUniform4f(gl_color_uniform, 0, 0, 1.0, 1.0);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		gl_check_errors("draw right");
+	}
+}
+
+void
+gl_debug_clear(void)
+{
+	static const u_int32_t black = 0xff000000;
+	memset_pattern4(gl_debug_frame, &black, sizeof(gl_debug_frame));
+}
+void
+gl_debug_draw(u_int x, u_int y, u_int8_t pixel)
+{
+	assert(x < 512 && y < 512);
+	u_int32_t argb = pixel;
+	argb|= argb << 2;
+	argb|= argb << 4;
+	argb|= (argb << 8) | (argb << 16);
+	gl_debug_frame[y * 512 + x] = argb;
+}
+
+u_int
+gl_debug_blit(void)
+{
+	glBindTexture(GL_TEXTURE_2D, gl_textures[TEXTURE_DEBUG]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 512, 512, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, gl_debug_frame);
+	return gl_textures[TEXTURE_DEBUG];
+}
+
+/* IMGUI */
+bool imgui_shown = false;
+
+struct ImGuiContext *imgui_context;
+
+static const struct ImVec2 IMVEC2_ZERO = {0, 0};
+
+static bool
+imgui_init(void)
+{
+	imgui_context = igCreateContext(NULL);
+
+	struct ImGuiIO *io = igGetIO();
+	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "vendor/cimgui/imgui/misc/fonts/Roboto-Medium.ttf", 16.0f, NULL, NULL);
+
+	return true;
+}
+
+static void
+imgui_fini(void)
+{
+	igDestroyContext(imgui_context);
+}
+
+void
+imgui_frame_begin(void)
+{
+	if (!imgui_shown)
+		return;
+
+	static bool vip_rows_open = false;
+	static bool vip_offscreen_open = false;
+	static bool demo_open = false;
+	if (igBeginMainMenuBar())
+	{
+		if (igBeginMenu("VIP", true))
+		{
+			if (igBeginMenu("Worlds", true))
+			{
+				for (u_int i = 0; i < 32; ++i)
+				{
+					char label[32 + 1];
+					snprintf(label, sizeof(label), "%d", i + 1);
+					u_int32_t mask = 1 << i;
+					bool shown = ((vip_world_mask & mask) != 0);
+					if (igMenuItem(label, NULL, shown, true))
+					{
+						if (shown)
+							vip_world_mask &= ~mask;
+						else
+							vip_world_mask |= mask;
+					}
+				}
+
+				igEndMenu();
+			}
+
+			if (igMenuItem("Rows...", NULL, vip_rows_open, true))
+				vip_rows_open = !vip_rows_open;
+
+			if (igMenuItem("View offscreen...", NULL, vip_offscreen_open, true))
+				vip_offscreen_open = !vip_offscreen_open;
+
+			igEndMenu();
+		}
+
+		if (igBeginMenu("UI", true))
+		{
+			if (igMenuItem("Show demo window", NULL, false, true))
+				demo_open = true;
+
+			igEndMenu();
+		}
+
+		igEndMainMenuBar();
+	}
+
+	if (vip_rows_open)
+	{
+		if (igBegin("VIP Rows", &vip_rows_open, 0))
+		{
+			for (u_int i = 0; i < 28; ++i)
+			{
+				char label[32 + 1];
+				snprintf(label, sizeof(label), "%u-%u", i * 8 + 1, i * 8 + 8);
+				u_int32_t mask = 1u << i;
+				bool shown = ((vip_row_mask & mask) != 0);
+				if ((i % 4) != 0)
+					igSameLine(0.0, -1.0f);
+				if (igCheckbox(label, &shown))
+				{
+					if (shown)
+						vip_row_mask|= mask;
+					else
+						vip_row_mask&= ~mask;
+				}
+			}
+			if (igButton("All", IMVEC2_ZERO))
+				vip_row_mask = (1 << 28) - 1;
+			igSameLine(0.0, -1.0f);
+			if (igButton("None", IMVEC2_ZERO))
+				vip_row_mask = 0;
+
+			igEnd();
+		}
+	}
+
+	if (vip_offscreen_open)
+	{
+		if (igBegin("VIP Offscreen", &vip_offscreen_open, 0))
+		{
+			enum
+			{
+				VIP_BGSEG,
+				VIP_CHR,
+				//VIP_OBJ,
+				VIP_NUM_OFFSCREEN
+			};
+			static int offscreen;
+			const char *labels[VIP_NUM_OFFSCREEN] =
+					{
+							[VIP_BGSEG] = "BGSEG",
+							[VIP_CHR] = "CHR",
+							//[VIP_OBJ] = "OBJ"
+					};
+			igCombo("What", &offscreen, labels, VIP_NUM_OFFSCREEN, -1);
+			u_int texture;
+			gl_debug_clear();
+			float height;
+			switch (offscreen)
+			{
+				case VIP_BGSEG:
+				{
+					static int off_index = 0;
+					igInputInt("Which", &off_index, 1, 100, ImGuiInputTextFlags_AutoSelectAll);
+					if (off_index < 0)
+						off_index = 13;
+					else if (off_index >= 14)
+						off_index = 0;
+
+					height = 512;
+					struct vip_bgsc *vb = vip_dram.vd_shared.s_bgsegs[off_index];
+					for (u_int bg_y = 0; bg_y < 64; ++bg_y)
+						for (u_int bg_x = 0; bg_x < 64; ++bg_x)
+						{
+							for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+								for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+								{
+									bool opaque;
+									u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
+									//if (opaque)
+										gl_debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
+								}
+							++vb;
+						}
+					break;
+				}
+				case VIP_CHR:
+				{
+					height = 256;
+					for (u_int c = 0; c < 2048; ++c)
+					{
+						const struct vip_chr *vc = VIP_CHR_FIND(c);
+						u_int x = c % 64;
+						u_int y = c / 64;
+						for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+							for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+								gl_debug_draw(x * 8 + chr_x, y * 8 + chr_y,
+								              vip_chr_read_slow(vc, chr_x, chr_y, false, false));
+					}
+					break;
+				}
+			}
+			static const struct ImVec4 color = {1, 1, 1, 1};
+			static const struct ImVec4 border_color = {0.5, 0.5, 0.5, 1};
+			texture = gl_debug_blit();
+			igImage((ImTextureID)(uintptr_t)texture,
+			        (struct ImVec2){512, height},
+			        IMVEC2_ZERO, (struct ImVec2){1.0, (float)height / 512},
+			        color, border_color);
+
+			igEnd();
+		}
+	}
+
+	if (demo_open)
+		igShowDemoWindow(&demo_open);
+}
+
+void
+imgui_frame_end(void)
+{
+	if (imgui_shown)
+		igRender();
+	else
+		igEndFrame();
+}
+
 /* MAIN */
 #if INTERFACE
 	struct main_stats_t
@@ -5324,13 +5715,23 @@ struct main_stats_t main_stats;
 bool
 main_init(void)
 {
-	return (sram_init() && wram_init() && vip_init() && vsu_init() && nvc_init() && debug_init() && tk_init());
+	return (sram_init() &&
+			wram_init() &&
+			vip_init() &&
+			vsu_init() &&
+			nvc_init() &&
+			debug_init() &&
+			imgui_init() &&
+	        tk_init() &&
+	        gl_init());
 }
 
 void
 main_fini(void)
 {
+	gl_fini();
 	tk_fini();
+	imgui_fini();
 	debug_fini();
 	nvc_fini();
 	vsu_fini();
@@ -5452,6 +5853,10 @@ main_unblock_sigint(void)
 void
 main_frame(void)
 {
+	gl_clear();
+
+	imgui_frame_begin();
+
 	u_int main_frame_usec = 20000;
 
 	if (main_paused)
@@ -5466,4 +5871,8 @@ main_frame(void)
 	sigpending(&sigpend);
 	if (sigismember(&sigpend, SIGINT))
 		debugging = true;
+
+	gl_draw();
+
+	imgui_frame_end();
 }

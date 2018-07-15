@@ -5,6 +5,7 @@
 #include "tk_sdl.h"
 
 #include <SDL.h>
+# include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
 
 #if !SDL_VERSION_ATLEAST(2, 0, 7)
 # warning Problems with game controller GUIDs on macOS with version 2.0.5
@@ -12,15 +13,12 @@
 
 #define VSYNC (true)
 
+u_int tk_width, tk_height;
+
 static bool tk_running = false;
 static SDL_Window *sdl_window;
-static SDL_Renderer *sdl_renderer;
-static SDL_Texture *sdl_textures[2];
-static SDL_Window *sdl_debug_window;
 static SDL_GameController *sdl_controller;
-static SDL_Renderer *sdl_debug_renderer;
-static SDL_Texture *sdl_debug_texture;
-static u_int32_t sdl_debug_frame[512 * 512];
+static SDL_GLContext sdl_gl_context;
 
 bool
 tk_init(void)
@@ -31,36 +29,30 @@ tk_init(void)
 		return false;
 	}
 
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+
+	tk_width = 384 * 3;
+	tk_height = 224 * 3;
+
 	if (!(sdl_window = SDL_CreateWindow("VVBoy",
 					SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-					384 * 2, 224 * 2,
-					0)))
+					tk_width, tk_height,
+					SDL_WINDOW_OPENGL)))
 	{
 		fprintf(stderr, "SDL: Couldn't create window: %s", SDL_GetError());
 		return false;
 	}
-	Uint32 flags = (VSYNC) ? SDL_RENDERER_PRESENTVSYNC : 0;
-	if (!(sdl_renderer = SDL_CreateRenderer(sdl_window, -1, flags)))
-	{
-		fprintf(stderr, "SDL: Couldn't create renderer: %s", SDL_GetError());
-		return false;
-	}
+	SDL_GL_SetSwapInterval(VSYNC);
 
-	for (u_int i = 0; i < 2; ++i)
-	{
-		if (!(sdl_textures[i] = SDL_CreateTexture(sdl_renderer,
-		                                          SDL_PIXELFORMAT_ARGB8888,
-		                                          SDL_TEXTUREACCESS_STREAMING,
-		                                          224,
-		                                          384)))
-		{
-			fprintf(stderr, "SDL: Could not create texture: %s", SDL_GetError());
-			return false;
-		}
-		SDL_SetTextureBlendMode(sdl_textures[i], SDL_BLENDMODE_ADD);
-	}
-	SDL_SetTextureColorMod(sdl_textures[0], 0xff, 0, 0);
-	SDL_SetTextureColorMod(sdl_textures[1], 0, 0, 0xff);
+	sdl_gl_context = SDL_GL_CreateContext(sdl_window);
+
+	ImGui_ImplSdlGL3_Init(sdl_window, NULL);
 
 	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", SDL_GetError(), sdl_window);
@@ -158,7 +150,15 @@ tk_frame(void)
 	else
 		tk_frame_tick(interval, NULL);
 
+	ImGui_ImplSdlGL3_NewFrame(sdl_window);
+
 	main_frame();
+
+	struct ImDrawData *imgui_data = igGetDrawData();
+	if (imgui_data)
+		ImGui_ImplSdlGL3_RenderDrawData(imgui_data);
+
+	SDL_GL_SwapWindow(sdl_window);
 }
 
 void
@@ -170,6 +170,9 @@ tk_main(void)
 
 	SDL_Event event;
 	while (tk_running && SDL_WaitEvent(&event))
+	{
+		ImGui_ImplSdlGL3_ProcessEvent(&event);
+
 		switch (event.type)
 		{
 			case SDL_USEREVENT:
@@ -205,6 +208,7 @@ tk_main(void)
 					switch (event.key.keysym.scancode)
 					{
 						default: break;
+						case SDL_SCANCODE_GRAVE: imgui_shown = !imgui_shown; break;
 						case SDL_SCANCODE_ESCAPE: debug_enter(); break;
 						case SDL_SCANCODE_F1: vip_toggle_worlds(); break;
 						case SDL_SCANCODE_F2: vip_use_bright = !vip_use_bright; break;
@@ -263,6 +267,9 @@ tk_main(void)
 			default:
 				break;
 		}
+	}
+
+	ImGui_ImplSdlGL3_Shutdown();
 }
 
 void
@@ -272,54 +279,12 @@ tk_quit(void)
 }
 
 void
-tk_blit(const u_int32_t *fb_argb, bool right)
-{
-	if (!right)
-		SDL_RenderClear(sdl_renderer);
-
-	SDL_Texture *texture = sdl_textures[(right) ? 0 : 1];
-	SDL_UpdateTexture(texture, NULL, fb_argb, 224 * sizeof(*fb_argb));
-	SDL_Rect src_rect = {.x = 0, .y = 0, .w = 224, .h = 384};
-	SDL_Rect dest_rect = {.x = 0, .y = 0, .w = 224 * 2, .h = 384 * 2};
-	SDL_Point center = {.x = 384, .y = 384};
-	SDL_RenderCopyEx(sdl_renderer, texture, &src_rect, &dest_rect, 90.0, &center, SDL_FLIP_VERTICAL);
-
-	if (right)
-		SDL_RenderPresent(sdl_renderer);
-}
-
-void
-tk_debug_draw(u_int x, u_int y, u_int32_t argb)
-{
-	if (!sdl_debug_renderer)
-	{
-		SDL_CreateWindowAndRenderer(512, 512, 0, &sdl_debug_window, &sdl_debug_renderer);
-		sdl_debug_texture = SDL_CreateTexture(sdl_debug_renderer,
-				SDL_PIXELFORMAT_ARGB8888,
-				SDL_TEXTUREACCESS_STREAMING,
-				512, 512);
-	}
-
-	sdl_debug_frame[y * 512 + x] = argb;
-}
-
-void
-tk_debug_flip(void)
-{
-	SDL_UpdateTexture(sdl_debug_texture, NULL, sdl_debug_frame, 512 * sizeof(*sdl_debug_frame));
-	SDL_RenderCopy(sdl_debug_renderer, sdl_debug_texture, NULL, NULL);
-	SDL_RenderPresent(sdl_debug_renderer);
-}
-
-void
 tk_fini(void)
 {
 	if (sdl_controller)
 		SDL_GameControllerClose(sdl_controller);
 
-	for (u_int i = 0; i < 2; ++i)
-		SDL_DestroyTexture(sdl_textures[i]);
-    SDL_DestroyRenderer(sdl_renderer);
+	SDL_GL_DeleteContext(sdl_gl_context);
     SDL_DestroyWindow(sdl_window);
 
     SDL_Quit();
