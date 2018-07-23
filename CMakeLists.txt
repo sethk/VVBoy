@@ -33,7 +33,7 @@ add_custom_target(GenHeaders
         BYPRODUCTS ${GEN_HEADERS}
         DEPENDS makeheaders ${ALL_SOURCES})
 
-add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES})
+add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES} ${IMGUI_SOURCES})
 add_dependencies(vvbdis GenHeaders)
 add_executable(vvboy ${VVBOY_SOURCES} vvboy.h ${COMMON_SOURCES} ${TK_SOURCES} ${IMGUI_SOURCES})
 add_dependencies(vvboy GenHeaders)
