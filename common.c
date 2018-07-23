@@ -4420,8 +4420,10 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 	if ((sscanf(s, "%i[pc]%n", &disp, &nparsed) == 1 && (size_t)nparsed == len) ||
 	    (sscanf(s, "[pc]%n", &nparsed) == 0 && (size_t)nparsed == len))
 		base = cpu_state.cs_pc;
-	else if ((sscanf(s, "%i[%3s]%n", &disp, reg_name, &nparsed) == 2 && (size_t)nparsed == len) ||
-	         (sscanf(s, "[%3s]%n", reg_name, &nparsed) == 1 && (size_t)nparsed == len))
+	else if ((sscanf(s, "%i[%2s]%n", &disp, reg_name, &nparsed) == 2 && (size_t)nparsed == len) ||
+			(sscanf(s, "[%2s]%n", reg_name, &nparsed) == 1 && (size_t)nparsed == len) ||
+			(sscanf(s, "%i[%3s]%n", &disp, reg_name, &nparsed) == 2 && (size_t)nparsed == len) ||
+			(sscanf(s, "[%3s]%n", reg_name, &nparsed) == 1 && (size_t)nparsed == len))
 	{
 		u_int reg_num;
 		for (reg_num = 0; reg_num < 32; ++reg_num)
