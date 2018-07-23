@@ -3862,20 +3862,29 @@ debug_disasm_vi(debug_str_t decode,
 				break;
 			case OP_ST_B:
 			{
-				u_int8_t value = context->ddc_regs[inst->ci_vi.vi_reg2].u & 0xff;
-				snprintf(decomp, debug_str_len, "[%s] <- 0x%02hhx", addr_s, value);
+				const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_vi.vi_reg2);
+				if (reg2)
+					snprintf(decomp, debug_str_len, "[%s] <- 0x%02hhx", addr_s, reg2->u8s[0]);
+				else
+					snprintf(decomp, debug_str_len, "[%s] <- %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 				break;
 			}
 			case OP_ST_H:
 			{
-				u_int16_t value = context->ddc_regs[inst->ci_vi.vi_reg2].u & 0xffff;
-				snprintf(decomp, debug_str_len, "[%s] <- 0x%04hx", addr_s, value);
+				const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_vi.vi_reg2);
+				if (reg2)
+					snprintf(decomp, debug_str_len, "[%s] <- 0x%04hx", addr_s, reg2->s16);
+				else
+					snprintf(decomp, debug_str_len, "[%s] <- %s & 0xffff", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 				break;
 			}
 			case OP_ST_W:
 			{
-				u_int32_t value = context->ddc_regs[inst->ci_vi.vi_reg2].u;
-				snprintf(decomp, debug_str_len, "[%s] <- 0x%08x", addr_s, value);
+				const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_vi.vi_reg2);
+				if (reg2)
+					snprintf(decomp, debug_str_len, "[%s] <- 0x%08x", addr_s, reg2->u);
+				else
+					snprintf(decomp, debug_str_len, "[%s] <- %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 				break;
 			}
 		}
