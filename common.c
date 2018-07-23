@@ -5237,6 +5237,22 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	return false;
 }
 
+void
+debug_imgui(void)
+{
+	if (igBeginMainMenuBar())
+	{
+		if (igBeginMenu("Debug", true))
+		{
+			igMenuItemPtr("Trace NVC", NULL, &debug_trace_nvc, true);
+
+			igEndMenu();
+		}
+
+		igEndMainMenuBar();
+	}
+}
+
 /* GL */
 enum gl_texture
 {
@@ -5528,6 +5544,9 @@ imgui_frame_begin(void)
 	if (!imgui_shown)
 		return;
 
+	debug_imgui();
+
+	static bool vip_worlds_open = false;
 	static bool vip_rows_open = false;
 	static bool vip_offscreen_open = false;
 	static bool demo_open = false;
@@ -5535,25 +5554,10 @@ imgui_frame_begin(void)
 	{
 		if (igBeginMenu("VIP", true))
 		{
-			if (igBeginMenu("Worlds", true))
-			{
-				for (u_int i = 0; i < 32; ++i)
-				{
-					char label[32 + 1];
-					snprintf(label, sizeof(label), "%d", i + 1);
-					u_int32_t mask = 1 << i;
-					bool shown = ((vip_world_mask & mask) != 0);
-					if (igMenuItem(label, NULL, shown, true))
-					{
-						if (shown)
-							vip_world_mask &= ~mask;
-						else
-							vip_world_mask |= mask;
-					}
-				}
+			if (igMenuItem("Worlds...", NULL, vip_worlds_open, true))
+				vip_worlds_open = !vip_worlds_open;
 
-				igEndMenu();
-			}
+			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
 
 			if (igMenuItem("Rows...", NULL, vip_rows_open, true))
 				vip_rows_open = !vip_rows_open;
@@ -5573,6 +5577,36 @@ imgui_frame_begin(void)
 		}
 
 		igEndMainMenuBar();
+	}
+
+	if (vip_worlds_open)
+	{
+		if (igBegin("VIP Worlds", &vip_worlds_open, 0))
+		{
+			for (u_int i = 0; i < 32; ++i)
+			{
+				char label[32 + 1];
+				snprintf(label, sizeof(label), "%d", i + 1);
+				u_int32_t mask = 1 << i;
+				bool shown = ((vip_world_mask & mask) != 0);
+				if ((i % 8) != 0)
+					igSameLine(0.0, -1.0f);
+				if (igCheckbox(label, &shown))
+				{
+					if (shown)
+						vip_world_mask |= mask;
+					else
+						vip_world_mask &= ~mask;
+				}
+			}
+			if (igButton("All", IMVEC2_ZERO))
+				vip_world_mask = ~0;
+			igSameLine(0.0, -1.0f);
+			if (igButton("None", IMVEC2_ZERO))
+				vip_world_mask = 0;
+
+			igEnd();
+		}
 	}
 
 	if (vip_rows_open)
@@ -5613,7 +5647,6 @@ imgui_frame_begin(void)
 			{
 				VIP_BGSEG,
 				VIP_CHR,
-				//VIP_OBJ,
 				VIP_NUM_OFFSCREEN
 			};
 			static int offscreen;
@@ -5621,7 +5654,6 @@ imgui_frame_begin(void)
 					{
 							[VIP_BGSEG] = "BGSEG",
 							[VIP_CHR] = "CHR",
-							//[VIP_OBJ] = "OBJ"
 					};
 			igCombo("What", &offscreen, labels, VIP_NUM_OFFSCREEN, -1);
 			u_int texture;

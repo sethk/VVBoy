@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include "tk_null.h"
 
+u_int tk_width, tk_height;
 struct timeval start_time;
 
 bool
@@ -29,26 +30,6 @@ tk_get_ticks(void)
 	if (gettimeofday(&now, NULL) == -1)
 		warn("gettimeofday()");
 	return (now.tv_sec - start_time.tv_sec) * 1000 + (now.tv_usec - start_time.tv_usec) / 1000;
-}
-
-void
-tk_step(void)
-{
-}
-
-void
-tk_blit(const u_int32_t *argb_fb __unused, bool right __unused)
-{
-}
-
-void
-tk_debug_draw(u_int x __unused, u_int y __unused, u_int32_t argb __unused)
-{
-}
-
-void
-tk_debug_flip(void)
-{
 }
 
 void

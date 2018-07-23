@@ -210,9 +210,6 @@ tk_main(void)
 						default: break;
 						case SDL_SCANCODE_GRAVE: imgui_shown = !imgui_shown; break;
 						case SDL_SCANCODE_ESCAPE: debug_enter(); break;
-						case SDL_SCANCODE_F1: vip_toggle_worlds(); break;
-						case SDL_SCANCODE_F2: vip_use_bright = !vip_use_bright; break;
-						case SDL_SCANCODE_F3: vip_toggle_rows(); break;
 						case SDL_SCANCODE_F4: main_toggle_speed(); break;
 						case SDL_SCANCODE_F5: main_toggle_paused(); break;
 					}
