@@ -4851,7 +4851,7 @@ debug_step(void)
 							{
 								u_int value;
 								if (debug_mem_read(addr, &value, int_size))
-									printf(" 0x%0*x\n", (int)int_size << 1, value);
+									printf(" 0x%0.*x\n", (int)int_size << 1, value);
 								addr+= int_size;
 							}
 							else if (!strcmp(format, "i"))
