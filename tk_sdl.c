@@ -204,15 +204,6 @@ tk_main(void)
 					case SDL_SCANCODE_RALT: nvc_input(KEY_A, event.key.state); break;
 					case SDL_SCANCODE_RGUI: nvc_input(KEY_B, event.key.state); break;
 				}
-				if (event.type == SDL_KEYDOWN)
-					switch (event.key.keysym.scancode)
-					{
-						default: break;
-						case SDL_SCANCODE_GRAVE: imgui_shown = !imgui_shown; break;
-						case SDL_SCANCODE_ESCAPE: debug_enter(); break;
-						case SDL_SCANCODE_F4: main_toggle_speed(); break;
-						case SDL_SCANCODE_F5: main_toggle_paused(); break;
-					}
 				break;
 			}
 			case SDL_CONTROLLERBUTTONDOWN:

@@ -24,6 +24,7 @@
 #include <OpenGL/gl3.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
+#include <SDL_scancode.h>
 
 /* MEM */
 #if INTERFACE
@@ -403,7 +404,6 @@ wram_fini(void)
 
 /* CPU */
 #if INTERFACE
-#	define CPU_INST_PER_USEC (20)
 #   define CPU_MAX_PC (0xfffffffe)
 
 	union cpu_reg {u_int32_t u; int32_t s; float f; int16_t s16; u_int8_t u8s[4];};
@@ -3211,13 +3211,13 @@ struct nvc_regs
 static struct nvc_regs nvc_regs;
 static u_int nvc_next_tick;
 static u_int nvc_timer_frac;
-static u_int nvc_inst_per_usec = CPU_INST_PER_USEC;
+static u_int nvc_cycles_per_usec = 20;
 
 bool
 nvc_init(void)
 {
-	if (getenv("INST_PER_USEC"))
-		nvc_inst_per_usec = atoi(getenv("INST_PER_USEC"));
+	if (getenv("CYCLES_PER_USEC"))
+		nvc_cycles_per_usec = atoi(getenv("CYCLES_PER_USEC"));
 
 	return cpu_init();
 }
@@ -3282,6 +3282,25 @@ nvc_test(void)
 	mem_test_addr("nvc_sdlr", nvc_mem_emu2host(0x02000010, &size, &mask, &perms), &(nvc_regs.nr_sdlr));
 	mem_test_addr("nvc_sdhr", nvc_mem_emu2host(0x02000014, &size, &mask, &perms), &(nvc_regs.nr_sdhr));
 	mem_test_addr("nvc_tcr", nvc_mem_emu2host(0x02000020, &size, &mask, &perms), &(nvc_regs.nr_tcr));
+}
+
+static void
+nvc_frame_begin(void)
+{
+	if (igBeginMainMenuBar())
+	{
+		if (igBeginMenu("NVC", true))
+		{
+			igBeginChild("Clock", (struct ImVec2){180, 30}, false, 0);
+			{
+				igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 5, 30, NULL);
+				igEndChild();
+			}
+			igEndMenu();
+		}
+
+		igEndMainMenuBar();
+	}
 }
 
 bool
@@ -3349,7 +3368,7 @@ nvc_step(void)
 		nvc_next_tick = (nvc_next_tick + tick_usec) % 1000000;
 	}
 
-	for (u_int x = 0; x < nvc_inst_per_usec; ++x)
+	for (u_int x = 0; x < nvc_cycles_per_usec; ++x)
 		if (!cpu_step())
 			return false;
 
@@ -5263,7 +5282,7 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 }
 
 void
-debug_imgui(void)
+debug_frame_begin(void)
 {
 	if (igBeginMainMenuBar())
 	{
@@ -5566,10 +5585,11 @@ imgui_fini(void)
 void
 imgui_frame_begin(void)
 {
+	if (igIsKeyPressed(SDL_SCANCODE_GRAVE, false))
+		imgui_shown = !imgui_shown;
+
 	if (!imgui_shown)
 		return;
-
-	debug_imgui();
 
 	static bool vip_worlds_open = false;
 	static bool vip_rows_open = false;
@@ -5913,21 +5933,48 @@ main_frame(void)
 	gl_clear();
 
 	imgui_frame_begin();
+	debug_frame_begin();
+	nvc_frame_begin();
 
 	u_int main_frame_usec = 20000;
+	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
+		main_toggle_paused();
+	bool main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
+	if (igBeginMainMenuBar())
+	{
+		if (igBeginMenu("Run", true))
+		{
+			if (igMenuItem("Pause", "F9", main_paused, true))
+				main_toggle_paused();
 
-	if (main_paused)
-		return;
-	if (main_speed != 0)
-		main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
+			if (igMenuItem("Step 1 frame", "F8", false, true))
+				main_step_frame = true;
 
-	while (main_step() && (main_usec % main_frame_usec) != 0);
+			igBeginChild("Speed", (struct ImVec2){120, 30}, false, 0);
+			{
+				igSliderInt("Speed", &main_speed, -3, 3, "2^%.0f");
+				igEndChild();
+			}
 
-	// Check SIGINT -> Debugger
-	sigset_t sigpend;
-	sigpending(&sigpend);
-	if (sigismember(&sigpend, SIGINT))
-		debugging = true;
+			igEndMenu();
+		}
+
+		igEndMainMenuBar();
+	}
+
+	if (!main_paused || main_step_frame)
+	{
+		if (main_speed != 0)
+			main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
+
+		while (main_step() && (main_usec % main_frame_usec) != 0);
+
+		// Check SIGINT -> Debugger
+		sigset_t sigpend;
+		sigpending(&sigpend);
+		if (sigismember(&sigpend, SIGINT))
+			debugging = true;
+	}
 
 	gl_draw();
 
