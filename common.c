@@ -2062,7 +2062,7 @@ cpu_intr(enum nvc_intlevel level)
 	{
 		if (level >= cpu_state.cs_psw.psw_flags.f_i)
 		{
-			if (debug_trace_cpu)
+			if (debug_trace_cpu_int)
 			{
 				debug_str_t addr_s;
 				debug_tracef("cpu", DEBUG_ADDR_FMT ": Interrupt level=%d\n",
@@ -3463,6 +3463,7 @@ nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
 bool debugging = false;
 bool debug_trace_cpu = false;
 bool debug_trace_cpu_jmp = false;
+bool debug_trace_cpu_int = false;
 bool debug_trace_mem = false;
 bool debug_trace_vip = false;
 u_int16_t debug_vip_intflags = 0;
@@ -3470,6 +3471,23 @@ bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
 u_int32_t debug_break = DEBUG_ADDR_NONE;
+
+struct debug_trace
+{
+	const char *dt_key;
+	const char *dt_label;
+	bool *dt_tracep;
+};
+static struct debug_trace debug_traces[] =
+		{
+				{"cpu", "CPU", &debug_trace_cpu},
+				{"cpu.jmp", "CPU Jumps", &debug_trace_cpu_jmp},
+				{"cpu.int", "CPU Interrupts", &debug_trace_cpu_int},
+				{"mem", "Memory", &debug_trace_mem},
+				{"vip", "VIP", &debug_trace_vip},
+				{"nvc", "NVC", &debug_trace_nvc},
+				{"nvc.tim", "NVC Timer", &debug_trace_nvc_tim}
+		};
 
 struct debug_watch
 {
@@ -4355,7 +4373,7 @@ static const struct debug_help
 				{'r', "", "Reset the CPU (aliases: reset)"},
 				{'v', "", "Show VIP info (aliases: vip)"},
 				{'d', "[<addr>]", "Disassemble from <addr> (defaults to [pc]) (aliases: dis)"},
-				{'t', "[ cpu | cpu.jmp | vip | nvc | nvc.tim | mem ]", "Toggle tracing of a subsystem"},
+				{'t', "[<subsystem>]", "Toggle tracing of a subsystem"},
 				{'j', "<addr>", "Jump to <addr> (aliases: jump)"},
 				{'N', "nvc", "Show NVC info (aliases: nvc)"},
 				{'S', "[<name> [<addr>]]", "Add a debug symbol\n"
@@ -4644,9 +4662,22 @@ debug_format_oam(debug_str_t s, const struct vip_oam *vop)
 }
 
 static void
-debug_show_tracing(const char *name, bool *tracep)
+debug_show_trace(const struct debug_trace trace)
 {
-	printf("%s tracing is %s\n", name, (*tracep) ? "on" : "off");
+	printf("%s tracing is %s\n", trace.dt_key, (*trace.dt_tracep) ? "on" : "off");
+}
+
+bool
+debug_toggle_trace(const char *key)
+{
+	for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+		if (!strcmp(key, debug_traces[i].dt_key))
+		{
+			*debug_traces[i].dt_tracep = !*debug_traces[i].dt_tracep;
+			debug_show_trace(debug_traces[i]);
+			return true;
+		}
+	return false;
 }
 
 struct debug_watch *
@@ -5137,36 +5168,16 @@ debug_step(void)
 				{
 					if (argc > 1)
 					{
-						bool *tracep;
-						if (!strcmp(argv[1], "cpu"))
-							tracep = &debug_trace_cpu;
-						else if (!strcmp(argv[1], "cpu.jmp"))
-							tracep = &debug_trace_cpu_jmp;
-						else if (!strcmp(argv[1], "vip"))
-							tracep = &debug_trace_vip;
-						else if (!strcmp(argv[1], "nvc"))
-							tracep = &debug_trace_nvc;
-						else if (!strcmp(argv[1], "nvc.tim"))
-							tracep = &debug_trace_nvc_tim;
-						else if (!strcmp(argv[1], "mem"))
-							tracep = &debug_trace_mem;
-						else
+						if (!debug_toggle_trace(argv[1]))
 						{
 							debug_usage('t');
 							continue;
 						}
-
-						*tracep = !*tracep;
-						debug_show_tracing(argv[1], tracep);
 					}
 					else
 					{
-						debug_show_tracing("cpu", &debug_trace_cpu);
-						debug_show_tracing("cpu.jmp", &debug_trace_cpu_jmp);
-						debug_show_tracing("vip", &debug_trace_vip);
-						debug_show_tracing("nvc", &debug_trace_nvc);
-						debug_show_tracing("nvc.tim", &debug_trace_nvc_tim);
-						debug_show_tracing("mem", &debug_trace_mem);
+						for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+							debug_show_trace(debug_traces[i]);
 					}
 				}
 				else if (!strcmp(argv[0], "j") || !strcmp(argv[0], "jump"))

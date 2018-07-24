@@ -12,8 +12,8 @@ main(int ac, char * const *av)
 	extern int optind;
 	bool help = false;
 	bool self_test = false;
-	static const char *usage_fmt = "usage: %s [-dtCV] [-T <trace.log> ] { <file.vb> | <file.isx> }\n";
-	while ((ch = getopt(ac, av, "dtCVT:")) != -1)
+	static const char *usage_fmt = "usage: %s [-d] [ -t <subsystem> ] [ -T <trace.log> ] { <file.vb> | <file.isx> }\n";
+	while ((ch = getopt(ac, av, "dt:T:")) != -1)
 		switch (ch)
 		{
 			case '?':
@@ -22,13 +22,8 @@ main(int ac, char * const *av)
 				debugging = true;
 				break;
 			case 't':
-				self_test = true;
-				break;
-			case 'C':
-				debug_trace_cpu = true;
-				break;
-			case 'V':
-				debug_trace_vip = true;
+				if (!debug_toggle_trace(optarg))
+					help = true;
 				break;
 			case 'T':
 				debug_trace_file = fopen(optarg, "w");
