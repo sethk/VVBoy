@@ -5025,7 +5025,7 @@ debug_step(void)
 						--inst_limit;
 					}
 				}
-				else if (!strcmp(argv[0], "n") || !strcmp(argv[0], "nvc"))
+				else if (!strcmp(argv[0], "N") || !strcmp(argv[0], "nvc"))
 				{
 					debug_str_t flags_s;
 					printf("SCR: (%s)\n",
