@@ -5237,6 +5237,9 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	fputs(msg, stderr);
 	fputc('\n', stderr);
 
+	if (debugging)
+		return true;
+
 	if (ignore_flagp && *ignore_flagp)
 		return true;
 
