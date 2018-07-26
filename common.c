@@ -3523,6 +3523,11 @@ static Tokenizer *s_token;
 // TODO: Use hcreate()
 static struct debug_symbol *debug_syms = NULL;
 
+static bool debug_show_console = false;
+static char debug_console_buffer[16384];
+static bool debug_console_dirty = false;
+static size_t debug_console_begin = 0, debug_console_end = 0;
+
 static char *
 debug_prompt(EditLine *editline __unused)
 {
@@ -4650,7 +4655,7 @@ debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa
 		case WORLD_BGM_H_BIAS: bgm_s = "H_BIAS"; break;
 		case WORLD_BGM_OBJ: bgm_s = "OBJ"; break;
 	}
-	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%s, SCX=%u, SCY=%u, BGMAP BASE=%u\n",
+	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%s, SCX=%u, SCY=%u, BGMAP BASE=%u",
 	                  debug_format_flags(flags_s,
 	                                     "LON", vwa->vwa_lon,
 	                                     "RON", vwa->vwa_ron,
@@ -4661,13 +4666,13 @@ debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa
 	                  vwa->vwa_scx,
 	                  vwa->vwa_scy,
 	                  vwa->vwa_bgmap_base);
-	if (!vwa->vwa_end && (vwa->vwa_lon || vwa->vwa_ron))
+	if (!vwa->vwa_end && (vwa->vwa_lon || vwa->vwa_ron) && vwa->vwa_bgm != WORLD_BGM_OBJ)
 	{
 		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-		                  "\tGX=%hd, GP=%hd, GY=%hd, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
+		                  "\n\tGX=%hd, GP=%hd, GY=%hd, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
 		                  vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
 		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-		                  "\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu\n", vwa->vwa_param_base, vwa->vwa_over_chrno);
+		                  "\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu", vwa->vwa_param_base, vwa->vwa_over_chrno);
 	}
 }
 
@@ -4675,7 +4680,7 @@ void
 debug_format_oam(debug_str_t s, const struct vip_oam *vop)
 {
 	snprintf(s, debug_str_len, "JX=%hd, JP=%d, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
-			", JVFLP=%u, JHFLP=%u, JPLTS=%u\n",
+			", JVFLP=%u, JHFLP=%u, JPLTS=%u",
 	         vop->vo_jx, vop->vo_jp, vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
 	         vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
 }
@@ -5230,22 +5235,51 @@ debug_step(void)
 	return running;
 }
 
-void
+void __printflike(2, 3)
 debug_tracef(const char *tag, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
 	char trace[2048];
-	size_t offset;
-	offset = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
-	vsnprintf(trace + offset, sizeof(trace) - offset, fmt, ap);
+	size_t length;
+	length = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
+	length+= vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
 	fputs(trace, stdout);
 	if (debug_trace_file)
 		fputs(trace, debug_trace_file);
-	va_end(ap);
-} __printflike(2, 3)
 
-bool
+	size_t offset = 0;
+	while (offset < length)
+	{
+		size_t next_end = debug_console_end + 1;
+		if (next_end >= sizeof(debug_console_buffer))
+			next_end = 0;
+
+		if (next_end == debug_console_begin)
+		{
+			size_t next_begin = debug_console_begin + 1;
+			if (next_begin >= sizeof(debug_console_buffer))
+				next_begin = 0;
+
+			if (next_begin == debug_console_end)
+			{
+				fprintf(stderr, "Console buffer overflow\n");
+				break;
+			}
+
+			debug_console_begin = next_begin;
+		}
+
+		debug_console_buffer[debug_console_end] = trace[offset];
+		debug_console_end = next_end;
+		debug_console_dirty = true;
+		++offset;
+	}
+
+	va_end(ap);
+}
+
+bool __printflike(2, 3)
 debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 {
 	va_list ap;
@@ -5282,18 +5316,128 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 }
 
 void
-debug_frame_begin(void)
+debug_frame_begin(bool paused)
 {
 	if (igBeginMainMenuBar())
 	{
 		if (igBeginMenu("Debug", true))
 		{
-			igMenuItemPtr("Trace NVC", NULL, &debug_trace_nvc, true);
+			igMenuItemPtr("Show console", NULL, &debug_show_console, true);
+
+			for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+				igMenuItemPtr(debug_traces[i].dt_label, NULL, debug_traces[i].dt_tracep, true);
 
 			igEndMenu();
 		}
 
 		igEndMainMenuBar();
+	}
+
+	static bool clear_each_frame = false;
+	if (debug_show_console)
+	{
+		if (igBegin("Console", &debug_show_console, 0))
+		{
+			igCheckbox("Clear before each frame", &clear_each_frame);
+		}
+		igEnd();
+	}
+
+	if (!paused && clear_each_frame)
+		debug_console_begin = debug_console_end;
+}
+
+void
+debug_frame_end(void)
+{
+	if (debug_show_console)
+	{
+		if (igBegin("Console", &debug_show_console, 0))
+		{
+			static bool scroll_to_end = true;
+			igSameLine(0, -1);
+			igCheckbox("Scroll to end", &scroll_to_end);
+			igSameLine(0, -1);
+			if (igButton("Clear", IMVEC2_ZERO))
+				debug_console_begin = debug_console_end;
+			static bool debug_buffers = false;
+			igSameLine(0, -1);
+			igCheckbox("Debug buffers", &debug_buffers);
+
+			if (igBeginChild("Log", (struct ImVec2){0, 0}, true, 0))
+			{
+				igPushTextWrapPos(0.0f);
+				if (debug_console_begin < debug_console_end)
+					igTextUnformatted(debug_console_buffer + debug_console_begin,
+					                  debug_console_buffer + debug_console_end);
+				else if (debug_console_end < debug_console_begin)
+				{
+					size_t overlap_begin = debug_console_begin;
+					size_t high_end;
+					for (high_end = sizeof(debug_console_buffer) - 1; high_end > debug_console_begin; --high_end)
+						if (debug_console_buffer[high_end] == '\n')
+						{
+							overlap_begin = high_end + 1;
+							break;
+						}
+
+					size_t overlap_end;
+					size_t low_begin = 0;
+					for (overlap_end = 0; overlap_end < debug_console_begin; ++overlap_end)
+						if (debug_console_buffer[overlap_end] == '\n')
+						{
+							low_begin = overlap_end + 1;
+							break;
+						}
+
+					if (high_end > debug_console_begin)
+					{
+						if (debug_buffers)
+							igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {1, 0.5, 0.5, 1});
+						igTextUnformatted(debug_console_buffer + debug_console_begin,
+						                  debug_console_buffer + high_end + 1);
+						if (debug_buffers)
+							igPopStyleColor(1);
+					}
+
+					if (debug_buffers)
+						igPushStyleColor(ImGuiCol_Text, (struct ImVec4){1, 0, 1, 1});
+					igTextWrapped((debug_buffers) ? "[%.*s][%.*s]" : "%.*s%.*s",
+					              sizeof(debug_console_buffer) - overlap_begin,
+					              debug_console_buffer + overlap_begin,
+					              overlap_end,
+					              debug_console_buffer);
+					if (debug_buffers)
+						igPopStyleColor(1);
+
+					if (low_begin < debug_console_end)
+					{
+						size_t low_end = debug_console_end - 1;
+						if (debug_console_buffer[low_end] == '\n')
+							--low_end;
+
+						if (low_begin < low_end)
+						{
+							if (debug_buffers)
+								igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {0.5, 0.5, 1, 1});
+							igTextUnformatted(debug_console_buffer + low_begin, debug_console_buffer + low_end + 1);
+							if (debug_buffers)
+								igPopStyleColor(1);
+						}
+					}
+				}
+				igPopTextWrapPos();
+
+				if (scroll_to_end && debug_console_dirty)
+				{
+					igSetScrollHere(1.0f);
+					debug_console_dirty = false;
+				}
+
+				igEndChild();
+			}
+		}
+		igEnd();
 	}
 }
 
@@ -5563,7 +5707,7 @@ bool imgui_shown = false;
 
 struct ImGuiContext *imgui_context;
 
-static const struct ImVec2 IMVEC2_ZERO = {0, 0};
+const struct ImVec2 IMVEC2_ZERO = {0, 0};
 
 static bool
 imgui_init(void)
@@ -5785,6 +5929,7 @@ imgui_frame_end(void)
 #endif // INTERFACE
 
 u_int32_t main_usec;
+bool main_trace = false;
 static bool main_paused;
 static int main_speed;
 struct main_stats_t main_stats;
@@ -5839,10 +5984,11 @@ main_restart_clock(void)
 		char stats_s[100];
 		u_int32_t delta = ticks - main_stats.ms_start_ticks;
 		float fps = (float)main_stats.ms_frames / ((float)delta / 1000);
-		debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts\n",
-		             main_stats.ms_frames, delta, fps,
-		             main_stats.ms_insts,
-		             main_stats.ms_intrs);
+		if (main_trace)
+			debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts\n",
+						 main_stats.ms_frames, delta, fps,
+						 main_stats.ms_insts,
+						 main_stats.ms_intrs);
 		snprintf(stats_s, sizeof(stats_s), "%.3g EMU FPS", fps);
 		main_update_caption(stats_s);
 	}
@@ -5933,13 +6079,16 @@ main_frame(void)
 	gl_clear();
 
 	imgui_frame_begin();
-	debug_frame_begin();
-	nvc_frame_begin();
 
 	u_int main_frame_usec = 20000;
 	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
 		main_toggle_paused();
 	bool main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
+	bool paused = main_paused && !main_step_frame;
+
+	debug_frame_begin(paused);
+	nvc_frame_begin();
+
 	if (igBeginMainMenuBar())
 	{
 		if (igBeginMenu("Run", true))
@@ -5962,8 +6111,11 @@ main_frame(void)
 		igEndMainMenuBar();
 	}
 
-	if (!main_paused || main_step_frame)
+	if (!paused)
 	{
+		if (main_trace)
+			debug_tracef("main", "Begin frame\n");
+
 		if (main_speed != 0)
 			main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
 
@@ -5974,9 +6126,14 @@ main_frame(void)
 		sigpending(&sigpend);
 		if (sigismember(&sigpend, SIGINT))
 			debugging = true;
+
+		if (main_trace)
+			debug_tracef("main", "End frame\n");
 	}
 
 	gl_draw();
+
+	debug_frame_end();
 
 	imgui_frame_end();
 }
