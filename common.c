@@ -49,6 +49,17 @@
 		int ms_perms; // PROT_* from <sys/mman.h>
 	};
 
+	struct mem_request
+	{
+		u_int32_t mr_emu;
+		size_t mr_size;
+		int mr_ops;
+		void *mr_host;
+		int mr_perms;
+		u_int32_t mr_mask;
+		u_int mr_wait;
+	};
+
 # define MEM_ADDR2SEG(a) (((a) & 0x07000000) >> 24)
 # define MEM_ADDR2OFF(a) ((a) & 0x00ffffff)
 # define MEM_SEG2ADDR(s) ((s) << 24)
@@ -169,64 +180,73 @@ mem_size_ceil(u_int32_t size)
 }
 
 static bool
+mem_prepare(struct mem_request *request)
+{
+	enum mem_segment seg = MEM_ADDR2SEG(request->mr_emu);
+	if (seg == MEM_SEG_VIP)
+		return vip_mem_prepare(request);
+	else if (seg == MEM_SEG_VSU)
+		return vsu_mem_prepare(request);
+	else if (seg == MEM_SEG_NVC)
+		return nvc_mem_prepare(request);
+	else if (mem_segs[seg].ms_size)
+	{
+		u_int32_t offset = request->mr_emu & mem_segs[seg].ms_addrmask;
+
+		if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(request->mr_emu) + request->mr_size > mem_segs[seg].ms_size)
+		{
+			if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + request->mr_size)))
+				return false;
+			offset = request->mr_emu & mem_segs[MEM_SEG_SRAM].ms_addrmask;
+		}
+
+		request->mr_host = mem_segs[seg].ms_ptr + offset;
+		request->mr_perms = mem_segs[seg].ms_perms;
+		return true;
+	}
+	else
+		return false;
+}
+
+void *
+mem_emu2host(u_int32_t addr, size_t size)
+{
+	struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = 0};
+	if (!mem_prepare(&request))
+		return NULL;
+	return request.mr_host;
+}
+
+static bool
 mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp)
 {
 	assert(size > 0);
-	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	const void *src;
-	int mem_ops = PROT_READ;
-	if (is_exec)
-		mem_ops|= PROT_EXEC;
-	u_int32_t mask = 0xffffffff;
-	int perms;
-
-	if (seg == MEM_SEG_VIP)
-	{
-		src = vip_mem_emu2host(addr, size, &perms);
-		*mem_waitp = 8;
-	}
-	else
-	{
-		if (seg == MEM_SEG_VSU)
-			src = vsu_mem_emu2host(addr, size, &perms);
-		else if (seg == MEM_SEG_NVC)
-			src = nvc_mem_emu2host(addr, &size, &mask, &perms);
-		else if (mem_segs[seg].ms_size)
-		{
-			u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
-
-			if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
+	struct mem_request request =
 			{
-				if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
-					return false;
-				offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
-			}
+					.mr_emu = addr,
+					.mr_size = size,
+					.mr_perms = PROT_READ | PROT_WRITE,
+					.mr_mask = 0xffffffff,
+					.mr_wait = 2
+			};
+	request.mr_ops = PROT_READ;
+	if (is_exec)
+		request.mr_ops|= PROT_EXEC;
 
-			src = mem_segs[seg].ms_ptr + offset;
-			perms = mem_segs[seg].ms_perms;
-		}
-		else
-		{
-			src = NULL;
-			perms = 0;
-		}
-		*mem_waitp = 2;
-	}
-
-	if (!src)
+	if (!mem_prepare(&request))
 	{
 		warnx("Bus error at 0x%08x", addr);
 		debug_enter();
 		return false;
 	}
 
-	if ((perms & mem_ops) != mem_ops)
+	if ((request.mr_perms & request.mr_ops) != request.mr_ops)
 	{
 		debug_str_t addr_s, ops_s, perms_s;
 		warnx("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
 		      debug_format_addr(addr, addr_s),
-		      debug_format_perms(mem_ops, ops_s),
-		      debug_format_perms(perms, perms_s));
+		      debug_format_perms(request.mr_ops, ops_s),
+		      debug_format_perms(request.mr_perms, perms_s));
 		debug_enter();
 		return false;
 	}
@@ -236,70 +256,44 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp
 		debug_str_t addr_s;
 		debug_str_t hex_s;
 		debug_tracef("mem.read", "[" DEBUG_ADDR_FMT "] -> %s\n",
-		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
+		             debug_format_addr(addr, addr_s),
+		             debug_format_hex(request.mr_host, size, hex_s));
 	}
 
 	switch (size)
 	{
 		case 1:
-			*(u_int8_t *)dest = *(u_int8_t *)src;
-			return true;
+			*(u_int8_t *)dest = *(u_int8_t *)request.mr_host;
+			break;
 		case 2:
-			*(u_int16_t *)dest = *(u_int16_t *)src;
-			return true;
+			*(u_int16_t *)dest = *(u_int16_t *)request.mr_host;
+			break;
 		case 4:
-			*(u_int32_t *)dest = *(u_int32_t *)src;
-			return true;
+			*(u_int32_t *)dest = *(u_int32_t *)request.mr_host;
+			break;
 		default:
-			bcopy(src, dest, size);
-			return true;
+			bcopy(request.mr_host, dest, size);
 	}
+
+	*mem_waitp = request.mr_wait;
+	return true;
 }
 
 static bool
 mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 {
 	assert(size > 0);
-	enum mem_segment seg = MEM_ADDR2SEG(addr);
-	void *dest = NULL;
-	int perms;
-	u_int32_t mask = 0xffffffff;
-
-	if (seg == MEM_SEG_VIP)
+	struct mem_request request =
 	{
-		dest = vip_mem_emu2host(addr, size, &perms);
-		*mem_waitp = 4;
-	}
-	else
-	{
-		if (seg == MEM_SEG_VSU)
-			dest = vsu_mem_emu2host(addr, size, &perms);
-		else if (seg == MEM_SEG_NVC)
-			dest = nvc_mem_emu2host(addr, &size, &mask, &perms);
-		else if (mem_segs[seg].ms_size)
-		{
-			u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
+			.mr_emu = addr,
+			.mr_size = size,
+			.mr_perms = PROT_READ | PROT_WRITE | PROT_EXEC,
+			.mr_ops = PROT_WRITE,
+			.mr_mask = 0xffffffff,
+			.mr_wait = 2
+	};
 
-			if (seg == MEM_SEG_SRAM && MEM_ADDR2OFF(addr) + size > mem_segs[seg].ms_size)
-			{
-				if (!mem_seg_realloc(MEM_SEG_SRAM, mem_size_ceil(offset + size)))
-					return false;
-				offset = addr & mem_segs[MEM_SEG_SRAM].ms_addrmask;
-			}
-
-			dest = mem_segs[seg].ms_ptr + offset;
-			perms = mem_segs[seg].ms_perms;
-		}
-		else
-		{
-			dest = NULL;
-			perms = 0;
-		}
-
-		*mem_waitp = 2;
-	}
-
-	if (!dest)
+	if (!mem_prepare(&request))
 	{
 		// TODO: SEGV
 		fprintf(stderr, "Bus error at 0x%08x\n", addr);
@@ -307,13 +301,13 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 		return false;
 	}
 
-	if ((perms & PROT_WRITE) == 0)
+	if ((request.mr_perms & PROT_WRITE) == 0)
 	{
 		debug_str_t addr_s, perms_s;
 		static bool ignore_writes = false;
 		if (debug_runtime_errorf(&ignore_writes, "Invalid memory operation at %s, mem ops = PROT_WRITE, prot = %s\n",
 		                          debug_format_addr(addr, addr_s),
-		                          debug_format_perms(perms, perms_s)))
+		                          debug_format_perms(request.mr_perms, perms_s)))
 			return true;
 		debug_enter();
 		return false;
@@ -330,18 +324,23 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 	switch (size)
 	{
 		case 1:
-			*(u_int8_t *)dest = (*(u_int8_t *)dest & ~mask) | (*(u_int8_t *)src & mask);
-			return true;
+			*(u_int8_t *)request.mr_host =
+					(*(u_int8_t *)request.mr_host & ~request.mr_mask) | (*(u_int8_t *)src & request.mr_mask);
+			break;
 		case 2:
-			*(u_int16_t *)dest = (*(u_int16_t *)dest & ~mask) | (*(u_int16_t *)src & mask);
-			return true;
+			*(u_int16_t *)request.mr_host =
+					(*(u_int16_t *)request.mr_host & ~request.mr_mask) | (*(u_int16_t *)src & request.mr_mask);
+			break;
 		case 4:
-			*(u_int32_t *)dest = (*(u_int32_t *)dest & ~mask) | (*(u_int32_t *)src & mask);
-			return true;
+			*(u_int32_t *)request.mr_host =
+					(*(u_int32_t *)request.mr_host & ~request.mr_mask) | (*(u_int32_t *)src & request.mr_mask);
+			break;
 		default:
-			bcopy(src, dest, size);
-			return true;
+			bcopy(src, request.mr_host, size);
 	}
+
+	*mem_waitp = request.mr_wait;
+	return true;
 }
 
 void
@@ -355,11 +354,12 @@ mem_test_size(const char *name, size_t size, size_t expected)
 }
 
 void
-mem_test_addr(const char *name, void *addr, void *expected)
+mem_test_addr(const char *name, u_int32_t emu_addr, size_t size, void *expected)
 {
+	void *addr = mem_emu2host(emu_addr, size);
 	if (addr != expected)
 	{
-		debug_runtime_errorf(NULL, "emu2host(%s) is %p but should be %p (offset %ld)",
+		debug_runtime_errorf(NULL, "mem_emu2host(%s) is %p but should be %p (offset %ld)",
 		                     name, addr, expected, (intptr_t)expected - (intptr_t)addr);
 		abort();
 	}
@@ -2823,54 +2823,56 @@ vip_fini(void)
 	// TODO
 }
 
-void *
-vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
+bool
+vip_mem_prepare(struct mem_request *request)
 {
-	// TODO: Set read/write permissions
-	*permsp = PROT_READ | PROT_WRITE;
+	if (request->mr_ops & PROT_READ)
+		request->mr_wait = 8;
+	else
+		request->mr_wait = 4;
 
 	static bool ignore_mirror = false;
-	if (addr & 0x00f80000)
+	if (request->mr_emu & 0x00f80000)
 	{
-		u_int32_t mirror = addr & 0x7ffff;
-		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
-			return NULL;
-		addr = mirror;
+		u_int32_t mirror = request->mr_emu & 0x7ffff;
+		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", request->mr_emu, mirror))
+			return false;
+		request->mr_emu = mirror;
 	}
-	else if (addr >= 0x40000 && addr < 0x60000 && (addr & 0x5ff00) != 0x5f800)
+	else if (request->mr_emu >= 0x40000 && request->mr_emu < 0x60000 && (request->mr_emu & 0x5ff00) != 0x5f800)
 	{
-		u_int32_t mirror = 0x5f800 | (addr & 0x7f);
-		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", addr, mirror))
-			return NULL;
-		addr = mirror;
+		u_int32_t mirror = 0x5f800 | (request->mr_emu & 0x7f);
+		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", request->mr_emu, mirror))
+			return false;
+		request->mr_emu = mirror;
 	}
 
-	if (addr < 0x20000)
-		return (u_int8_t *)&vip_vrm + addr;
-	else if (addr < 0x40000)
-		return (u_int8_t *)&vip_dram + (addr & 0x1ffff);
-	else if ((addr & 0xfff00) == 0x5f800)
+	if (request->mr_emu < 0x20000)
+		request->mr_host = (u_int8_t *)&vip_vrm + request->mr_emu;
+	else if (request->mr_emu < 0x40000)
+		request->mr_host = (u_int8_t *)&vip_dram + (request->mr_emu & 0x1ffff);
+	else if ((request->mr_emu & 0xfff00) == 0x5f800)
 	{
-		if (size & 1)
+		if (request->mr_size & 1)
 		{
 			static bool always_ignore = false;
-			if (!debug_runtime_errorf(&always_ignore, "Invalid VIP access size %lu", size))
-				return NULL;
+			if (!debug_runtime_errorf(&always_ignore, "Invalid VIP access size %lu", request->mr_size))
+				return false;
 		}
-		if (addr & 1)
+		if (request->mr_emu & 1)
 		{
 			static bool always_ignore = false;
-			if (!debug_runtime_errorf(&always_ignore, "VIP address alignment error at 0x%08x", addr))
-				return NULL;
+			if (!debug_runtime_errorf(&always_ignore, "VIP address alignment error at 0x%08x", request->mr_emu))
+				return false;
 		}
-		u_int reg_num = (addr & 0x7f) >> 1;
+		u_int reg_num = (request->mr_emu & 0x7f) >> 1;
 		switch (reg_num)
 		{
 			case 0x00:
 			case 0x10:
 			case 0x18:
 			case 0x20:
-				*permsp = PROT_READ;
+				request->mr_perms = PROT_READ;
 				break;
 			case 0x02:
 			case 0x11:
@@ -2880,27 +2882,40 @@ vip_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
 			case 0x15:
 			case 0x17:
 			case 0x21:
-				*permsp = PROT_WRITE;
+			{
+				request->mr_perms = PROT_WRITE;
+				if (request->mr_ops & PROT_READ)
+				{
+					static bool ignore_read = false;
+					debug_str_t addr_s;
+					if (!debug_runtime_errorf(&ignore_read, "Trying to read write-only VIP register at %s",
+					                          debug_format_addr(request->mr_emu, addr_s)))
+						return false;
+					request->mr_perms|= PROT_READ;
+				}
 				break;
+			}
 		}
 
 #ifndef NDEBUG
 		u_int16_t *regp = (u_int16_t *)&vip_regs + reg_num;
-		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (addr & 0x7e)));
+		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (request->mr_emu & 0x7e)));
 #endif // !NDEBUG
 
-		return (u_int8_t *)&vip_regs + (addr & 0x7e);
+		request->mr_host = (u_int8_t *)&vip_regs + (request->mr_emu & 0x7e);
 	}
-	else if (addr >= 0x78000 && addr < 0x7a000)
-		return (u_int8_t *)&(vip_vrm.vv_chr0) + (addr - 0x78000);
-	else if (addr >= 0x7a000 && addr < 0x7c000)
-		return (u_int8_t *)&(vip_vrm.vv_chr1) + (addr - 0x7a000);
-	else if (addr >= 0x7c000 && addr < 0x7e000)
-		return (u_int8_t *)&(vip_vrm.vv_chr2) + (addr - 0x7c000);
-	else if (addr >= 0x7e000 && addr < 0x80000)
-		return (u_int8_t *)&(vip_vrm.vv_chr3) + (addr - 0x7e000);
+	else if (request->mr_emu >= 0x78000 && request->mr_emu < 0x7a000)
+		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr0) + (request->mr_emu - 0x78000);
+	else if (request->mr_emu >= 0x7a000 && request->mr_emu < 0x7c000)
+		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr1) + (request->mr_emu - 0x7a000);
+	else if (request->mr_emu >= 0x7c000 && request->mr_emu < 0x7e000)
+		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr2) + (request->mr_emu - 0x7c000);
+	else if (request->mr_emu >= 0x7e000 && request->mr_emu < 0x80000)
+		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr3) + (request->mr_emu - 0x7e000);
 	else
-		return NULL;
+		return false;
+
+	return true;
 }
 
 bool
@@ -2998,22 +3013,17 @@ vip_test(void)
 	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
 	assert(sizeof(vip_regs) == 0x72);
 	mem_test_size("vip_world_att", sizeof(struct vip_world_att), 32);
-#ifndef NDEBUG
-	int perms;
-	mem_test_addr("world_att[1]",
-	              vip_mem_emu2host(debug_locate_symbol("WORLD_ATT:1"), 4, &perms),
-	              &(vip_dram.vd_world_atts[1]));
-	assert(vip_mem_emu2host(0x24000, 4, &perms) == &(vip_dram.vd_shared.s_bgsegs[2]));
-	assert(vip_mem_emu2host(0x31000, 4, &perms) == &(vip_dram.vd_shared.s_param_tbl[0x8800]));
-	assert(vip_mem_emu2host(0x3d800, 4, &perms) == &(vip_dram.vd_world_atts));
-	assert(vip_mem_emu2host(0x3e000, 8, &perms) == &(vip_dram.vd_oam));
-	assert(vip_mem_emu2host(0x5f800, 2, &perms) == &(vip_regs.vr_intpnd));
-	assert(vip_mem_emu2host(0x5f820, 2, &perms) == &(vip_regs.vr_dpstts));
-	assert(vip_mem_emu2host(0x5f866, 2, &perms) == &(vip_regs.vr_gplt[3]));
-	assert(vip_mem_emu2host(0x5f870, 2, &perms) == &(vip_regs.vr_bkcol));
-	assert(vip_mem_emu2host(0x78000, 2, &perms) == &(vip_vrm.vv_chr0));
-	assert(vip_mem_emu2host(0x7e000, 2, &perms) == &(vip_vrm.vv_chr3));
-#endif // !NDEBUG
+	mem_test_addr("world_att[1]", debug_locate_symbol("WORLD_ATT:1"), 4, &(vip_dram.vd_world_atts[1]));
+	mem_test_addr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
+	mem_test_addr("PARAM_TBL+0x8800", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
+	assert(mem_emu2host(0x3d800, 4) == &(vip_dram.vd_world_atts));
+	assert(mem_emu2host(0x3e000, 8) == &(vip_dram.vd_oam));
+	assert(mem_emu2host(0x5f800, 2) == &(vip_regs.vr_intpnd));
+	assert(mem_emu2host(0x5f820, 2) == &(vip_regs.vr_dpstts));
+	assert(mem_emu2host(0x5f866, 2) == &(vip_regs.vr_gplt[3]));
+	assert(mem_emu2host(0x5f870, 2) == &(vip_regs.vr_bkcol));
+	assert(mem_emu2host(0x78000, 2) == &(vip_vrm.vv_chr0));
+	assert(mem_emu2host(0x7e000, 2) == &(vip_vrm.vv_chr3));
 
 	vip_test_clip(5, 5, 5, 5, true, 5, 0, 5);
 	vip_test_clip(5, 5, 4, 6, true, 5, 1, 5);
@@ -3417,8 +3427,7 @@ vsu_test(void)
 	mem_test_size("vsu_ram", sizeof(vsu_ram), 0x300);
 	mem_test_size("vsu_regs", sizeof(vsu_regs), 0x200);
 #ifndef NDEBUG
-	int perms;
-	assert(vsu_mem_emu2host(0x01000580, 1, &perms) == &(vsu_regs.vr_sstop));
+	assert(mem_emu2host(0x01000580, 1) == &(vsu_regs.vr_sstop));
 #endif // !NDEBUG
 }
 
@@ -3434,33 +3443,33 @@ vsu_step(void)
 	// TODO
 }
 
-void *
-vsu_mem_emu2host(u_int32_t addr, size_t size, int *permsp)
+bool
+vsu_mem_prepare(struct mem_request *request)
 {
 	// TODO: More granularity on perms
-	*permsp = PROT_READ | PROT_WRITE;
 
-	if (addr + size <= 0x01000300)
-		return (u_int8_t *)&vsu_ram + (addr & 0x3ff);
-	else if (addr + size <= 0x01000400)
+	if (request->mr_emu + request->mr_size <= 0x01000300)
+		request->mr_host = (u_int8_t *)&vsu_ram + (request->mr_emu & 0x3ff);
+	else if (request->mr_emu + request->mr_size <= 0x01000400)
 	{
-		u_int32_t mirror = addr % 0x300;
+		u_int32_t mirror = request->mr_emu % 0x300;
 		static bool always_ignore = false;
-		if (!debug_runtime_errorf(&always_ignore, "Mirroring VSU RAM at 0x%08x -> 0x%x", addr, mirror))
-			return NULL;
-		return (u_int8_t *)&vsu_ram + mirror;
+		if (!debug_runtime_errorf(&always_ignore, "Mirroring VSU RAM at 0x%08x -> 0x%x", request->mr_emu, mirror))
+			return false;
+		request->mr_host = (u_int8_t *)&vsu_ram + mirror;
 	}
-	else if (addr >= 0x01000400 && addr + size <= 0x01000600)
-		return (u_int8_t *)&vsu_regs + (addr - 0x01000400);
+	else if (request->mr_emu >= 0x01000400 && request->mr_emu + request->mr_size <= 0x01000600)
+		request->mr_host = (u_int8_t *)&vsu_regs + (request->mr_emu - 0x01000400);
 	else
 	{
-		if (debug_runtime_errorf(NULL, "VSU bus error at 0x%08x\n", addr))
-		{
-			static u_int32_t dummy;
-			return &dummy;
-		}
-		return NULL;
+		if (!debug_runtime_errorf(NULL, "VSU bus error at 0x%08x\n", request->mr_emu))
+			return false;
+
+		static u_int32_t dummy;
+		request->mr_host = &dummy;
 	}
+
+	return true;
 }
 
 void
@@ -3601,12 +3610,9 @@ nvc_test(void)
 	fputs("Running NVC self-test\n", stderr);
 
 	mem_test_size("nvc_regs", sizeof(nvc_regs), 11);
-	u_int32_t mask;
-	size_t size = 1;
-	int perms;
-	mem_test_addr("nvc_sdlr", nvc_mem_emu2host(0x02000010, &size, &mask, &perms), &(nvc_regs.nr_sdlr));
-	mem_test_addr("nvc_sdhr", nvc_mem_emu2host(0x02000014, &size, &mask, &perms), &(nvc_regs.nr_sdhr));
-	mem_test_addr("nvc_tcr", nvc_mem_emu2host(0x02000020, &size, &mask, &perms), &(nvc_regs.nr_tcr));
+	mem_test_addr("nvc_sdlr", 0x02000010, 1, &(nvc_regs.nr_sdlr));
+	mem_test_addr("nvc_sdhr", 0x02000014, 1, &(nvc_regs.nr_sdhr));
+	mem_test_addr("nvc_tcr", 0x02000020, 1, &(nvc_regs.nr_tcr));
 }
 
 static void
@@ -3730,19 +3736,20 @@ nvc_input(enum nvc_key key, bool state)
 	}
 }
 
-void *
-nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
+bool
+nvc_mem_prepare(struct mem_request *request)
 {
-	if (*sizep != 1)
+	if (request->mr_size != 1)
 	{
 		static bool ignore_size = false;
-		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %lu @ 0x%08x\n", *sizep, addr))
-			return NULL;
-		*sizep = 1;
+		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %lu @ 0x%08x\n",
+		                          request->mr_size, request->mr_emu))
+			return false;
+		request->mr_size = 1;
 	}
-	if (addr <= 0x02000028)
+	if (request->mr_emu <= 0x02000028)
 	{
-		switch (addr)
+		switch (request->mr_emu)
 		{
 			case 0x02000024:
 			case 0x02000028:
@@ -3753,23 +3760,25 @@ nvc_mem_emu2host(u_int32_t addr, size_t *sizep, u_int32_t *maskp, int *permsp)
 			case 0x02000008:
 			case 0x02000004:
 			case 0x02000000:
-				*permsp = PROT_READ | PROT_WRITE;
+				request->mr_perms = PROT_READ | PROT_WRITE;
 				break;
 			case 0x02000020:
-				*permsp = PROT_READ | PROT_WRITE;
-				*maskp = 0x1d;
+				request->mr_perms = PROT_READ | PROT_WRITE;
+				request->mr_mask = 0x1d;
 				break;
 			default:
-				*permsp = 0;
+				request->mr_perms = 0;
 		}
-		return (u_int8_t *) &nvc_regs + ((addr & 0x3f) >> 2);
+		request->mr_host = (u_int8_t *) &nvc_regs + ((request->mr_emu & 0x3f) >> 2);
 	}
 	else
 	{
-		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", addr);
+		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", request->mr_emu);
 		debug_enter();
-		return NULL;
+		return false;
 	}
+
+	return true;
 }
 
 /* DEBUG */
