@@ -383,7 +383,14 @@ vip_fb_convert(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t *arg
 			for (u_int i = 0; i < 3; ++i)
 			{
 				u_int32_t intensity = (int_lut[i] * (ctc->vc_repeat + 1) * 256) / VIP_MAX_BRIGHT;
-				assert(intensity <= 0xff);
+				static bool ignore_intensity = false;
+				if (intensity > 0xff)
+					debug_runtime_errorf(&ignore_intensity,
+					                     "Column intensity too high (%u) in column group %u, pixel value %u\n"
+					                     "BRTA=%u, BRTB=%u, BRTC=%u, REST=%u, CTC LENGTH=%u, REPEAT=%u",
+					                     intensity, col_group, i,
+					                     vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest,
+					                     ctc->vc_length, ctc->vc_repeat);
 				lut[1 + i] = 0xff000000 | (intensity << 16) | (intensity << 8) | intensity;
 			}
 		}
