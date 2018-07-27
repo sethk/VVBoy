@@ -231,11 +231,11 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp
 		return false;
 	}
 
-	if (debug_trace_mem && !is_exec)
+	if (debug_trace_mem_read && !is_exec)
 	{
 		debug_str_t addr_s;
 		debug_str_t hex_s;
-		debug_tracef("mem", "[" DEBUG_ADDR_FMT "] -> %s\n",
+		debug_tracef("mem.read", "[" DEBUG_ADDR_FMT "] -> %s\n",
 		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
 	}
 
@@ -319,11 +319,11 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 		return false;
 	}
 
-	if (debug_trace_mem)
+	if (debug_trace_mem_write)
 	{
 		debug_str_t addr_s;
 		debug_str_t hex_s;
-		debug_tracef("mem", "[" DEBUG_ADDR_FMT "] <- %s\n",
+		debug_tracef("mem.write", "[" DEBUG_ADDR_FMT "] <- %s\n",
 		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
 	}
 
@@ -3483,7 +3483,8 @@ bool debugging = false;
 bool debug_trace_cpu = false;
 bool debug_trace_cpu_jmp = false;
 bool debug_trace_cpu_int = false;
-bool debug_trace_mem = false;
+bool debug_trace_mem_read = false;
+bool debug_trace_mem_write = false;
 bool debug_trace_vip = false;
 u_int16_t debug_vip_intflags = 0;
 bool debug_trace_nvc = false;
@@ -3499,13 +3500,15 @@ struct debug_trace
 };
 static struct debug_trace debug_traces[] =
 		{
-				{"cpu", "CPU", &debug_trace_cpu},
-				{"cpu.jmp", "CPU Jumps", &debug_trace_cpu_jmp},
-				{"cpu.int", "CPU Interrupts", &debug_trace_cpu_int},
-				{"mem", "Memory", &debug_trace_mem},
-				{"vip", "VIP", &debug_trace_vip},
-				{"nvc", "NVC", &debug_trace_nvc},
-				{"nvc.tim", "NVC Timer", &debug_trace_nvc_tim}
+				{"main", "Trace main loop", &main_trace},
+				{"cpu", "Trace CPU", &debug_trace_cpu},
+				{"cpu.jmp", "Trace CPU jumps", &debug_trace_cpu_jmp},
+				{"cpu.int", "Trace CPU interrupts", &debug_trace_cpu_int},
+				{"mem.read", "Trace memory reads", &debug_trace_mem_read},
+				{"mem.write", "Trace memory writes", &debug_trace_mem_write},
+				{"vip", "Trace VIP", &debug_trace_vip},
+				{"nvc", "Trace NVC", &debug_trace_nvc},
+				{"nvc.tim", "Trace NVC timer", &debug_trace_nvc_tim}
 		};
 
 struct debug_watch
