@@ -229,33 +229,43 @@ vip_draw_finish(u_int fb_index __unused)
 void
 vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 {
-	int obj_group = 3;
+	u_int obj_group = 4;
 	u_int world_index = 31;
 	do
 	{
 		struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
 
-		if (debug_trace_vip)
-		{
-			char buf[1024];
-			debug_format_world_att(buf, sizeof(buf), vwa);
-			debug_tracef("vip", "WORLD_ATT[%u]: %s", world_index, buf);
-		}
-
 		if (vwa->vwa_end)
 			break;
 
-		if (!vwa->vwa_lon && !vwa->vwa_ron)
-			continue;
-
 		if (vwa->vwa_bgm == WORLD_BGM_OBJ)
 		{
-			if (obj_group < 0)
+			if (obj_group == 0)
 			{
 				debug_runtime_errorf(NULL, "VIP already searched 4 OBJ groups for worlds");
 				break;
 			}
+			--obj_group;
+		}
 
+		if (!vwa->vwa_lon && !vwa->vwa_ron)
+			continue;
+
+		if ((vip_world_mask & (1u << world_index)) == 0)
+			continue;
+
+		if ((vip_bgm_types & (1u << vwa->vwa_bgm)) == 0)
+			continue;
+
+		if (debug_trace_vip)
+		{
+			char buf[1024];
+			debug_format_world_att(buf, sizeof(buf), vwa);
+			debug_tracef("vip", "WORLD_ATT[%u]: %s\n", world_index, buf);
+		}
+
+		if (vwa->vwa_bgm == WORLD_BGM_OBJ)
+		{
 			int start_index;
 			if (obj_group > 0)
 				start_index = (vip_regs.vr_spt[obj_group - 1] + 1) & 0x3ff;
@@ -267,18 +277,15 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 				assert(obj_index >= 0 && obj_index < 1024);
 				struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
 
+				if (!obj->vo_jlon && !obj->vo_jron)
+					continue;
+
 				if (debug_trace_vip)
 				{
 					debug_str_t oamstr;
 					debug_format_oam(oamstr, obj);
 					debug_tracef("vip", "OBJ[%u]: %s\n", obj->vo_jca, oamstr);
 				}
-
-				if (!obj->vo_jlon && !obj->vo_jron)
-					continue;
-
-				if ((vip_world_mask & (1 << world_index)) == 0)
-					continue;
 
 				struct vip_vspan vspan;
 				if (vip_clip_vspan(min_scr_y, 8, obj->vo_jy, 8, &vspan))
@@ -293,13 +300,9 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 					}
 				}
 			}
-			--obj_group;
 		}
 		else
 		{
-			if ((vip_world_mask & (1 << world_index)) == 0)
-				continue;
-
 			struct vip_vspan vspan;
 			if (vip_clip_vspan(min_scr_y, 8, vwa->vwa_gy, vwa->vwa_h + 1, &vspan))
 			{
@@ -363,7 +366,7 @@ vip_fb_convert_slow(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t
 }
 
 void
-vip_fb_convert(const u_int8_t *fb __unused, const struct vip_ctc *clm_tbl, u_int32_t *argb)
+vip_fb_convert(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t *argb)
 {
 	const struct vip_ctc *ctc = clm_tbl + 17;
 	for (u_int col_group = 0; col_group < 96; ++col_group)

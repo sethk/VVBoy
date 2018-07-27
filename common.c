@@ -2318,10 +2318,19 @@ struct vip_vrm vip_vrm;
 struct vip_regs vip_regs;
 u_int32_t vip_row_mask = (1 << 28) - 1;
 u_int32_t vip_world_mask = ~0;
+u_int8_t vip_bgm_types = 0xf;
 
+const char *vip_bgm_strings[4] =
+{
+		[WORLD_BGM_NORMAL] = "NORMAL",
+		[WORLD_BGM_AFFINE] = "AFFINE",
+		[WORLD_BGM_H_BIAS] = "H_BIAS",
+		[WORLD_BGM_OBJ] = "OBJ",
+};
 static u_int vip_disp_index = 0;
 static u_int vip_frame_cycles = 0;
 bool vip_use_bright = true;
+static bool vip_scan_accurate = false;
 
 bool
 vip_init(void)
@@ -2669,7 +2678,9 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display L:FB1 start\n");
 			}
-			vip_scan_out(vip_disp_index, false);
+
+			if (vip_scan_accurate)
+				vip_scan_out(vip_disp_index, false);
 		}
 	}
 	else if (scanner_usec == 7500 && vip_regs.vr_dpstts.vd_synce)
@@ -2707,7 +2718,9 @@ vip_step(void)
 				if (debug_trace_vip)
 					debug_tracef("vip", "Display R:FB1 start\n");
 			}
-			vip_scan_out(vip_disp_index, true);
+
+			if (vip_scan_accurate)
+				vip_scan_out(vip_disp_index, true);
 		}
 	}
 	else if (scanner_usec == 17500 && vip_regs.vr_dpstts.vd_synce)
@@ -3041,6 +3054,310 @@ vip_toggle_worlds(void)
 			vip_world_mask = ~0;
 	}
 	debug_tracef("vip", "World mask 0x%08x\n", vip_world_mask);
+}
+
+void
+vip_frame_begin(void)
+{
+	static bool vip_worlds_open = false;
+	static bool vip_oam_open = false;
+	static bool vip_rows_open = false;
+	static bool vip_offscreen_open = false;
+	if (igBeginMainMenuBar())
+	{
+		if (igBeginMenu("VIP", true))
+		{
+			igMenuItemPtr("Worlds...", NULL, &vip_worlds_open, true);
+			igMenuItemPtr("Objects...", NULL, &vip_oam_open, true);
+			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
+
+			if (igMenuItem("Rows...", NULL, vip_rows_open, true))
+				vip_rows_open = !vip_rows_open;
+
+			if (igMenuItem("View offscreen...", NULL, vip_offscreen_open, true))
+				vip_offscreen_open = !vip_offscreen_open;
+
+			igMenuItemPtr("Accurate scanner timing", NULL, &vip_scan_accurate, true);
+
+			if (igBeginMenu("Draw", true))
+			{
+				for (u_int i = 0; i < 4; ++i)
+				{
+					u_int8_t mask = (1 << i);
+					bool drawn = ((vip_bgm_types & mask) != 0);
+					if (igMenuItemPtr(vip_bgm_strings[i], NULL, &drawn, true))
+					{
+						if (drawn)
+							vip_bgm_types |= mask;
+						else
+							vip_bgm_types &= ~mask;
+					}
+				}
+
+				igEndMenu();
+			}
+
+			igEndMenu();
+		}
+
+		igEndMainMenuBar();
+	}
+
+	if (vip_worlds_open)
+	{
+		if (igBegin("VIP Worlds", &vip_worlds_open, 0))
+		{
+			igColumns(5, "Worlds", true);
+			igSeparator();
+			igText("#");
+			igSetColumnWidth(-1, 30);
+			igNextColumn();
+			bool show_all = (vip_world_mask == ~0u);
+			if (igCheckbox("##Show worlds", &show_all))
+			{
+				if (show_all)
+					vip_world_mask = ~0;
+				else
+					vip_world_mask = 0;
+			}
+			igSetColumnWidth(-1, 30);
+			igNextColumn();
+			igText("Flags");
+			igSetColumnWidth(-1, 80);
+			igNextColumn();
+			igText("BGM");
+			igSetColumnWidth(-1, 70);
+			igNextColumn();
+			igText("Description");
+			igNextColumn();
+
+			igSeparator();
+
+			for (int i = 31; i >= 0; --i)
+			{
+				const struct vip_world_att *vwa = &(vip_dram.vd_world_atts[i]);
+				igText("%u", i);
+				igNextColumn();
+
+				char label[32 + 1];
+				snprintf(label, sizeof(label), "##World%d", i + 1);
+				u_int32_t mask = 1 << i;
+				bool shown = ((vip_world_mask & mask) != 0);
+				if (igCheckbox(label, &shown))
+				{
+					if (shown)
+						vip_world_mask |= mask;
+					else
+						vip_world_mask &= ~mask;
+				}
+				igNextColumn();
+
+				debug_str_t flags_s;
+				igTextDisabled("%s", debug_format_flags(flags_s,
+				                                        "LON", vwa->vwa_lon,
+				                                        "RON", vwa->vwa_ron,
+				                                        "OVER", vwa->vwa_over,
+				                                        "END", vwa->vwa_end,
+				                                        NULL));
+				igNextColumn();
+
+				igTextDisabled("%s", vip_bgm_strings[vwa->vwa_bgm]);
+				igNextColumn();
+
+				char buf[1024];
+				debug_format_world_att(buf, sizeof(buf), vwa);
+				igTextDisabled("%s", buf);
+				igNextColumn();
+			}
+			igColumns(1, NULL, false);
+
+			if (igButton("All", IMVEC2_ZERO))
+				vip_world_mask = ~0;
+			igSameLine(0.0, -1.0f);
+			if (igButton("None", IMVEC2_ZERO))
+				vip_world_mask = 0;
+		}
+		igEnd();
+	}
+
+	if (vip_rows_open)
+	{
+		if (igBegin("VIP Rows", &vip_rows_open, 0))
+		{
+			for (u_int i = 0; i < 28; ++i)
+			{
+				char label[32 + 1];
+				snprintf(label, sizeof(label), "%u-%u", i * 8 + 1, i * 8 + 8);
+				u_int32_t mask = 1u << i;
+				bool shown = ((vip_row_mask & mask) != 0);
+				if ((i % 4) != 0)
+					igSameLine(0.0, -1.0f);
+				if (igCheckbox(label, &shown))
+				{
+					if (shown)
+						vip_row_mask|= mask;
+					else
+						vip_row_mask&= ~mask;
+				}
+			}
+			if (igButton("All", IMVEC2_ZERO))
+				vip_row_mask = (1 << 28) - 1;
+			igSameLine(0.0, -1.0f);
+			if (igButton("None", IMVEC2_ZERO))
+				vip_row_mask = 0;
+		}
+		igEnd();
+	}
+
+	if (vip_offscreen_open)
+	{
+		if (igBegin("VIP Offscreen", &vip_offscreen_open, 0))
+		{
+			enum
+			{
+				VIP_BGSEG,
+				VIP_CHR,
+				VIP_FB,
+				VIP_NUM_OFFSCREEN
+			};
+			static int offscreen;
+			const char *labels[VIP_NUM_OFFSCREEN] =
+					{
+							[VIP_BGSEG] = "BGSEG",
+							[VIP_CHR] = "CHR",
+							[VIP_FB] = "FB",
+					};
+			igCombo("What", &offscreen, labels, VIP_NUM_OFFSCREEN, -1);
+			u_int texture;
+			gl_debug_clear();
+			float width, height;
+			switch (offscreen)
+			{
+				case VIP_BGSEG:
+				{
+					static int off_index = 0;
+					igInputInt("Which", &off_index, 1, 100, ImGuiInputTextFlags_AutoSelectAll);
+					if (off_index < 0)
+						off_index = 13;
+					else if (off_index >= 14)
+						off_index = 0;
+
+					width = height = 512;
+					struct vip_bgsc *vb = vip_dram.vd_shared.s_bgsegs[off_index];
+					for (u_int bg_y = 0; bg_y < 64; ++bg_y)
+						for (u_int bg_x = 0; bg_x < 64; ++bg_x)
+						{
+							for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+								for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+								{
+									bool opaque;
+									u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
+									//if (opaque)
+									gl_debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
+								}
+							++vb;
+						}
+					break;
+				}
+				case VIP_CHR:
+				{
+					width = 512;
+					height = 256;
+					for (u_int c = 0; c < 2048; ++c)
+					{
+						const struct vip_chr *vc = VIP_CHR_FIND(c);
+						u_int x = c % 64;
+						u_int y = c / 64;
+						for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+							for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+								gl_debug_draw(x * 8 + chr_x, y * 8 + chr_y,
+								              vip_chr_read_slow(vc, chr_x, chr_y, false, false));
+					}
+					break;
+				}
+				case VIP_FB:
+				{
+					static int fb_index = 0;
+					igInputInt("Index", &fb_index, 1, 0, 0);
+					if (fb_index < 0)
+						fb_index = 3;
+					if (fb_index > 3)
+						fb_index = 0;
+					const u_int8_t *fb;
+					switch (fb_index)
+					{
+						case 0: fb = vip_vrm.vv_left0; break;
+						case 1: fb = vip_vrm.vv_right0; break;
+						case 2: fb = vip_vrm.vv_left1; break;
+						case 3: fb = vip_vrm.vv_right1; break;
+					}
+					width = 384;
+					height = 224;
+					for (u_int y = 0; y < height; ++y)
+						for (u_int x = 0; x < width; ++x)
+							gl_debug_draw(x, y, vip_fb_read_slow(fb, x, y));
+					break;
+				}
+			}
+			static const struct ImVec4 color = {1, 1, 1, 1};
+			static const struct ImVec4 border_color = {0.5, 0.5, 0.5, 1};
+			texture = gl_debug_blit();
+			igImage((ImTextureID)(uintptr_t)texture,
+			        (struct ImVec2){width, height},
+			        IMVEC2_ZERO, (struct ImVec2){width / 512, height / 512},
+			        color, border_color);
+		}
+		igEnd();
+	}
+
+	if (vip_oam_open)
+	{
+		if (igBegin("Object Attributes", &vip_oam_open, 0))
+		{
+			for (int obj_group = 3; obj_group >= 0; --obj_group)
+			{
+				char label[32];
+				snprintf(label, sizeof(label), "Group %u", obj_group);
+
+				bool open = igTreeNode(label);
+				igSameLine(0, -1);
+				igText("SPT%u=%u", obj_group, vip_regs.vr_spt[obj_group]);
+				if (open)
+				{
+					int end_index = vip_regs.vr_spt[obj_group] & 0x3ff;
+					if (end_index != 0x3ff)
+					{
+						int start_index;
+						if (obj_group > 0)
+							start_index = (vip_regs.vr_spt[obj_group - 1] + 1) & 0x3ff;
+						else
+							start_index = 0;
+
+						for (int obj_index = end_index; obj_index >= start_index; --obj_index)
+						{
+							struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
+							debug_str_t oam_s;
+							debug_format_oam(oam_s, obj);
+							igText("group %d, OAM[%u]: OBJ[%u]: %s", obj_group, obj_index, obj->vo_jca, oam_s);
+						}
+					}
+
+					igTreePop();
+				}
+			}
+		}
+		igEnd();
+	}
+}
+
+void
+vip_frame_end(bool paused)
+{
+	if (!paused && !vip_scan_accurate)
+	{
+		vip_scan_out(vip_disp_index, false);
+		vip_scan_out(vip_disp_index, true);
+	}
 }
 
 /* VSU */
@@ -5353,6 +5670,9 @@ debug_frame_begin(bool paused)
 void
 debug_frame_end(void)
 {
+	if (!imgui_shown)
+		return;
+
 	if (debug_show_console)
 	{
 		if (igBegin("Console", &debug_show_console, 0))
@@ -5437,8 +5757,8 @@ debug_frame_end(void)
 					debug_console_dirty = false;
 				}
 
-				igEndChild();
 			}
+			igEndChild();
 		}
 		igEnd();
 	}
@@ -5738,28 +6058,9 @@ imgui_frame_begin(void)
 	if (!imgui_shown)
 		return;
 
-	static bool vip_worlds_open = false;
-	static bool vip_rows_open = false;
-	static bool vip_offscreen_open = false;
 	static bool demo_open = false;
 	if (igBeginMainMenuBar())
 	{
-		if (igBeginMenu("VIP", true))
-		{
-			if (igMenuItem("Worlds...", NULL, vip_worlds_open, true))
-				vip_worlds_open = !vip_worlds_open;
-
-			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
-
-			if (igMenuItem("Rows...", NULL, vip_rows_open, true))
-				vip_rows_open = !vip_rows_open;
-
-			if (igMenuItem("View offscreen...", NULL, vip_offscreen_open, true))
-				vip_offscreen_open = !vip_offscreen_open;
-
-			igEndMenu();
-		}
-
 		if (igBeginMenu("UI", true))
 		{
 			if (igMenuItem("Show demo window", NULL, false, true))
@@ -5769,142 +6070,6 @@ imgui_frame_begin(void)
 		}
 
 		igEndMainMenuBar();
-	}
-
-	if (vip_worlds_open)
-	{
-		if (igBegin("VIP Worlds", &vip_worlds_open, 0))
-		{
-			for (u_int i = 0; i < 32; ++i)
-			{
-				char label[32 + 1];
-				snprintf(label, sizeof(label), "%d", i + 1);
-				u_int32_t mask = 1 << i;
-				bool shown = ((vip_world_mask & mask) != 0);
-				if ((i % 8) != 0)
-					igSameLine(0.0, -1.0f);
-				if (igCheckbox(label, &shown))
-				{
-					if (shown)
-						vip_world_mask |= mask;
-					else
-						vip_world_mask &= ~mask;
-				}
-			}
-			if (igButton("All", IMVEC2_ZERO))
-				vip_world_mask = ~0;
-			igSameLine(0.0, -1.0f);
-			if (igButton("None", IMVEC2_ZERO))
-				vip_world_mask = 0;
-
-			igEnd();
-		}
-	}
-
-	if (vip_rows_open)
-	{
-		if (igBegin("VIP Rows", &vip_rows_open, 0))
-		{
-			for (u_int i = 0; i < 28; ++i)
-			{
-				char label[32 + 1];
-				snprintf(label, sizeof(label), "%u-%u", i * 8 + 1, i * 8 + 8);
-				u_int32_t mask = 1u << i;
-				bool shown = ((vip_row_mask & mask) != 0);
-				if ((i % 4) != 0)
-					igSameLine(0.0, -1.0f);
-				if (igCheckbox(label, &shown))
-				{
-					if (shown)
-						vip_row_mask|= mask;
-					else
-						vip_row_mask&= ~mask;
-				}
-			}
-			if (igButton("All", IMVEC2_ZERO))
-				vip_row_mask = (1 << 28) - 1;
-			igSameLine(0.0, -1.0f);
-			if (igButton("None", IMVEC2_ZERO))
-				vip_row_mask = 0;
-
-			igEnd();
-		}
-	}
-
-	if (vip_offscreen_open)
-	{
-		if (igBegin("VIP Offscreen", &vip_offscreen_open, 0))
-		{
-			enum
-			{
-				VIP_BGSEG,
-				VIP_CHR,
-				VIP_NUM_OFFSCREEN
-			};
-			static int offscreen;
-			const char *labels[VIP_NUM_OFFSCREEN] =
-					{
-							[VIP_BGSEG] = "BGSEG",
-							[VIP_CHR] = "CHR",
-					};
-			igCombo("What", &offscreen, labels, VIP_NUM_OFFSCREEN, -1);
-			u_int texture;
-			gl_debug_clear();
-			float height;
-			switch (offscreen)
-			{
-				case VIP_BGSEG:
-				{
-					static int off_index = 0;
-					igInputInt("Which", &off_index, 1, 100, ImGuiInputTextFlags_AutoSelectAll);
-					if (off_index < 0)
-						off_index = 13;
-					else if (off_index >= 14)
-						off_index = 0;
-
-					height = 512;
-					struct vip_bgsc *vb = vip_dram.vd_shared.s_bgsegs[off_index];
-					for (u_int bg_y = 0; bg_y < 64; ++bg_y)
-						for (u_int bg_x = 0; bg_x < 64; ++bg_x)
-						{
-							for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-								for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-								{
-									bool opaque;
-									u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
-									//if (opaque)
-										gl_debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
-								}
-							++vb;
-						}
-					break;
-				}
-				case VIP_CHR:
-				{
-					height = 256;
-					for (u_int c = 0; c < 2048; ++c)
-					{
-						const struct vip_chr *vc = VIP_CHR_FIND(c);
-						u_int x = c % 64;
-						u_int y = c / 64;
-						for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-							for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-								gl_debug_draw(x * 8 + chr_x, y * 8 + chr_y,
-								              vip_chr_read_slow(vc, chr_x, chr_y, false, false));
-					}
-					break;
-				}
-			}
-			static const struct ImVec4 color = {1, 1, 1, 1};
-			static const struct ImVec4 border_color = {0.5, 0.5, 0.5, 1};
-			texture = gl_debug_blit();
-			igImage((ImTextureID)(uintptr_t)texture,
-			        (struct ImVec2){512, height},
-			        IMVEC2_ZERO, (struct ImVec2){1.0, (float)height / 512},
-			        color, border_color);
-
-			igEnd();
-		}
 	}
 
 	if (demo_open)
@@ -6091,6 +6256,7 @@ main_frame(void)
 
 	debug_frame_begin(paused);
 	nvc_frame_begin();
+	vip_frame_begin();
 
 	if (igBeginMainMenuBar())
 	{
@@ -6133,6 +6299,8 @@ main_frame(void)
 		if (main_trace)
 			debug_tracef("main", "End frame\n");
 	}
+
+	vip_frame_end(paused);
 
 	gl_draw();
 
