@@ -92,8 +92,8 @@ vip_bgmap_read_slow(const struct vip_bgsc *bgmap_base,
 		}
 	}
 
-	u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width,
-			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
+	u_int width_chrs = (vwa->vwa_scy + 1) * vip_bgseg_width,
+			height_chrs = (vwa->vwa_scx + 1) * vip_bgseg_height;
 	int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8;
 	u_int chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
 	const struct vip_bgsc *vb;
@@ -110,8 +110,8 @@ vip_bgmap_read_slow(const struct vip_bgsc *bgmap_base,
 static u_int8_t
 vip_bgmap_read(const struct vip_bgsc *bgmap_base, const struct vip_world_att *vwa, int x, int y, bool *opaquep)
 {
-	u_int width_chrs = (vwa->vwa_scx + 1) * vip_bgseg_width,
-			height_chrs = (vwa->vwa_scy + 1) * vip_bgseg_height;
+	u_int width_chrs = (vwa->vwa_scy + 1) * vip_bgseg_width,
+			height_chrs = (vwa->vwa_scx + 1) * vip_bgseg_height;
 	int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8;
 	u_int chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
 	const struct vip_bgsc *vb;
@@ -205,7 +205,8 @@ vip_draw_obj_row(const struct vip_oam *obj,
                  u_int chr_y, u_int scr_y,
                  u_int8_t *left_fb, u_int8_t *right_fb)
 {
-	int scr_l_x = obj->vo_jx - obj->vo_jp, scr_r_x = obj->vo_jx + obj->vo_jp;
+	int16_t jp = cpu_extend14to16(obj->vo_jp);
+	int scr_l_x = obj->vo_jx - jp, scr_r_x = obj->vo_jx + jp;
 	u_int8_t plt = vip_regs.vr_jplt[obj->vo_jplts];
 	for (u_int chr_x = 0; chr_x < 8; ++chr_x)
 	{

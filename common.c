@@ -721,6 +721,14 @@ cpu_extend5to16(u_int16_t s5)
 	return s5;
 }
 
+inline static u_int16_t
+cpu_extend14to16(u_int16_t s14)
+{
+	if ((s14 & 0x2000) == 0x2000)
+		s14|= 0xc000;
+	return s14;
+}
+
 inline static u_int32_t
 cpu_extend16(u_int32_t s16)
 {
@@ -4999,9 +5007,9 @@ debug_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa
 void
 debug_format_oam(debug_str_t s, const struct vip_oam *vop)
 {
-	snprintf(s, debug_str_len, "JX=%hd, JP=%d, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
+	snprintf(s, debug_str_len, "JX=%hd, JP=%hd, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
 			", JVFLP=%u, JHFLP=%u, JPLTS=%u",
-	         vop->vo_jx, vop->vo_jp, vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
+	         vop->vo_jx, cpu_extend14to16(vop->vo_jp), vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
 	         vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
 }
 
