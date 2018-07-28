@@ -5777,11 +5777,27 @@ debug_frame_end(void)
 	};
 #endif // INTERFACE
 
+bool gl_draw_left = true;
+bool gl_draw_right = true;
+
 static GLuint gl_textures[NUM_TEXTURES];
 static GLuint gl_vao, gl_vbo;
 static GLuint gl_program;
 static GLint gl_color_uniform;
 static u_int32_t gl_debug_frame[512 * 512];
+
+// Saved GL state
+static GLint last_viewport[4];
+static GLint last_program;
+static GLint last_vertex_array;
+static GLboolean last_enable_blend;
+static GLenum last_blend_src_rgb;
+static GLenum last_blend_dst_rgb;
+static GLenum last_blend_src_alpha;
+static GLenum last_blend_dst_alpha;
+static GLenum last_blend_equation_rgb;
+static GLenum last_blend_equation_alpha;
+static GLint last_texture;
 
 static bool
 gl_check_errors(const char *desc)
@@ -5959,9 +5975,37 @@ gl_clear(void)
 }
 
 void
-gl_draw(void)
+gl_save_state(void)
 {
-	glViewport(0, 0, tk_width, tk_height);
+	glGetIntegerv(GL_VIEWPORT, last_viewport);
+	glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
+	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &last_vertex_array);
+	last_enable_blend = glIsEnabled(GL_BLEND);
+	glGetIntegerv(GL_BLEND_SRC_RGB, (GLint*)&last_blend_src_rgb);
+	glGetIntegerv(GL_BLEND_DST_RGB, (GLint*)&last_blend_dst_rgb);
+	glGetIntegerv(GL_BLEND_SRC_ALPHA, (GLint*)&last_blend_src_alpha);
+	glGetIntegerv(GL_BLEND_DST_ALPHA, (GLint*)&last_blend_dst_alpha);
+	glGetIntegerv(GL_BLEND_EQUATION_RGB, (GLint*)&last_blend_equation_rgb);
+	glGetIntegerv(GL_BLEND_EQUATION_ALPHA, (GLint*)&last_blend_equation_alpha);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
+}
+
+void
+gl_restore_state(void)
+{
+	glBindTexture(GL_TEXTURE_2D, last_texture);
+	glBlendEquationSeparate(last_blend_equation_rgb, last_blend_equation_alpha);
+	glBlendFuncSeparate(last_blend_src_rgb, last_blend_dst_rgb, last_blend_src_alpha, last_blend_dst_alpha);
+	if (last_enable_blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+	glBindVertexArray(last_vertex_array);
+	glUseProgram(last_program);
+	glViewport(last_viewport[0], last_viewport[1], (GLsizei)last_viewport[2], (GLsizei)last_viewport[3]);
+}
+
+void
+gl_draw(u_int x, u_int y, u_int width, u_int height)
+{
+	glViewport(x, y, width, height);
 	gl_check_errors("set viewport");
 
 	glUseProgram(gl_program);
@@ -5970,25 +6014,7 @@ gl_draw(void)
 	glBlendFunc(GL_ONE, GL_ONE);
 	glBlendEquation(GL_FUNC_ADD);
 
-	static bool draw_left = true;
-	static bool draw_right = true;
-
-	if (igBeginMainMenuBar())
-	{
-		if (igBeginMenu("GL", true))
-		{
-			if (igMenuItem("Draw left", NULL, draw_left, true))
-				draw_left = !draw_left;
-			if (igMenuItem("Draw right", NULL, draw_right, true))
-				draw_right = !draw_right;
-
-			igEndMenu();
-		}
-
-		igEndMainMenuBar();
-	}
-
-	if (draw_left)
+	if (gl_draw_left)
 	{
 		glBindTexture(GL_TEXTURE_2D, gl_textures[TEXTURE_LEFT]);
 		glUniform4f(gl_color_uniform, 1.0, 0, 0, 1.0);
@@ -5996,7 +6022,7 @@ gl_draw(void)
 		gl_check_errors("draw left");
 	}
 
-	if (draw_right)
+	if (gl_draw_right)
 	{
 		glBindTexture(GL_TEXTURE_2D, gl_textures[TEXTURE_RIGHT]);
 		glUniform4f(gl_color_uniform, 0, 0, 1.0, 1.0);
@@ -6032,6 +6058,7 @@ gl_debug_blit(enum gl_texture texture)
 
 /* IMGUI */
 bool imgui_shown = true;
+static u_int imgui_emu_x, imgui_emu_y;
 
 struct ImGuiContext *imgui_context;
 
@@ -6055,6 +6082,17 @@ imgui_fini(void)
 	igDestroyContext(imgui_context);
 }
 
+static void
+imgui_key_toggle(int key_index, bool *togglep, bool show_on_active)
+{
+	if (igIsKeyPressed(key_index, false))
+	{
+		*togglep = !*togglep;
+		if (show_on_active && *togglep)
+			imgui_shown = true;
+	}
+}
+
 void
 imgui_frame_begin(void)
 {
@@ -6065,19 +6103,17 @@ imgui_frame_begin(void)
 		main_toggle_paused();
 	main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
 
-	if (igIsKeyPressed(SDL_SCANCODE_F1, false))
-		vip_worlds_open = !vip_worlds_open;
-	if (igIsKeyPressed(SDL_SCANCODE_F2, false))
-		vip_bgseg_open = !vip_bgseg_open;
-	if (igIsKeyPressed(SDL_SCANCODE_F3, false))
-		vip_chr_open = !vip_chr_open;
-	if (igIsKeyPressed(SDL_SCANCODE_F4, false))
-		vip_oam_open = !vip_oam_open;
-	if (igIsKeyPressed(SDL_SCANCODE_F5, false))
-		vip_fb_open = !vip_fb_open;
+	imgui_key_toggle(SDL_SCANCODE_F1, &vip_worlds_open, true);
+	imgui_key_toggle(SDL_SCANCODE_F2, &vip_bgseg_open, true);
+	imgui_key_toggle(SDL_SCANCODE_F3, &vip_chr_open, true);
+	imgui_key_toggle(SDL_SCANCODE_F4, &vip_oam_open, true);
+	imgui_key_toggle(SDL_SCANCODE_F5, &vip_fb_open, true);
 
 	if (!imgui_shown)
+	{
+		// TODO: ignore mouse
 		return;
+	}
 
 	static bool demo_open = false;
 	if (igBeginMainMenuBar())
@@ -6117,8 +6153,11 @@ imgui_frame_begin(void)
 			igEndMenu();
 		}
 
-		if (igBeginMenu("Settings", false))
+		if (igBeginMenu("Settings", true))
 		{
+			igMenuItemPtr("Draw left eye", NULL, &gl_draw_left, true);
+			igMenuItemPtr("Draw right eye", NULL, &gl_draw_right, true);
+
 			igEndMenu();
 		}
 
@@ -6137,11 +6176,40 @@ imgui_frame_begin(void)
 		igShowDemoWindow(&demo_open);
 }
 
+static void
+imgui_draw_emu(const struct ImDrawList *parent_list __unused, const struct ImDrawCmd *draw_cmd __unused)
+{
+	gl_save_state();
+	gl_draw(imgui_emu_x, imgui_emu_y, 384, 224);
+	gl_restore_state();
+}
+
 void
 imgui_frame_end(void)
 {
 	if (imgui_shown)
+	{
+		char id[64];
+		snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
+		igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+		igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
+		struct ImGuiStyle *style = igGetStyle();
+		igSetNextWindowContentSize((struct ImVec2) {384 + style->WindowBorderSize * 2, 224 + style->WindowBorderSize});
+		if (igBegin(id, NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing))
+		{
+			struct ImVec2 view_pos;
+			struct ImVec2 content_min;
+			igGetWindowPos(&view_pos);
+			igGetWindowContentRegionMin(&content_min);
+			imgui_emu_x = view_pos.x + content_min.x + style->WindowBorderSize;
+			imgui_emu_y = tk_height - (view_pos.y + content_min.y + 224);
+			ImDrawList_AddCallback(igGetWindowDrawList(), imgui_draw_emu, NULL);
+		}
+		igEnd();
+		igPopStyleVar(2);
+
 		igRender();
+	}
 	else
 		igEndFrame();
 }
@@ -6371,7 +6439,8 @@ main_frame(void)
 
 	vip_frame_end(paused);
 
-	gl_draw();
+	if (!imgui_shown)
+		gl_draw(0, 0, tk_width, tk_height);
 
 	debug_frame_end();
 

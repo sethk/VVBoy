@@ -1,4 +1,5 @@
 #if INTERFACE
+# include <sys/types.h>
 # include <stdbool.h>
 #endif // INTERFACE
 
