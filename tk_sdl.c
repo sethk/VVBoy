@@ -5,7 +5,8 @@
 #include "tk_sdl.h"
 
 #include <SDL.h>
-# include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
 
 #if !SDL_VERSION_ATLEAST(2, 0, 7)
 # warning Problems with game controller GUIDs on macOS with version 2.0.5
@@ -168,6 +169,7 @@ tk_main(void)
 
 	SDL_AddTimer(20, tk_frame_tick, NULL);
 
+	struct ImGuiIO *imgui_io = igGetIO();
 	SDL_Event event;
 	while (tk_running && SDL_WaitEvent(&event))
 	{
@@ -184,6 +186,9 @@ tk_main(void)
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
 			{
+				if (imgui_io->WantCaptureKeyboard)
+					break;
+
 				if (event.key.repeat)
 					break;
 				switch (event.key.keysym.scancode)

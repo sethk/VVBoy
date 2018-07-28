@@ -2324,6 +2324,11 @@ static const enum vip_intflag vip_xpints = VIP_SBHIT | VIP_XPEND | VIP_TIMEERR;
 
 struct vip_vrm vip_vrm;
 struct vip_regs vip_regs;
+bool vip_worlds_open = false;
+bool vip_bgseg_open = false;
+bool vip_chr_open = false;
+bool vip_oam_open = false;
+bool vip_fb_open = false;
 u_int32_t vip_row_mask = (1 << 28) - 1;
 u_int32_t vip_world_mask = ~0;
 u_int8_t vip_bgm_types = 0xf;
@@ -3077,23 +3082,15 @@ vip_toggle_worlds(void)
 void
 vip_frame_begin(void)
 {
-	static bool vip_worlds_open = false;
-	static bool vip_oam_open = false;
 	static bool vip_rows_open = false;
-	static bool vip_offscreen_open = false;
 	if (igBeginMainMenuBar())
 	{
 		if (igBeginMenu("VIP", true))
 		{
-			igMenuItemPtr("Worlds...", NULL, &vip_worlds_open, true);
-			igMenuItemPtr("Objects...", NULL, &vip_oam_open, true);
 			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
 
 			if (igMenuItem("Rows...", NULL, vip_rows_open, true))
 				vip_rows_open = !vip_rows_open;
-
-			if (igMenuItem("View offscreen...", NULL, vip_offscreen_open, true))
-				vip_offscreen_open = !vip_offscreen_open;
 
 			igMenuItemPtr("Accurate scanner timing", NULL, &vip_scan_accurate, true);
 
@@ -3123,6 +3120,7 @@ vip_frame_begin(void)
 
 	if (vip_worlds_open)
 	{
+		igSetNextWindowSize((struct ImVec2){640, 500}, ImGuiCond_FirstUseEver);
 		if (igBegin("VIP Worlds", &vip_worlds_open, 0))
 		{
 			igColumns(5, "Worlds", true);
@@ -3188,12 +3186,6 @@ vip_frame_begin(void)
 				igNextColumn();
 			}
 			igColumns(1, NULL, false);
-
-			if (igButton("All", IMVEC2_ZERO))
-				vip_world_mask = ~0;
-			igSameLine(0.0, -1.0f);
-			if (igButton("None", IMVEC2_ZERO))
-				vip_world_mask = 0;
 		}
 		igEnd();
 	}
@@ -3227,117 +3219,67 @@ vip_frame_begin(void)
 		igEnd();
 	}
 
-	if (vip_offscreen_open)
+	if (vip_bgseg_open)
 	{
-		if (igBegin("VIP Offscreen", &vip_offscreen_open, 0))
+		if (igBegin("VIP Backgrounds", &vip_bgseg_open, 0))
 		{
-			enum
-			{
-				VIP_BGSEG,
-				VIP_CHR,
-				VIP_FB,
-				VIP_NUM_OFFSCREEN
-			};
-			static int offscreen;
-			const char *labels[VIP_NUM_OFFSCREEN] =
-					{
-							[VIP_BGSEG] = "BGSEG",
-							[VIP_CHR] = "CHR",
-							[VIP_FB] = "FB",
-					};
-			igCombo("What", &offscreen, labels, VIP_NUM_OFFSCREEN, -1);
-			u_int texture;
-			gl_debug_clear();
-			float width, height;
-			switch (offscreen)
-			{
-				case VIP_BGSEG:
-				{
-					static int off_index = 0;
-					igInputInt("Which", &off_index, 1, 100, ImGuiInputTextFlags_AutoSelectAll);
-					if (off_index < 0)
-						off_index = 13;
-					else if (off_index >= 14)
-						off_index = 0;
+			//gl_debug_clear(); // Opaque flag below
+			static int segment = 0;
+			igInputInt("Segment", &segment, 1, 100, ImGuiInputTextFlags_AutoSelectAll);
+			if (segment < 0)
+				segment = 13;
+			else if (segment >= 14)
+				segment = 0;
 
-					width = height = 512;
-					struct vip_bgsc *vb = vip_dram.vd_shared.s_bgsegs[off_index];
-					for (u_int bg_y = 0; bg_y < 64; ++bg_y)
-						for (u_int bg_x = 0; bg_x < 64; ++bg_x)
+			struct vip_bgsc *vb = vip_dram.vd_shared.s_bgsegs[segment];
+			for (u_int bg_y = 0; bg_y < 64; ++bg_y)
+				for (u_int bg_x = 0; bg_x < 64; ++bg_x)
+				{
+					for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+						for (u_int chr_y = 0; chr_y < 8; ++chr_y)
 						{
-							for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-								for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-								{
-									bool opaque;
-									u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
-									//if (opaque)
-									gl_debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
-								}
-							++vb;
+							bool opaque;
+							u_int8_t pixel = vip_bgsc_read_slow(vb, chr_x, chr_y, &opaque);
+							//if (opaque)
+							gl_debug_draw(bg_x * 8 + chr_x, bg_y * 8 + chr_y, pixel);
 						}
-					break;
+					++vb;
 				}
-				case VIP_CHR:
-				{
-					width = 512;
-					height = 256;
-					for (u_int c = 0; c < 2048; ++c)
-					{
-						const struct vip_chr *vc = VIP_CHR_FIND(c);
-						u_int x = c % 64;
-						u_int y = c / 64;
-						for (u_int chr_x = 0; chr_x < 8; ++chr_x)
-							for (u_int chr_y = 0; chr_y < 8; ++chr_y)
-								gl_debug_draw(x * 8 + chr_x, y * 8 + chr_y,
-								              vip_chr_read_slow(vc, chr_x, chr_y, false, false));
-					}
-					break;
-				}
-				case VIP_FB:
-				{
-					static int fb_index = 0;
-					igInputInt("Index", &fb_index, 1, 0, 0);
-					if (fb_index < 0)
-						fb_index = 3;
-					if (fb_index > 3)
-						fb_index = 0;
-					const u_int8_t *fb;
-					switch (fb_index)
-					{
-						case 0: fb = vip_vrm.vv_left0; break;
-						case 1: fb = vip_vrm.vv_right0; break;
-						case 2: fb = vip_vrm.vv_left1; break;
-						case 3: fb = vip_vrm.vv_right1; break;
-					}
-					width = 384;
-					height = 224;
-					for (u_int y = 0; y < height; ++y)
-						for (u_int x = 0; x < width; ++x)
-							gl_debug_draw(x, y, vip_fb_read_slow(fb, x, y));
-					break;
-				}
+			imgui_debug_image(TEXTURE_DEBUG_BGSEG, 512, 512);
+		}
+		igEnd();
+	}
+
+	if (vip_chr_open)
+	{
+		if (igBegin("VIP Character Map", &vip_chr_open, 0))
+		{
+			for (u_int c = 0; c < 2048; ++c)
+			{
+				const struct vip_chr *vc = VIP_CHR_FIND(c);
+				u_int x = c % 64;
+				u_int y = c / 64;
+				for (u_int chr_x = 0; chr_x < 8; ++chr_x)
+					for (u_int chr_y = 0; chr_y < 8; ++chr_y)
+						gl_debug_draw(x * 8 + chr_x, y * 8 + chr_y,
+						              vip_chr_read_slow(vc, chr_x, chr_y, false, false));
 			}
-			static const struct ImVec4 color = {1, 1, 1, 1};
-			static const struct ImVec4 border_color = {0.5, 0.5, 0.5, 1};
-			texture = gl_debug_blit();
-			igImage((ImTextureID)(uintptr_t)texture,
-			        (struct ImVec2){width, height},
-			        IMVEC2_ZERO, (struct ImVec2){width / 512, height / 512},
-			        color, border_color);
+			imgui_debug_image(TEXTURE_DEBUG_CHR, 512, 256);
 		}
 		igEnd();
 	}
 
 	if (vip_oam_open)
 	{
-		if (igBegin("Object Attributes", &vip_oam_open, 0))
+		igSetNextWindowSize((struct ImVec2){640, 500}, ImGuiCond_FirstUseEver);
+		if (igBegin("VIP Object Attributes", &vip_oam_open, 0))
 		{
 			for (int obj_group = 3; obj_group >= 0; --obj_group)
 			{
 				char label[32];
 				snprintf(label, sizeof(label), "Group %u", obj_group);
 
-				bool open = igTreeNode(label);
+				bool open = igTreeNodeEx(label, ImGuiTreeNodeFlags_DefaultOpen);
 				igSameLine(0, -1);
 				igText("SPT%u=%u", obj_group, vip_regs.vr_spt[obj_group]);
 				if (open)
@@ -3356,13 +3298,36 @@ vip_frame_begin(void)
 							struct vip_oam *obj = &(vip_dram.vd_oam[obj_index]);
 							debug_str_t oam_s;
 							debug_format_oam(oam_s, obj);
-							igText("group %d, OAM[%u]: OBJ[%u]: %s", obj_group, obj_index, obj->vo_jca, oam_s);
+							igText("OAM[%u]: %s", obj_group, oam_s);
 						}
 					}
 
 					igTreePop();
 				}
 			}
+		}
+		igEnd();
+	}
+
+	if (vip_fb_open)
+	{
+		if (igBegin("VIP Frame Buffers", &vip_fb_open, 0))
+		{
+			static int fb_index = 0;
+			igCombo2("Buffer", &fb_index, "Left 0\0Right 0\0Left 1\0Right 1", 0);
+			const u_int8_t *fb;
+			switch (fb_index)
+			{
+				case 0: fb = vip_vrm.vv_left0; break;
+				case 1: fb = vip_vrm.vv_right0; break;
+				case 2: fb = vip_vrm.vv_left1; break;
+				case 3: fb = vip_vrm.vv_right1; break;
+			}
+			for (u_int y = 0; y < 224; ++y)
+				for (u_int x = 0; x < 384; ++x)
+					gl_debug_draw(x, y, vip_fb_read_slow(fb, x, y));
+
+			imgui_debug_image(TEXTURE_DEBUG_FB, 384, 224);
 		}
 		igEnd();
 	}
@@ -3622,11 +3587,26 @@ nvc_frame_begin(void)
 	{
 		if (igBeginMenu("NVC", true))
 		{
-			igBeginChild("Clock", (struct ImVec2){180, 30}, false, 0);
+			igBeginChild("Clock", (struct ImVec2){300, 30}, false, 0);
 			{
 				igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 5, 30, NULL);
 				igEndChild();
 			}
+
+			if (igBeginChild("Timer", (struct ImVec2){300, 30}, false, 0))
+			{
+				static int value = 0;
+				igInputInt("Timer value", &value, 1, 100, 0);
+				igSameLine(0, -1);
+				if (igButton("Load", IMVEC2_ZERO))
+				{
+					nvc_regs.nr_tlr = value & 0xff;
+					nvc_regs.nr_thr = value >> 8;
+				}
+
+			}
+			igEndChild();
+
 			igEndMenu();
 		}
 
@@ -3641,10 +3621,11 @@ nvc_step(void)
 	{
 		if (nvc_regs.nr_tcr.t_enb)
 		{
-			if (debug_trace_nvc_tim)
+			static u_int8_t debug_last_tcr = 0;
+			if (debug_trace_nvc_tim && debug_last_tcr != *(u_int8_t *)&(nvc_regs.nr_tcr))
 			{
 				debug_str_t tcr_s;
-				debug_tracef("nvc", "TCR = %s, THR:TLR = %02hhx:%02hhx, nvc_next_tick = %u\n",
+				debug_tracef("nvc.tim", "TCR = %s, THR:TLR = %02hhx:%02hhx, nvc_next_tick = %u\n",
 				             debug_format_flags(tcr_s,
 				                                "T-Enb", nvc_regs.nr_tcr.t_enb,
 				                                "Z-Stat", nvc_regs.nr_tcr.t_z_stat,
@@ -3654,6 +3635,7 @@ nvc_step(void)
 				                                NULL),
 				             nvc_regs.nr_thr, nvc_regs.nr_tlr,
 				             nvc_next_tick);
+				debug_last_tcr = *(u_int8_t *)&(nvc_regs.nr_tcr);
 			}
 			if (nvc_regs.nr_tlr > 0)
 				--nvc_regs.nr_tlr;
@@ -3665,8 +3647,8 @@ nvc_step(void)
 			else if (!nvc_regs.nr_tcr.t_z_stat)
 			{
 				nvc_regs.nr_tcr.t_z_stat = 1;
-				if (debug_trace_nvc)
-					debug_tracef("nvc", "Timer expired\n");
+				if (debug_trace_nvc_tim)
+					debug_tracef("nvc.tim", "Timer expired\n");
 				if (nvc_regs.nr_tcr.t_z_int)
 					cpu_intr(NVC_INTTIM);
 			}
@@ -3675,7 +3657,8 @@ nvc_step(void)
 		{
 			if (nvc_regs.nr_tcr.t_z_stat && nvc_regs.nr_tcr.t_z_stat_clr)
 			{
-				debug_tracef("nvc", "Clearing timer interrupt\n");
+				if (debug_trace_nvc_tim)
+					debug_tracef("nvc.tim", "Clearing timer interrupt\n");
 				nvc_regs.nr_tcr.t_z_stat = 0;
 			}
 		}
@@ -5782,13 +5765,18 @@ debug_frame_end(void)
 }
 
 /* GL */
-enum gl_texture
-{
-	TEXTURE_LEFT,
-	TEXTURE_RIGHT,
-	TEXTURE_DEBUG,
-	NUM_TEXTURES
-};
+#if INTERFACE
+	enum gl_texture
+	{
+		TEXTURE_LEFT,
+		TEXTURE_RIGHT,
+		TEXTURE_DEBUG_BGSEG,
+		TEXTURE_DEBUG_CHR,
+		TEXTURE_DEBUG_FB,
+		NUM_TEXTURES
+	};
+#endif // INTERFACE
+
 static GLuint gl_textures[NUM_TEXTURES];
 static GLuint gl_vao, gl_vbo;
 static GLuint gl_program;
@@ -6035,15 +6023,15 @@ gl_debug_draw(u_int x, u_int y, u_int8_t pixel)
 }
 
 u_int
-gl_debug_blit(void)
+gl_debug_blit(enum gl_texture texture)
 {
-	glBindTexture(GL_TEXTURE_2D, gl_textures[TEXTURE_DEBUG]);
+	glBindTexture(GL_TEXTURE_2D, gl_textures[texture]);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 512, 512, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, gl_debug_frame);
-	return gl_textures[TEXTURE_DEBUG];
+	return gl_textures[texture];
 }
 
 /* IMGUI */
-bool imgui_shown = false;
+bool imgui_shown = true;
 
 struct ImGuiContext *imgui_context;
 
@@ -6055,6 +6043,7 @@ imgui_init(void)
 	imgui_context = igCreateContext(NULL);
 
 	struct ImGuiIO *io = igGetIO();
+	io->IniFilename = NULL;
 	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "vendor/cimgui/imgui/misc/fonts/Roboto-Medium.ttf", 16.0f, NULL, NULL);
 
 	return true;
@@ -6069,8 +6058,23 @@ imgui_fini(void)
 void
 imgui_frame_begin(void)
 {
-	if (igIsKeyPressed(SDL_SCANCODE_GRAVE, false))
+	if (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) || igIsKeyPressed(SDL_SCANCODE_SPACE, false))
 		imgui_shown = !imgui_shown;
+
+	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
+		main_toggle_paused();
+	main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
+
+	if (igIsKeyPressed(SDL_SCANCODE_F1, false))
+		vip_worlds_open = !vip_worlds_open;
+	if (igIsKeyPressed(SDL_SCANCODE_F2, false))
+		vip_bgseg_open = !vip_bgseg_open;
+	if (igIsKeyPressed(SDL_SCANCODE_F3, false))
+		vip_chr_open = !vip_chr_open;
+	if (igIsKeyPressed(SDL_SCANCODE_F4, false))
+		vip_oam_open = !vip_oam_open;
+	if (igIsKeyPressed(SDL_SCANCODE_F5, false))
+		vip_fb_open = !vip_fb_open;
 
 	if (!imgui_shown)
 		return;
@@ -6078,9 +6082,49 @@ imgui_frame_begin(void)
 	static bool demo_open = false;
 	if (igBeginMainMenuBar())
 	{
-		if (igBeginMenu("UI", true))
+		if (igBeginMenu("File", true))
 		{
-			if (igMenuItem("Show demo window", NULL, false, true))
+			if (igMenuItem("Quit", "Cmd+Q", NULL, true))
+				tk_quit();
+
+			igEndMenu();
+		}
+
+		if (igBeginMenu("Emulation", true))
+		{
+			if (igMenuItem("Reset", "Cmd+R", NULL, true))
+				main_reset();
+
+			igSeparator();
+
+			if (igMenuItem("Pause", "F9", main_paused, true))
+				main_toggle_paused();
+
+			if (igMenuItem("Advance frame", "F8", false, true))
+				main_step_frame = true;
+
+			igEndMenu();
+		}
+
+		if (igBeginMenu("View", true))
+		{
+			igMenuItemPtr("Worlds...", "F1", &vip_worlds_open, true);
+			igMenuItemPtr("Backgrounds...", "F2", &vip_bgseg_open, true);
+			igMenuItemPtr("Characters...", "F3", &vip_chr_open, true);
+			igMenuItemPtr("Objects...", "F4", &vip_oam_open, true);
+			igMenuItemPtr("Frame buffers...", "F5", &vip_fb_open, true);
+
+			igEndMenu();
+		}
+
+		if (igBeginMenu("Settings", false))
+		{
+			igEndMenu();
+		}
+
+		if (igBeginMenu("Help", true))
+		{
+			if (igMenuItem("Show UI demo", NULL, false, true))
 				demo_open = true;
 
 			igEndMenu();
@@ -6102,6 +6146,18 @@ imgui_frame_end(void)
 		igEndFrame();
 }
 
+void
+imgui_debug_image(enum gl_texture texture, u_int width, u_int height)
+{
+	static const struct ImVec4 color = {1, 1, 1, 1};
+	static const struct ImVec4 border_color = {0.5, 0.5, 0.5, 1};
+	u_int texture_id = gl_debug_blit(texture);
+	igImage((ImTextureID)(uintptr_t)texture_id,
+	        (struct ImVec2) {width, height},
+	        IMVEC2_ZERO, (struct ImVec2) {(float)width / 512, (float)height / 512},
+	        color, border_color);
+}
+
 /* MAIN */
 #if INTERFACE
 	struct main_stats_t
@@ -6115,7 +6171,8 @@ imgui_frame_end(void)
 
 u_int32_t main_usec;
 bool main_trace = false;
-static bool main_paused;
+bool main_paused;
+bool main_step_frame;
 static int main_speed;
 struct main_stats_t main_stats;
 
@@ -6192,6 +6249,7 @@ main_reset(void)
 	main_restart_clock();
 
 	main_paused = false;
+	main_step_frame = false;
 	main_speed = 0;
 
 	vip_reset();
@@ -6266,10 +6324,7 @@ main_frame(void)
 	imgui_frame_begin();
 
 	u_int main_frame_usec = 20000;
-	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
-		main_toggle_paused();
-	bool main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
-	bool paused = main_paused && !main_step_frame;
+	bool paused = (main_paused && !main_step_frame);
 
 	debug_frame_begin(paused);
 	nvc_frame_begin();
@@ -6279,17 +6334,14 @@ main_frame(void)
 	{
 		if (igBeginMenu("Run", true))
 		{
-			if (igMenuItem("Pause", "F9", main_paused, true))
-				main_toggle_paused();
-
-			if (igMenuItem("Step 1 frame", "F8", false, true))
-				main_step_frame = true;
-
 			igBeginChild("Speed", (struct ImVec2){120, 30}, false, 0);
 			{
 				igSliderInt("Speed", &main_speed, -3, 3, "2^%.0f");
 				igEndChild();
 			}
+
+			if (igMenuItem("Interrupt", NULL, false, true))
+				debugging = true;
 
 			igEndMenu();
 		}
