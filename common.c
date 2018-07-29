@@ -2329,6 +2329,7 @@ bool vip_bgseg_open = false;
 bool vip_chr_open = false;
 bool vip_oam_open = false;
 bool vip_fb_open = false;
+bool vip_rows_open = false;
 u_int32_t vip_row_mask = (1 << 28) - 1;
 u_int32_t vip_world_mask = ~0;
 u_int8_t vip_bgm_types = 0xf;
@@ -3082,47 +3083,28 @@ vip_toggle_worlds(void)
 void
 vip_frame_begin(void)
 {
-	static bool vip_rows_open = false;
-	if (igBeginMainMenuBar())
-	{
-		if (igBeginMenu("VIP", true))
-		{
-			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
-
-			if (igMenuItem("Rows...", NULL, vip_rows_open, true))
-				vip_rows_open = !vip_rows_open;
-
-			igMenuItemPtr("Accurate scanner timing", NULL, &vip_scan_accurate, true);
-
-			if (igBeginMenu("Draw", true))
-			{
-				for (u_int i = 0; i < 4; ++i)
-				{
-					u_int8_t mask = (1 << i);
-					bool drawn = ((vip_bgm_types & mask) != 0);
-					if (igMenuItemPtr(vip_bgm_strings[i], NULL, &drawn, true))
-					{
-						if (drawn)
-							vip_bgm_types |= mask;
-						else
-							vip_bgm_types &= ~mask;
-					}
-				}
-
-				igEndMenu();
-			}
-
-			igEndMenu();
-		}
-
-		igEndMainMenuBar();
-	}
-
 	if (vip_worlds_open)
 	{
 		igSetNextWindowSize((struct ImVec2){640, 500}, ImGuiCond_FirstUseEver);
 		if (igBegin("VIP Worlds", &vip_worlds_open, 0))
 		{
+			igText("Draw types:");
+			for (u_int i = 0; i < 4; ++i)
+			{
+				igSameLine(0, -1);
+
+				u_int8_t mask = (1 << i);
+				bool drawn = ((vip_bgm_types & mask) != 0);
+				if (igCheckbox(vip_bgm_strings[i], &drawn))
+				{
+					if (drawn)
+						vip_bgm_types |= mask;
+					else
+						vip_bgm_types &= ~mask;
+				}
+			}
+			igSeparator();
+
 			igColumns(5, "Worlds", true);
 			igSeparator();
 			igText("#");
@@ -3192,28 +3174,31 @@ vip_frame_begin(void)
 
 	if (vip_rows_open)
 	{
-		if (igBegin("VIP Rows", &vip_rows_open, 0))
+		igSetNextWindowSize((struct ImVec2){360, 0}, ImGuiCond_FirstUseEver);
+		if (igBegin("VIP Rows", &vip_rows_open, ImGuiWindowFlags_NoResize))
 		{
+			igColumns(4, "Rows", false);
 			for (u_int i = 0; i < 28; ++i)
 			{
 				char label[32 + 1];
 				snprintf(label, sizeof(label), "%u-%u", i * 8 + 1, i * 8 + 8);
 				u_int32_t mask = 1u << i;
 				bool shown = ((vip_row_mask & mask) != 0);
-				if ((i % 4) != 0)
-					igSameLine(0.0, -1.0f);
 				if (igCheckbox(label, &shown))
 				{
 					if (shown)
-						vip_row_mask|= mask;
+						vip_row_mask |= mask;
 					else
-						vip_row_mask&= ~mask;
+						vip_row_mask &= ~mask;
 				}
+				igNextColumn();
 			}
-			if (igButton("All", IMVEC2_ZERO))
+			igColumns(1, NULL, false);
+			igSeparator();
+			if (igButton("Draw All", IMVEC2_ZERO))
 				vip_row_mask = (1 << 28) - 1;
 			igSameLine(0.0, -1.0f);
-			if (igButton("None", IMVEC2_ZERO))
+			if (igButton("Draw None", IMVEC2_ZERO))
 				vip_row_mask = 0;
 		}
 		igEnd();
@@ -3583,6 +3568,7 @@ nvc_test(void)
 static void
 nvc_frame_begin(void)
 {
+#if 0
 	if (igBeginMainMenuBar())
 	{
 		if (igBeginMenu("NVC", true))
@@ -3612,6 +3598,7 @@ nvc_frame_begin(void)
 
 		igEndMainMenuBar();
 	}
+#endif // 0
 }
 
 bool
@@ -5638,26 +5625,15 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 void
 debug_frame_begin(bool paused)
 {
-	if (igBeginMainMenuBar())
-	{
-		if (igBeginMenu("Debug", true))
-		{
-			igMenuItemPtr("Show console", NULL, &debug_show_console, true);
-
-			for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
-				igMenuItemPtr(debug_traces[i].dt_label, NULL, debug_traces[i].dt_tracep, true);
-
-			igEndMenu();
-		}
-
-		igEndMainMenuBar();
-	}
-
 	static bool clear_each_frame = false;
 	if (debug_show_console)
 	{
 		if (igBegin("Console", &debug_show_console, 0))
 		{
+			if (igButton("Clear", IMVEC2_ZERO))
+				debug_console_begin = debug_console_end;
+
+			igSameLine(0, -1);
 			igCheckbox("Clear before each frame", &clear_each_frame);
 		}
 		igEnd();
@@ -5675,19 +5651,17 @@ debug_frame_end(void)
 
 	if (debug_show_console)
 	{
+		igSetNextWindowSize((struct ImVec2){450, 350}, ImGuiCond_FirstUseEver);
 		if (igBegin("Console", &debug_show_console, 0))
 		{
 			static bool scroll_to_end = true;
 			igSameLine(0, -1);
 			igCheckbox("Scroll to end", &scroll_to_end);
-			igSameLine(0, -1);
-			if (igButton("Clear", IMVEC2_ZERO))
-				debug_console_begin = debug_console_end;
 			static bool debug_buffers = false;
-			igSameLine(0, -1);
-			igCheckbox("Debug buffers", &debug_buffers);
+			//igSameLine(0, -1);
+			//igCheckbox("Debug buffers", &debug_buffers);
 
-			if (igBeginChild("Log", (struct ImVec2){0, 0}, true, 0))
+			if (igBeginChild("Log", IMVEC2_ZERO, true, 0))
 			{
 				igPushTextWrapPos(0.0f);
 				if (debug_console_begin < debug_console_end)
@@ -6103,6 +6077,7 @@ imgui_frame_begin(void)
 		main_toggle_paused();
 	main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
 
+	imgui_key_toggle(SDL_SCANCODE_GRAVE, &debug_show_console, true);
 	imgui_key_toggle(SDL_SCANCODE_F1, &vip_worlds_open, true);
 	imgui_key_toggle(SDL_SCANCODE_F2, &vip_bgseg_open, true);
 	imgui_key_toggle(SDL_SCANCODE_F3, &vip_chr_open, true);
@@ -6139,11 +6114,25 @@ imgui_frame_begin(void)
 			if (igMenuItem("Advance frame", "F8", false, true))
 				main_step_frame = true;
 
+			igSeparator();
+
+			if (igBeginMenu("Debug", true))
+			{
+				for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+					igMenuItemPtr(debug_traces[i].dt_label, NULL, debug_traces[i].dt_tracep, true);
+
+				igEndMenu();
+			}
+
 			igEndMenu();
 		}
 
 		if (igBeginMenu("View", true))
 		{
+			igMenuItemPtr("Debug console", "`", &debug_show_console, true);
+
+			igSeparator();
+
 			igMenuItemPtr("Worlds...", "F1", &vip_worlds_open, true);
 			igMenuItemPtr("Backgrounds...", "F2", &vip_bgseg_open, true);
 			igMenuItemPtr("Characters...", "F3", &vip_chr_open, true);
@@ -6157,6 +6146,12 @@ imgui_frame_begin(void)
 		{
 			igMenuItemPtr("Draw left eye", NULL, &gl_draw_left, true);
 			igMenuItemPtr("Draw right eye", NULL, &gl_draw_right, true);
+
+			igSeparator();
+
+			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
+			igMenuItemPtr("Accurate scanner timing", NULL, &vip_scan_accurate, true);
+			igMenuItemPtr("Draw rows...", NULL, &vip_rows_open, true);
 
 			igEndMenu();
 		}
@@ -6398,6 +6393,7 @@ main_frame(void)
 	nvc_frame_begin();
 	vip_frame_begin();
 
+#if 0
 	if (igBeginMainMenuBar())
 	{
 		if (igBeginMenu("Run", true))
@@ -6416,6 +6412,7 @@ main_frame(void)
 
 		igEndMainMenuBar();
 	}
+#endif // 0
 
 	if (!paused)
 	{
