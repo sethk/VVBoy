@@ -6031,8 +6031,9 @@ gl_debug_blit(enum gl_texture texture)
 }
 
 /* IMGUI */
-bool imgui_shown = true;
+bool imgui_shown = false;
 static u_int imgui_emu_x, imgui_emu_y;
+static u_int imgui_emu_scale = 2;
 
 struct ImGuiContext *imgui_context;
 
@@ -6083,6 +6084,14 @@ imgui_frame_begin(void)
 	imgui_key_toggle(SDL_SCANCODE_F3, &vip_chr_open, true);
 	imgui_key_toggle(SDL_SCANCODE_F4, &vip_oam_open, true);
 	imgui_key_toggle(SDL_SCANCODE_F5, &vip_fb_open, true);
+
+	if (igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI))
+	{
+		if (igIsKeyPressed(SDL_SCANCODE_1, false))
+			imgui_emu_scale = 1;
+		else if (igIsKeyPressed(SDL_SCANCODE_2, false))
+			imgui_emu_scale = 2;
+	}
 
 	if (!imgui_shown)
 	{
@@ -6144,6 +6153,13 @@ imgui_frame_begin(void)
 
 		if (igBeginMenu("Settings", true))
 		{
+			if (igMenuItem("Window scale 100%", "Cmd+1", imgui_emu_scale == 1, true))
+				imgui_emu_scale = 1;
+			if (igMenuItem("Window scale 200%", "Cmd+2", imgui_emu_scale == 2, true))
+				imgui_emu_scale = 2;
+
+			igSeparator();
+
 			igMenuItemPtr("Draw left eye", NULL, &gl_draw_left, true);
 			igMenuItemPtr("Draw right eye", NULL, &gl_draw_right, true);
 
@@ -6152,6 +6168,11 @@ imgui_frame_begin(void)
 			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
 			igMenuItemPtr("Accurate scanner timing", NULL, &vip_scan_accurate, true);
 			igMenuItemPtr("Draw rows...", NULL, &vip_rows_open, true);
+
+			igSeparator();
+
+			if (igMenuItem("Toggle GUI", "space/esc", false, true))
+				imgui_shown = false;
 
 			igEndMenu();
 		}
@@ -6175,7 +6196,7 @@ static void
 imgui_draw_emu(const struct ImDrawList *parent_list __unused, const struct ImDrawCmd *draw_cmd __unused)
 {
 	gl_save_state();
-	gl_draw(imgui_emu_x, imgui_emu_y, 384, 224);
+	gl_draw(imgui_emu_x, imgui_emu_y, 384 * imgui_emu_scale, 224 * imgui_emu_scale);
 	gl_restore_state();
 }
 
@@ -6189,15 +6210,26 @@ imgui_frame_end(void)
 		igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
 		igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
 		struct ImGuiStyle *style = igGetStyle();
-		igSetNextWindowContentSize((struct ImVec2) {384 + style->WindowBorderSize * 2, 224 + style->WindowBorderSize});
-		if (igBegin(id, NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing))
+		u_int width = 384 * imgui_emu_scale, height = 224 * imgui_emu_scale;
+		struct ImVec2 content_size =
+		{
+				width + style->WindowBorderSize * 2,
+				height + style->WindowBorderSize
+		};
+		igSetNextWindowPos((struct ImVec2){tk_width / 2.0, tk_height / 2.0},
+		                   ImGuiCond_FirstUseEver,
+		                   (struct ImVec2){0.5, 0.5});
+		igSetNextWindowContentSize(content_size);
+		if (igBegin(id, NULL, ImGuiWindowFlags_NoResize |
+				ImGuiWindowFlags_AlwaysAutoResize |
+				ImGuiWindowFlags_NoFocusOnAppearing))
 		{
 			struct ImVec2 view_pos;
 			struct ImVec2 content_min;
 			igGetWindowPos(&view_pos);
 			igGetWindowContentRegionMin(&content_min);
 			imgui_emu_x = view_pos.x + content_min.x + style->WindowBorderSize;
-			imgui_emu_y = tk_height - (view_pos.y + content_min.y + 224);
+			imgui_emu_y = tk_height - (view_pos.y + content_min.y + height);
 			ImDrawList_AddCallback(igGetWindowDrawList(), imgui_draw_emu, NULL);
 		}
 		igEnd();
