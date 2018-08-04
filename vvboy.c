@@ -11,7 +11,7 @@ main(int ac, char * const *av)
 	int ch;
 	extern int optind;
 	bool help = false;
-	bool self_test = false;
+	bool debugging = false;
 	static const char *usage_fmt = "usage: %s [-d] [ -t <subsystem> ] [ -T <trace.log> ] { <file.vb> | <file.isx> }\n";
 	while ((ch = getopt(ac, av, "dt:T:")) != -1)
 		switch (ch)
@@ -52,13 +52,13 @@ main(int ac, char * const *av)
 
 	main_reset();
 
-	if (self_test)
-	{
-		nvc_test();
-		vsu_test();
-		vip_test();
-		cpu_test();
-	}
+	nvc_test();
+	vsu_test();
+	vip_test();
+	cpu_test();
+
+	if (debugging)
+		debug_stop();
 
 	main_block_sigint();
 	tk_main();

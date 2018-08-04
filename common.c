@@ -235,19 +235,17 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp
 
 	if (!mem_prepare(&request))
 	{
-		warnx("Bus error at 0x%08x", addr);
-		debug_enter();
+		debug_fatal_errorf("Bus error at 0x%08x", addr);
 		return false;
 	}
 
 	if ((request.mr_perms & request.mr_ops) != request.mr_ops)
 	{
 		debug_str_t addr_s, ops_s, perms_s;
-		warnx("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
-		      debug_format_addr(addr, addr_s),
-		      debug_format_perms(request.mr_ops, ops_s),
-		      debug_format_perms(request.mr_perms, perms_s));
-		debug_enter();
+		debug_fatal_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
+		                   debug_format_addr(addr, addr_s),
+		                   debug_format_perms(request.mr_ops, ops_s),
+		                   debug_format_perms(request.mr_perms, perms_s));
 		return false;
 	}
 
@@ -296,8 +294,7 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 	if (!mem_prepare(&request))
 	{
 		// TODO: SEGV
-		fprintf(stderr, "Bus error at 0x%08x\n", addr);
-		debug_enter();
+		debug_fatal_errorf("Bus error at 0x%08x\n", addr);
 		return false;
 	}
 
@@ -309,7 +306,7 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 		                          debug_format_addr(addr, addr_s),
 		                          debug_format_perms(request.mr_perms, perms_s)))
 			return true;
-		debug_enter();
+		debug_stop();
 		return false;
 	}
 
@@ -684,7 +681,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	u_int mem_wait;
 	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true, &mem_wait))
 	{
-		printf("Could not read instruction at 0x%08x\n", addr);
+		debug_fatal_errorf("Could not read instruction at 0x%08x\n", addr);
 		return false;
 	}
 	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
@@ -692,7 +689,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	{
 		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2, true, &mem_wait))
 		{
-			printf("Could not read instruction at 0x%08x\n", addr + 2);
+			debug_fatal_errorf("Could not read instruction at 0x%08x\n", addr + 2);
 			return false;
 		}
 		inst->ci_hwords[1] = OSSwapLittleToHostInt16(inst->ci_hwords[1]);
@@ -780,8 +777,7 @@ cpu_getfl(enum cpu_bcond cond)
 			return !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
 			         cpu_state.cs_psw.psw_flags.f_z);
 		default:
-			fputs("Handle branch cond\n", stderr);
-			debug_enter();
+			debug_fatal_errorf("Handle branch cond\n", stderr);
 			return false;
 	}
 }
@@ -877,8 +873,7 @@ cpu_float_reserved(float f)
 		default:
 		{
 			cpu_state.cs_psw.psw_flags.f_fro = 1;
-			fputs("TODO: Reserved operand exception\n", stderr);
-			raise(SIGINT);
+			debug_fatal_errorf("TODO: Reserved operand exception\n", stderr);
 			return true;
 		}
 	}
@@ -1285,7 +1280,7 @@ cpu_exec(const union cpu_inst inst)
 				}
 				default:
 					debug_runtime_errorf(NULL, "Unsupported regID %d", inst.ci_ii.ii_imm5);
-					debug_enter();
+					debug_stop();
 					return false;
 			}
 			break;
@@ -1309,7 +1304,7 @@ cpu_exec(const union cpu_inst inst)
 					break;
 				default:
 					debug_runtime_errorf(NULL, "Unsupported regID %d", inst.ci_ii.ii_imm5);
-					debug_enter();
+					debug_stop();
 					return false;
 			}
 		case OP_SEI:
@@ -1555,8 +1550,7 @@ cpu_exec(const union cpu_inst inst)
 					if (source >= (double)INT32_MAX + 0.5 || source <= (double)INT32_MIN - 0.5)
 					{
 						cpu_state.cs_psw.psw_flags.f_fiv = 1;
-						fputs("TODO: Floating-point invalid operation exception\n", stderr);
-						raise(SIGINT);
+						debug_fatal_errorf("TODO: Floating-point invalid operation exception\n", stderr);
 						return false;
 					}
 					cpu_setfl_float_zsoc(source);
@@ -1617,8 +1611,7 @@ cpu_exec(const union cpu_inst inst)
 						if (left == 0)
 						{
 							cpu_state.cs_psw.psw_flags.f_fiv = 1;
-							fputs("TODO: Invalid operation exception\n", stderr);
-							raise(SIGINT);
+							debug_fatal_errorf("TODO: Invalid operation exception\n", stderr);
 							return false;
 						}
 						else if (cpu_float_reserved(left))
@@ -1626,8 +1619,7 @@ cpu_exec(const union cpu_inst inst)
 						else
 						{
 							cpu_state.cs_psw.psw_flags.f_fzd = 1;
-							fputs("TODO: Divide by zero exception\n", stderr);
-							raise(SIGINT);
+							debug_fatal_errorf("TODO: Divide by zero exception\n", stderr);
 							return false;
 						}
 					}
@@ -1674,7 +1666,7 @@ cpu_exec(const union cpu_inst inst)
 					break;
 				default:
 					debug_runtime_errorf(NULL, "TODO: execute instruction");
-					debug_enter();
+					debug_stop();
 					return false;
 			}
 			break;
@@ -1695,7 +1687,7 @@ cpu_exec(const union cpu_inst inst)
 				break;
 			}
 			debug_runtime_errorf(NULL, "TODO: execute instruction");
-			debug_enter();
+			debug_stop();
 			return false;
 	}
 	if (cpu_state.cs_r[0].s)
@@ -1937,7 +1929,7 @@ cpu_test_movbsu(const u_int8_t src_bytes[],
 void
 cpu_test(void)
 {
-	fputs("Running CPU self-test\n", stderr);
+	debug_printf("Running CPU self-test\n");
 
 	cpu_test_add(1, 1, 2, false, false, false);
 	cpu_test_add(2147483647, 1, -2147483648, true, false, false);
@@ -2029,22 +2021,13 @@ cpu_step(void)
 		return true;
 	}
 
-	if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
-	{
-		fprintf(stderr, "\nStopped at breakpoint\n");
-		debugging = true;
-	}
-
-	if (debugging)
-	{
-		if (!debug_step())
-			return false;
-	}
+	if (!debug_step())
+		return false;
 
 	union cpu_inst inst;
 	if (!cpu_fetch(cpu_state.cs_pc, &inst))
 	{
-		fprintf(stderr, "TODO: bus error fetching inst from PC 0x%08x\n", cpu_state.cs_pc);
+		debug_fatal_errorf("TODO: bus error fetching inst from PC 0x%08x\n", cpu_state.cs_pc);
 		return false;
 	}
 
@@ -2412,8 +2395,8 @@ vip_raise(enum vip_intflag intflag)
 	{
 		if (debug_vip_intflags & intflag)
 		{
-			fprintf(stderr, "Stopped on VIP interrupt %u\n", intflag);
-			debugging = true;
+			debug_printf("Stopped on VIP interrupt %u\n", intflag);
+			debug_stop();
 		}
 
 		cpu_intr(NVC_INTVIP);
@@ -3011,7 +2994,7 @@ vip_test_clip(int scr_clip_y,
 void
 vip_test(void)
 {
-	fputs("Running VIP self-test\n", stderr);
+	debug_printf("Running VIP self-test\n");
 
 	static_assert(sizeof(vip_vrm) == 0x20000, "sizeof(vip_vrm) should be 0x20000");
 	assert(sizeof(struct vip_oam) == 8);
@@ -3319,9 +3302,9 @@ vip_frame_begin(void)
 }
 
 void
-vip_frame_end(bool paused)
+vip_frame_end(void)
 {
-	if (!paused && !vip_scan_accurate)
+	if (!debug_is_stopped() && !vip_scan_accurate)
 	{
 		vip_scan_out(vip_disp_index, false);
 		vip_scan_out(vip_disp_index, true);
@@ -3373,7 +3356,7 @@ vsu_add_syms(void)
 void
 vsu_test(void)
 {
-	fputs("Running VSU self-test\n", stderr);
+	debug_printf("Running VSU self-test\n", stderr);
 	mem_test_size("vsu_ram", sizeof(vsu_ram), 0x300);
 	mem_test_size("vsu_regs", sizeof(vsu_regs), 0x200);
 #ifndef NDEBUG
@@ -3557,7 +3540,7 @@ nvc_reset(void)
 void
 nvc_test(void)
 {
-	fputs("Running NVC self-test\n", stderr);
+	debug_printf("Running NVC self-test\n", stderr);
 
 	mem_test_size("nvc_regs", sizeof(nvc_regs), 11);
 	mem_test_addr("nvc_sdlr", 0x02000010, 1, &(nvc_regs.nr_sdlr));
@@ -3744,7 +3727,7 @@ nvc_mem_prepare(struct mem_request *request)
 	else
 	{
 		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", request->mr_emu);
-		debug_enter();
+		debug_stop();
 		return false;
 	}
 
@@ -3783,7 +3766,6 @@ nvc_mem_prepare(struct mem_request *request)
 	};
 #endif // INTERFACE
 
-bool debugging = false;
 bool debug_trace_cpu = false;
 bool debug_trace_cpu_jmp = false;
 bool debug_trace_cpu_int = false;
@@ -3794,7 +3776,11 @@ u_int16_t debug_vip_intflags = 0;
 bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
-u_int32_t debug_break = DEBUG_ADDR_NONE;
+
+static bool debug_stopped = false;
+static bool debug_stepping = false;
+static bool debug_stepping_frame = false;
+static u_int32_t debug_break = DEBUG_ADDR_NONE;
 
 struct debug_trace
 {
@@ -3823,7 +3809,9 @@ struct debug_watch
 };
 struct debug_watch *debug_watches = NULL;
 
-static EditLine *s_editline;
+#if DEBUG_TTY
+	static EditLine *s_editline;
+#endif // DEBUG_TTY
 static History *s_history;
 static Tokenizer *s_token;
 
@@ -3834,12 +3822,15 @@ static bool debug_show_console = false;
 static char debug_console_buffer[16384];
 static bool debug_console_dirty = false;
 static size_t debug_console_begin = 0, debug_console_end = 0;
+static bool debug_clear_console = false;
 
+#if DEBUG_TTY
 static char *
 debug_prompt(EditLine *editline __unused)
 {
 	return "vvboy> ";
 }
+#endif // DEBUG_TTY
 
 void
 debug_add_syms(void)
@@ -3854,15 +3845,6 @@ debug_add_syms(void)
 bool
 debug_init(void)
 {
-	s_editline = el_init("vvboy", stdin, stdout, stderr);
-	if (!s_editline)
-	{
-		warnx("Could not initialize editline");
-		return false;
-	}
-	el_set(s_editline, EL_PROMPT, debug_prompt);
-	el_source(s_editline, NULL);
-
 	s_history = history_init();
 	if (!s_history)
 	{
@@ -3871,7 +3853,6 @@ debug_init(void)
 	}
 	HistEvent event;
 	history(s_history, &event, H_SETSIZE, INT_MAX);
-	el_set(s_editline, EL_HIST, history, s_history);
 
 	s_token = tok_init(NULL);
 	if (!s_token)
@@ -3879,6 +3860,18 @@ debug_init(void)
 		warnx("Could not initialize tokenizer");
 		return false;
 	}
+
+#if DEBUG_TTY
+	s_editline = el_init("vvboy", stdin, stdout, stderr);
+	if (!s_editline)
+	{
+		warnx("Could not initialize editline");
+		return false;
+	}
+	el_set(s_editline, EL_PROMPT, debug_prompt);
+	el_source(s_editline, NULL);
+	el_set(s_editline, EL_HIST, history, s_history);
+#endif // DEBUG_TTY
 
 	return true;
 }
@@ -3897,8 +3890,10 @@ debug_clear_syms(void)
 void
 debug_fini(void)
 {
-	el_end(s_editline);
 	history_end(s_history);
+#if DEBUG_TTY
+	el_end(s_editline);
+#endif // DEBUG_TTY
 }
 
 char *
@@ -4718,7 +4713,7 @@ static const struct debug_help
 static void
 debug_print_help(const struct debug_help *help)
 {
-	printf("%c %s\t%s\n", help->dh_char, help->dh_usage, help->dh_desc);
+	debug_printf("%c %s\t%s\n", help->dh_char, help->dh_usage, help->dh_desc);
 }
 
 static void
@@ -4744,7 +4739,7 @@ debug_mem_read(u_int32_t addr, void *dest, size_t size)
 		return true;
 	else
 	{
-		warnx("Could not read %lu bytes from 0x%08x: Invalid address", size, addr);
+		debug_printf("Could not read %lu bytes from 0x%08x: Invalid address", size, addr);
 		return false;
 	}
 }
@@ -4780,7 +4775,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 				break;
 		if (reg_num == 32)
 		{
-			warnx("Invalid register name %s", reg_name);
+			debug_printf("Invalid register name %s", reg_name);
 			return false;
 		}
 		base = cpu_state.cs_r[reg_num].u;
@@ -4795,11 +4790,11 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		if (num_parsed >= 1 && (size_t)nparsed == len)
 		{
 #if 0
-			fprintf(stderr, "Sym name: \"%s\"\n", sym_name);
+			debug_printf("Sym name: \"%s\"\n", sym_name);
 #endif // 0
 			if ((base = debug_locate_symbol(sym_name)) == DEBUG_ADDR_NONE)
 			{
-				warnx("Symbol not found: %s", s);
+				debug_printf("Symbol not found: %s", s);
 				return false;
 			}
 			if (num_parsed >= 2 && *sign == '-')
@@ -4807,7 +4802,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		}
 		else
 		{
-			warnx("Invalid address format “%s”", s);
+			debug_printf("Invalid address format “%s”", s);
 			return false;
 		}
 	}
@@ -4821,16 +4816,56 @@ debug_disasm_at(u_int32_t *addrp)
 	union cpu_inst inst;
 	if (!cpu_fetch(*addrp, &inst))
 		return false;
-	printf(" %s\n", debug_disasm(&inst, *addrp, NULL));
+	debug_printf(" %s\n", debug_disasm(&inst, *addrp, NULL));
 
 	*addrp+= cpu_inst_size(&inst);
 	return true;
 }
 
 void
-debug_enter(void)
+debug_stop(void)
 {
-	debugging = true;
+	if (debug_stopped)
+	{
+		fprintf(stderr, "debug_stop() called while debug_stopped=true\n");
+		return;
+	}
+
+	debug_stopped = true;
+	debug_show_console = true;
+	imgui_shown = true;
+
+	main_update_caption(NULL);
+}
+
+bool
+debug_is_stopped(void)
+{
+	return debug_stopped;
+}
+
+void
+debug_toggle_stopped(void)
+{
+	if (!debug_stopped)
+	{
+		debug_printf("\nEmulation paused\n");
+		debug_stop();
+	}
+	else
+	{
+		debug_printf("\nEmulation resumed\n");
+		debug_stopped = false;
+	}
+}
+
+void
+debug_next_frame(void)
+{
+	assert(debug_stopped);
+	assert(!debug_stepping);
+	debug_stepping_frame = true;
+	debug_stopped = false;
 }
 
 char *
@@ -4866,7 +4901,7 @@ static void
 debug_print_psw(union cpu_psw psw, const char *name)
 {
 	debug_str_t psw_s;
-	printf("\t%s: 0x%08x (%s) (interrupt level %d)",
+	debug_printf("\t%s: 0x%08x (%s) (interrupt level %d)",
 	       name,
 	       psw.psw_word,
 	       debug_format_flags(psw_s,
@@ -4892,61 +4927,61 @@ static void
 debug_print_intreg(u_int16_t intreg, const char *name)
 {
 	debug_str_t flags_str;
-	printf("%s: (%s)",
-	       name,
-	       debug_format_flags(flags_str,
-	                          "SCANERR", intreg & VIP_SCANERR,
-	                          "LFBEND", intreg & VIP_LFBEND,
-	                          "RFBEND", intreg & VIP_RFBEND,
-	                          "GAMESTART", intreg & VIP_GAMESTART,
-	                          "FRAMESTART", intreg & VIP_FRAMESTART,
-	                          "SBHIT", intreg & VIP_SBHIT,
-	                          "XPEND", intreg & VIP_XPEND,
-	                          "TIMEERR", intreg & VIP_TIMEERR,
-	                          NULL));
+	debug_printf("%s: (%s)",
+	             name,
+	             debug_format_flags(flags_str,
+	                                "SCANERR", intreg & VIP_SCANERR,
+	                                "LFBEND", intreg & VIP_LFBEND,
+	                                "RFBEND", intreg & VIP_RFBEND,
+	                                "GAMESTART", intreg & VIP_GAMESTART,
+	                                "FRAMESTART", intreg & VIP_FRAMESTART,
+	                                "SBHIT", intreg & VIP_SBHIT,
+	                                "XPEND", intreg & VIP_XPEND,
+	                                "TIMEERR", intreg & VIP_TIMEERR,
+	                                NULL));
 }
 
 static void
 debug_print_dpctrl(struct vip_dpctrl vd, const char *name)
 {
 	debug_str_t flags_str;
-	printf("%s: (%s)",
-	       name,
-	       debug_format_flags(flags_str,
-	                          "DISP", vd.vd_disp,
-	                          "DPBSY:L:FB0", vd.vd_dpbsy_l_fb0,
-	                          "DPBSY:R:FB0", vd.vd_dpbsy_r_fb0,
-	                          "DPBSY:L:FB1", vd.vd_dpbsy_l_fb1,
-	                          "DPBSY:R:FB1", vd.vd_dpbsy_r_fb1,
-	                          "SCANRDY", vd.vd_scanrdy,
-	                          "FCLK", vd.vd_fclk,
-	                          "RE", vd.vd_re,
-	                          "SYNCE", vd.vd_synce,
-	                          "LOCK", vd.vd_lock,
-	                          NULL));
+	debug_printf("%s: (%s)",
+	             name,
+	             debug_format_flags(flags_str,
+	                                "DISP", vd.vd_disp,
+	                                "DPBSY:L:FB0", vd.vd_dpbsy_l_fb0,
+	                                "DPBSY:R:FB0", vd.vd_dpbsy_r_fb0,
+	                                "DPBSY:L:FB1", vd.vd_dpbsy_l_fb1,
+	                                "DPBSY:R:FB1", vd.vd_dpbsy_r_fb1,
+	                                "SCANRDY", vd.vd_scanrdy,
+	                                "FCLK", vd.vd_fclk,
+	                                "RE", vd.vd_re,
+	                                "SYNCE", vd.vd_synce,
+	                                "LOCK", vd.vd_lock,
+	                                NULL));
 }
 
 static void
 debug_print_xpctrl(struct vip_xpctrl vx, const char *name)
 {
 	debug_str_t flags_str;
-	printf("%s: (%s)",
-	       name,
-	       debug_format_flags(flags_str,
-	                          "XPRST", vx.vx_xprst,
-	                          "XPEN", vx.vx_xpen,
-	                          "XPBSY:FB0", vx.vx_xpbsy_fb0,
-	                          "XPBSY:FB1", vx.vx_xpbsy_fb1,
-	                          "OVERTIME", vx.vx_overtime,
-	                          "SBOUT", vx.vx_sbout,
-	                          NULL));
+	debug_printf("%s: (%s)",
+	             name,
+	             debug_format_flags(flags_str,
+	                                "XPRST", vx.vx_xprst,
+	                                "XPEN", vx.vx_xpen,
+	                                "XPBSY:FB0", vx.vx_xpbsy_fb0,
+	                                "XPBSY:FB1", vx.vx_xpbsy_fb1,
+	                                "OVERTIME", vx.vx_overtime,
+	                                "SBOUT", vx.vx_sbout,
+	                                NULL));
 }
 
 void
 debug_print_bgsc(struct vip_bgsc *vb)
 {
-	printf("CHR No: %u, BVFLP=%u, BHFLP=%u, GPLTS=%u\n",
-	       vb->vb_chrno, vb->vb_bvflp, vb->vb_bhflp, vb->vb_gplts);
+	debug_printf("CHR No: %u, BVFLP=%u, BHFLP=%u, GPLTS=%u\n",
+	             vb->vb_chrno, vb->vb_bvflp, vb->vb_bhflp, vb->vb_gplts);
 }
 
 void
@@ -4995,7 +5030,7 @@ debug_format_oam(debug_str_t s, const struct vip_oam *vop)
 static void
 debug_show_trace(const struct debug_trace trace)
 {
-	printf("%s tracing is %s\n", trace.dt_key, (*trace.dt_tracep) ? "on" : "off");
+	debug_printf("%s tracing is %s\n", trace.dt_key, (*trace.dt_tracep) ? "on" : "off");
 }
 
 bool
@@ -5046,492 +5081,518 @@ debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size
 	}
 }
 
-bool
-debug_step(void)
+static void __unused
+debug_exec(const char *cmd)
 {
 	bool running = true;
 
+	HistEvent hist_event;
+	if (history(s_history, &hist_event, H_ENTER, cmd) == -1)
+		warn("Could not save editline history");
+
+	int argc;
+	const char **argv;
+	if (tok_str(s_token, cmd, &argc, &argv) == 0 && argc > 0)
+	{
+		if (!strcmp(argv[0], "?") || !strcmp(argv[0], "help"))
+		{
+			debug_printf("Debugger commands:\n");
+			for (u_int help_index = 0; help_index < sizeof(debug_help) / sizeof(debug_help[0]); ++help_index)
+				debug_print_help(&(debug_help[help_index]));
+		}
+		else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
+		{
+			tk_quit();
+			debug_stopped = false;
+			running = false;
+		}
+		else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
+		{
+			if (debug_stopped)
+				debug_stopped = false;
+			else
+				debug_printf("Not stopped in debugger\n");
+		}
+		else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
+		{
+			if (debug_stopped)
+			{
+				debug_stepping = true;
+				debug_stopped = false;
+			}
+			else
+				debug_printf("Not stopped in debugger\n");
+		}
+		else if (!strcmp(argv[0], "b") || !strcmp(argv[0], "break"))
+		{
+			if (argc > 2)
+			{
+				debug_usage('b');
+				return;
+			}
+
+			if (argc == 2)
+			{
+				if (debug_parse_addr(argv[1], &debug_break))
+				{
+					debug_str_t addr_s;
+					debug_printf("Set breakpoint at %s\n", debug_format_addr(debug_break, addr_s));
+				}
+			}
+			else
+			{
+				debug_break = DEBUG_ADDR_NONE;
+				debug_printf("Cleared breakpoint\n");
+			}
+		}
+		else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
+		{
+			static const char *fmt = "%5s: " DEBUG_ADDR_FMT;
+			debug_str_t addr_s;
+			for (u_int regIndex = 0; regIndex < 32; ++regIndex)
+			{
+				debug_printf(fmt,
+				             debug_rnames[regIndex],
+				             debug_format_addr(cpu_state.cs_r[regIndex].u, addr_s));
+				debug_printf(" (%11i, %11g)", cpu_state.cs_r[regIndex].s, cpu_state.cs_r[regIndex].f);
+				if (regIndex % 2 == 1)
+					debug_putchar('\n');
+			}
+			debug_printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
+			debug_print_psw(cpu_state.cs_psw, "  psw");
+			debug_putchar('\n');
+			debug_printf("  ecr: (eicc: 0x%04hx, fecc: 0x%04hx)\n",
+			             cpu_state.cs_ecr.ecr_eicc, cpu_state.cs_ecr.ecr_fecc);
+			debug_printf(fmt, "eipc", debug_format_addr(cpu_state.cs_eipc, addr_s));
+			debug_print_psw(cpu_state.cs_eipsw, "eipsw");
+			debug_putchar('\n');
+			debug_printf(fmt, "fepc", debug_format_addr(cpu_state.cs_fepc, addr_s));
+			debug_print_psw(cpu_state.cs_fepsw, "fepsw");
+			debug_putchar('\n');
+		}
+		else if (!strcmp(argv[0], "x"))
+		{
+			if (argc >= 2)
+			{
+				u_int32_t addr;
+				if (!debug_parse_addr(argv[1], &addr))
+					return;
+				const char *format = "h";
+				u_int count = 1;
+				if (argc >= 3)
+					format = argv[2];
+				if (argc >= 4)
+					count = strtoul(argv[3], NULL, 0);
+
+				size_t int_size = 4;
+				if ((format[0] == 'h' || format[0] == 'b') && strlen(format) == 2)
+				{
+					switch (format[1])
+					{
+						case 'b':
+							int_size = 1;
+							break;
+						case 'h':
+							int_size = 2;
+							break;
+						case 'w':
+							int_size = 4;
+							break;
+					}
+				}
+
+				for (u_int objIndex = 0; objIndex < count; ++objIndex)
+				{
+					debug_str_t addr_s;
+					debug_printf("%s: ", debug_format_addr(addr, addr_s));
+					if (format[0] == 'h' && strlen(format) <= 2)
+					{
+						u_int value;
+						if (debug_mem_read(addr, &value, int_size))
+							debug_printf(" 0x%0.*x\n", (int)int_size << 1, value);
+						addr+= int_size;
+					}
+					else if (!strcmp(format, "i"))
+					{
+						if (!debug_disasm_at(&addr))
+							break;
+					}
+					else if (format[0] == 'b' && strlen(format) <= 2)
+					{
+						u_int value;
+						if (debug_mem_read(addr, &value, int_size))
+						{
+							debug_str_t bin_s;
+							debug_printf(" %s\n", debug_format_binary(value, int_size << 3, bin_s));
+						}
+						addr+= int_size;
+					}
+					else if (!strcmp(format, "addr"))
+					{
+						u_int32_t addr_value;
+						if (debug_mem_read(addr, &addr_value, sizeof(addr_value)))
+							debug_printf(" %s\n", debug_format_addr(addr_value, addr_s));
+						addr+= sizeof(addr_value);
+					}
+					else if (!strcmp(format, "C"))
+					{
+						debug_putchar('\n');
+						for (u_int rindex = 0; rindex < 8; ++rindex)
+						{
+							u_int16_t chr_row;
+							if (!debug_mem_read(addr, &(chr_row), sizeof(chr_row)))
+								break;
+							//static const char *shading = " ░▒▓";
+							static const char *shading = " -=#";
+							for (u_int cindex = 0; cindex < 8; ++cindex)
+							{
+								debug_putchar(shading[chr_row & 0b11]);
+								chr_row>>= 2;
+							}
+							debug_putchar('\n');
+							addr+= sizeof(chr_row);
+						}
+					}
+					else if (!strcmp(format, "O"))
+					{
+						struct vip_oam oam;
+						if (!debug_mem_read(addr, &oam, sizeof(oam)))
+							break;
+						debug_str_t oam_str;
+						debug_format_oam(oam_str, &oam);
+						debug_printf("%s\n", oam_str);
+						addr+= sizeof(oam);
+					}
+					else if (!strcmp(format, "B"))
+					{
+						struct vip_bgsc bgsc;
+						if (!debug_mem_read(addr, &bgsc, sizeof(bgsc)))
+							break;
+						debug_print_bgsc(&bgsc);
+						addr+= sizeof(bgsc);
+					}
+					else if (!strcmp(format, "W"))
+					{
+						struct vip_world_att att;
+						if (!debug_mem_read(addr, &att, sizeof(att)))
+							break;
+						char buf[1024];
+						debug_format_world_att(buf, sizeof(buf), &att);
+						debug_printf("%s\n", buf);
+						addr+= sizeof(att);
+					}
+					else if (!strcmp(format, "T"))
+					{
+						struct vip_ctc ctc;
+						if (!debug_mem_read(addr, &ctc, sizeof(ctc)))
+							break;
+						debug_printf("REPEAT: %hhu, LENGTH: %hhu\n", ctc.vc_repeat, ctc.vc_length);
+						addr+= sizeof(ctc);
+					}
+					else if (!strcmp(format, "P"))
+					{
+						u_int16_t plt;
+						if (!debug_mem_read(addr, &plt, sizeof(plt)))
+							break;
+						debug_str_t b01_s, b10_s, b11_s;
+						debug_printf("0b01 = %s, 0b10 = %s, 0b11 = %s\n",
+						             debug_format_binary((plt >> 2) & 0b11, 2, b01_s),
+						             debug_format_binary((plt >> 4) & 0b11, 2, b10_s),
+						             debug_format_binary((plt >> 6) & 0b11, 2, b11_s));
+						addr+= sizeof(plt);
+					}
+					else
+					{
+						debug_usage('x');
+						break;
+					}
+				}
+			}
+			else
+				debug_usage('x');
+		}
+		else if (!strcmp(argv[0], "r") || !strcmp(argv[0], "reset"))
+			cpu_reset();
+		else if (!strcmp(argv[0], "v") || !strcmp(argv[0], "vip"))
+		{
+			debug_print_intreg(vip_regs.vr_intpnd, "INTPND");
+			debug_printf(", ");
+			debug_print_intreg(vip_regs.vr_intenb, "INTENB");
+			debug_printf(", ");
+			debug_print_intreg(vip_regs.vr_intclr, "INTCLR");
+			debug_putchar('\n');
+			debug_print_dpctrl(vip_regs.vr_dpstts, "DPSTTS");
+			debug_printf(", ");
+			debug_print_dpctrl(vip_regs.vr_dpctrl, "DPCTRL");
+			debug_putchar('\n');
+			debug_print_xpctrl(vip_regs.vr_xpstts, "XPSTTS");
+			debug_printf(" SBCOUNT=%d", vip_regs.vr_xpstts.vx_sbcount);
+			debug_printf(", ");
+			debug_print_xpctrl(vip_regs.vr_xpctrl, "XPCTRL");
+			debug_printf(" SBCMP=%d", vip_regs.vr_xpctrl.vx_sbcount);
+			debug_putchar('\n');
+			debug_printf("BRTA: %hhu, BRTB: %hhu, BRTC: %hhu, REST: %hhu\n",
+			             vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
+			debug_printf("FRMCYC: %d\n", vip_regs.vr_frmcyc);
+			u_int world_index = 31;
+			do
+			{
+				const struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
+				if (vwa->vwa_end)
+					break;
+				char buf[1024];
+				debug_format_world_att(buf, sizeof(buf), vwa);
+				debug_printf("WORLD_ATT[%u]: %s", world_index, buf);
+			} while (world_index-- > 0);
+		}
+		else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
+		{
+			u_int inst_limit;
+			u_int32_t pc;
+			if (argc >= 2)
+			{
+				if (!debug_parse_addr(argv[1], &pc))
+					return;
+			}
+			else
+				pc = cpu_state.cs_pc;
+
+			struct debug_symbol *start_sym, *next_sym;
+			u_int32_t offset;
+			start_sym = debug_resolve_addr(pc, &offset);
+			next_sym = start_sym;
+
+			if (argc >= 3)
+				inst_limit = strtoul(argv[2], NULL, 10);
+			else if (start_sym)
+				inst_limit = 8192;
+			else
+			{
+				inst_limit = 25;
+				debug_printf("No symbol found at start address: only disassembling %u instructions\n",
+				             inst_limit);
+			}
+
+			while (next_sym == start_sym && inst_limit > 0)
+			{
+				debug_str_t addr_s;
+
+				debug_printf(DEBUG_ADDR_FMT ":", debug_format_addrsym(pc, next_sym, addr_s));
+				if (!debug_disasm_at(&pc))
+					break;
+				next_sym = debug_resolve_addr(pc, &offset);
+				--inst_limit;
+			}
+		}
+		else if (!strcmp(argv[0], "N") || !strcmp(argv[0], "nvc"))
+		{
+			debug_str_t flags_s;
+			debug_printf("SCR: (%s)\n",
+			             debug_format_flags(flags_s,
+			                                "Abt-Dis", nvc_regs.nr_scr.s_abt_dis,
+			                                "SI-Stat", nvc_regs.nr_scr.s_si_stat,
+			                                "HW-SI", nvc_regs.nr_scr.s_hw_si,
+			                                "Soft-Ck", nvc_regs.nr_scr.s_soft_ck,
+			                                "Para-SI", nvc_regs.nr_scr.s_para_si,
+			                                "K-Int-Inh", nvc_regs.nr_scr.s_k_int_inh,
+			                                NULL));
+		}
+		else if (!strcmp(argv[0], "S"))
+		{
+			if (argc == 1)
+			{
+				for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
+					debug_printf("debug symbol: %s = 0x%08x, type = %u\n",
+					             sym->ds_name, sym->ds_addr, sym->ds_type);
+			}
+			else if (argc == 2)
+			{
+				u_int32_t addr = debug_locate_symbol(argv[1]);
+				if (addr != DEBUG_ADDR_NONE)
+					debug_printf("%s = 0x%08x\n", argv[1], addr);
+				else
+					debug_printf("Symbol %s not found\n", argv[1]);
+			}
+			else if (argc == 3)
+			{
+				u_int32_t addr;
+				if (!debug_parse_addr(argv[2], &addr))
+					return;
+
+				if (debug_locate_symbol(argv[1]) == DEBUG_ADDR_NONE)
+				{
+					struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
+					rom_add_symbol(sym);
+				}
+				else
+					debug_printf("Symbol %s already exists\n", argv[1]);
+			}
+			else
+			{
+				debug_usage('S');
+				return;
+			}
+		}
+		else if (!strcmp(argv[0], "w"))
+		{
+			if (argc == 1)
+			{
+				for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
+				{
+					debug_str_t addr_s, ops_s;
+					debug_printf("Watch at %s, ops = %s\n",
+					             debug_format_addr(watch->dw_addr, addr_s),
+					             debug_format_perms(watch->dw_ops, ops_s));
+				}
+			}
+			else if (argc == 3)
+			{
+				int ops;
+				if (!strcmp(argv[1], "read"))
+					ops = PROT_READ;
+				else if (!strcmp(argv[1], "write"))
+					ops = PROT_WRITE;
+				else if (!strcmp(argv[1], "all"))
+					ops = PROT_READ | PROT_WRITE;
+				else if (!strcmp(argv[1], "none"))
+					ops = 0;
+				else
+				{
+					debug_usage('w');
+					return;
+				}
+
+				u_int32_t addr;
+				if (!debug_parse_addr(argv[2], &addr))
+				{
+					debug_usage('w');
+					return;
+				}
+
+				struct debug_watch **prevp = &(debug_watches);
+				struct debug_watch *watch;
+				for (watch = debug_watches; watch; watch = watch->dw_next)
+				{
+					if (watch->dw_addr == addr)
+						break;
+					prevp = &(watch->dw_next);
+				}
+				if (watch)
+				{
+					if (ops)
+					{
+						if (watch->dw_ops == ops)
+							debug_printf("Watch at 0x%08x already exists\n", addr);
+						else
+							watch->dw_ops = ops;
+					}
+					else
+					{
+						*prevp = watch->dw_next;
+						free(watch);
+					}
+				}
+				else
+				{
+					if (!ops)
+						debug_printf("No watch found for 0x%08x\n", addr);
+					else
+					{
+						watch = malloc(sizeof(*watch));
+						if (!watch)
+							err(1, "Allocate debug watch");
+						watch->dw_addr = addr;
+						watch->dw_ops = ops;
+						watch->dw_next = debug_watches;
+						debug_watches = watch;
+					}
+				}
+			}
+			else
+				debug_usage('w');
+		}
+		else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
+		{
+			if (argc == 1)
+				debug_printf("World mask 0x%08x\n", vip_world_mask);
+			else if (argc == 2)
+				vip_world_mask = strtoul(argv[1], NULL, 0);
+			else
+			{
+				debug_usage('W');
+				return;
+			}
+		}
+		else if (!strcmp(argv[0], "t"))
+		{
+			if (argc > 1)
+			{
+				if (!debug_toggle_trace(argv[1]))
+				{
+					debug_usage('t');
+					return;
+				}
+			}
+			else
+			{
+				for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+					debug_show_trace(debug_traces[i]);
+			}
+		}
+		else if (!strcmp(argv[0], "j") || !strcmp(argv[0], "jump"))
+		{
+			if (argc != 2)
+			{
+				debug_usage('j');
+				return;
+			}
+
+			u_int32_t addr;
+			if (!debug_parse_addr(argv[1], &addr))
+				debug_printf("Could not parse address %s\n", argv[1]);
+
+			cpu_state.cs_pc = addr;
+		}
+		else
+			debug_printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
+	}
+}
+
+bool
+debug_step(void)
+{
+	if (debug_stopped)
+		return false;
+
+	if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
+	{
+		debug_printf("\nStopped at breakpoint\n");
+		debug_stop();
+	}
+
+	if (debug_stepping)
+	{
+		debug_stop();
+		debug_stepping = false;
+		return true;
+	}
+
+#if DEBUG_TTY
 	main_unblock_sigint();
 
-	assert(debugging);
+	//bool running = true;
 	while (true)
 	{
-		union cpu_inst inst;
-		if (cpu_fetch(cpu_state.cs_pc, &inst))
-		{
-			debug_str_t addr_s;
-			printf("frame 0: " DEBUG_ADDR_FMT ": %s\n",
-			       debug_format_addr(cpu_state.cs_pc, addr_s),
-			       debug_disasm(&inst, cpu_state.cs_pc, debug_current_context()));
-		}
-
 		tok_reset(s_token);
 		int length;
 		const char *line = el_gets(s_editline, &length);
 		if (line)
 		{
-			HistEvent hist_event;
-			if (history(s_history, &hist_event, H_ENTER, line) == -1)
-				warn("Could not save editline history");
-
-			int argc;
-			const char **argv;
-			if (tok_str(s_token, line, &argc, &argv) == 0 && argc > 0)
-			{
-				if (!strcmp(argv[0], "?") || !strcmp(argv[0], "help"))
-				{
-					puts("Debugger commands:");
-					for (u_int help_index = 0; help_index < sizeof(debug_help) / sizeof(debug_help[0]); ++help_index)
-						debug_print_help(&(debug_help[help_index]));
-				}
-				else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
-				{
-					tk_quit();
-					debugging = false;
-					running = false;
-					break;
-				}
-				else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
-				{
-					debugging = false;
-					break;
-				}
-				else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
-					break;
-				else if (!strcmp(argv[0], "b") || !strcmp(argv[0], "break"))
-				{
-					if (argc > 2)
-					{
-						debug_usage('b');
-						continue;
-					}
-
-					if (argc == 2)
-					{
-						if (debug_parse_addr(argv[1], &debug_break))
-						{
-							debug_str_t addr_s;
-							printf("Set breakpoint at %s\n", debug_format_addr(debug_break, addr_s));
-						}
-					}
-					else
-					{
-						debug_break = DEBUG_ADDR_NONE;
-						printf("Cleared breakpoint\n");
-					}
-				}
-				else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
-				{
-					static const char *fmt = "%5s: " DEBUG_ADDR_FMT;
-					debug_str_t addr_s;
-					for (u_int regIndex = 0; regIndex < 32; ++regIndex)
-					{
-						printf(fmt, debug_rnames[regIndex], debug_format_addr(cpu_state.cs_r[regIndex].u, addr_s));
-						printf(" (%11i, %11g)", cpu_state.cs_r[regIndex].s, cpu_state.cs_r[regIndex].f);
-						if (regIndex % 2 == 1)
-							putchar('\n');
-					}
-					printf(fmt, "pc", debug_format_addr(cpu_state.cs_pc, addr_s));
-					debug_print_psw(cpu_state.cs_psw, "  psw");
-					putchar('\n');
-					printf("  ecr: (eicc: 0x%04hx, fecc: 0x%04hx)\n",
-					       cpu_state.cs_ecr.ecr_eicc, cpu_state.cs_ecr.ecr_fecc);
-					printf(fmt, "eipc", debug_format_addr(cpu_state.cs_eipc, addr_s));
-					debug_print_psw(cpu_state.cs_eipsw, "eipsw");
-					putchar('\n');
-					printf(fmt, "fepc", debug_format_addr(cpu_state.cs_fepc, addr_s));
-					debug_print_psw(cpu_state.cs_fepsw, "fepsw");
-					putchar('\n');
-				}
-				else if (!strcmp(argv[0], "x"))
-				{
-					if (argc >= 2)
-					{
-						u_int32_t addr;
-						if (!debug_parse_addr(argv[1], &addr))
-							continue;
-						const char *format = "h";
-						u_int count = 1;
-						if (argc >= 3)
-							format = argv[2];
-						if (argc >= 4)
-							count = strtoul(argv[3], NULL, 0);
-
-						size_t int_size = 4;
-						if ((format[0] == 'h' || format[0] == 'b') && strlen(format) == 2)
-						{
-							switch (format[1])
-							{
-								case 'b':
-									int_size = 1;
-									break;
-								case 'h':
-									int_size = 2;
-									break;
-								case 'w':
-									int_size = 4;
-									break;
-							}
-						}
-
-						for (u_int objIndex = 0; objIndex < count; ++objIndex)
-						{
-							debug_str_t addr_s;
-							printf("%s: ", debug_format_addr(addr, addr_s));
-							if (format[0] == 'h' && strlen(format) <= 2)
-							{
-								u_int value;
-								if (debug_mem_read(addr, &value, int_size))
-									printf(" 0x%0.*x\n", (int)int_size << 1, value);
-								addr+= int_size;
-							}
-							else if (!strcmp(format, "i"))
-							{
-								if (!debug_disasm_at(&addr))
-									break;
-							}
-							else if (format[0] == 'b' && strlen(format) <= 2)
-							{
-								u_int value;
-								if (debug_mem_read(addr, &value, int_size))
-								{
-									debug_str_t bin_s;
-									printf(" %s\n", debug_format_binary(value, int_size << 3, bin_s));
-								}
-								addr+= int_size;
-							}
-							else if (!strcmp(format, "addr"))
-							{
-								u_int32_t addr_value;
-								if (debug_mem_read(addr, &addr_value, sizeof(addr_value)))
-									printf(" %s\n", debug_format_addr(addr_value, addr_s));
-								addr+= sizeof(addr_value);
-							}
-							else if (!strcmp(format, "C"))
-							{
-								putchar('\n');
-								for (u_int rindex = 0; rindex < 8; ++rindex)
-								{
-									u_int16_t chr_row;
-									if (!debug_mem_read(addr, &(chr_row), sizeof(chr_row)))
-										break;
-									//static const char *shading = " ░▒▓";
-									static const char *shading = " -=#";
-									for (u_int cindex = 0; cindex < 8; ++cindex)
-									{
-										putchar(shading[chr_row & 0b11]);
-										chr_row>>= 2;
-									}
-									putchar('\n');
-									addr+= sizeof(chr_row);
-								}
-							}
-							else if (!strcmp(format, "O"))
-							{
-								struct vip_oam oam;
-								if (!debug_mem_read(addr, &oam, sizeof(oam)))
-									break;
-								debug_str_t oam_str;
-								debug_format_oam(oam_str, &oam);
-								puts(oam_str);
-								addr+= sizeof(oam);
-							}
-							else if (!strcmp(format, "B"))
-							{
-								struct vip_bgsc bgsc;
-								if (!debug_mem_read(addr, &bgsc, sizeof(bgsc)))
-									break;
-								debug_print_bgsc(&bgsc);
-								addr+= sizeof(bgsc);
-							}
-							else if (!strcmp(format, "W"))
-							{
-								struct vip_world_att att;
-								if (!debug_mem_read(addr, &att, sizeof(att)))
-									break;
-								char buf[1024];
-								debug_format_world_att(buf, sizeof(buf), &att);
-								fputs(buf, stdout);
-								addr+= sizeof(att);
-							}
-							else if (!strcmp(format, "T"))
-							{
-								struct vip_ctc ctc;
-								if (!debug_mem_read(addr, &ctc, sizeof(ctc)))
-									break;
-								printf("REPEAT: %hhu, LENGTH: %hhu\n", ctc.vc_repeat, ctc.vc_length);
-								addr+= sizeof(ctc);
-							}
-							else if (!strcmp(format, "P"))
-							{
-								u_int16_t plt;
-								if (!debug_mem_read(addr, &plt, sizeof(plt)))
-									break;
-								debug_str_t b01_s, b10_s, b11_s;
-								printf("0b01 = %s, 0b10 = %s, 0b11 = %s\n",
-								       debug_format_binary((plt >> 2) & 0b11, 2, b01_s),
-								       debug_format_binary((plt >> 4) & 0b11, 2, b10_s),
-								       debug_format_binary((plt >> 6) & 0b11, 2, b11_s));
-								addr+= sizeof(plt);
-							}
-							else
-							{
-								debug_usage('x');
-								break;
-							}
-						}
-					}
-					else
-						debug_usage('x');
-				}
-				else if (!strcmp(argv[0], "r") || !strcmp(argv[0], "reset"))
-					cpu_reset();
-				else if (!strcmp(argv[0], "v") || !strcmp(argv[0], "vip"))
-				{
-					debug_print_intreg(vip_regs.vr_intpnd, "INTPND");
-					fputs(", ", stdout);
-					debug_print_intreg(vip_regs.vr_intenb, "INTENB");
-					fputs(", ", stdout);
-					debug_print_intreg(vip_regs.vr_intclr, "INTCLR");
-					putchar('\n');
-					debug_print_dpctrl(vip_regs.vr_dpstts, "DPSTTS");
-					fputs(", ", stdout);
-					debug_print_dpctrl(vip_regs.vr_dpctrl, "DPCTRL");
-					putchar('\n');
-					debug_print_xpctrl(vip_regs.vr_xpstts, "XPSTTS");
-					printf(" SBCOUNT=%d", vip_regs.vr_xpstts.vx_sbcount);
-					fputs(", ", stdout);
-					debug_print_xpctrl(vip_regs.vr_xpctrl, "XPCTRL");
-					printf(" SBCMP=%d", vip_regs.vr_xpctrl.vx_sbcount);
-					putchar('\n');
-					printf("BRTA: %hhu, BRTB: %hhu, BRTC: %hhu, REST: %hhu\n",
-					       vip_regs.vr_brta, vip_regs.vr_brtb, vip_regs.vr_brtc, vip_regs.vr_rest);
-					printf("FRMCYC: %d\n", vip_regs.vr_frmcyc);
-					u_int world_index = 31;
-					do
-					{
-						const struct vip_world_att *vwa = &(vip_dram.vd_world_atts[world_index]);
-						if (vwa->vwa_end)
-							break;
-						char buf[1024];
-						debug_format_world_att(buf, sizeof(buf), vwa);
-						printf("WORLD_ATT[%u]: %s", world_index, buf);
-					} while (world_index-- > 0);
-				}
-				else if (!strcmp(argv[0], "d") || !strcmp(argv[0], "dis"))
-				{
-					u_int inst_limit;
-					u_int32_t pc;
-					if (argc >= 2)
-					{
-						if (!debug_parse_addr(argv[1], &pc))
-							continue;
-					}
-					else
-						pc = cpu_state.cs_pc;
-
-					struct debug_symbol *start_sym, *next_sym;
-					u_int32_t offset;
-					start_sym = debug_resolve_addr(pc, &offset);
-					next_sym = start_sym;
-
-					if (argc >= 3)
-						inst_limit = strtoul(argv[2], NULL, 10);
-					else if (start_sym)
-						inst_limit = 8192;
-					else
-					{
-						inst_limit = 25;
-						printf("No symbol found at start address: only disassembling %u instructions\n", inst_limit);
-					}
-
-					while (next_sym == start_sym && inst_limit > 0)
-					{
-						debug_str_t addr_s;
-
-						printf(DEBUG_ADDR_FMT ":", debug_format_addrsym(pc, next_sym, addr_s));
-						if (!debug_disasm_at(&pc))
-							break;
-						next_sym = debug_resolve_addr(pc, &offset);
-						--inst_limit;
-					}
-				}
-				else if (!strcmp(argv[0], "N") || !strcmp(argv[0], "nvc"))
-				{
-					debug_str_t flags_s;
-					printf("SCR: (%s)\n",
-					       debug_format_flags(flags_s,
-					                          "Abt-Dis", nvc_regs.nr_scr.s_abt_dis,
-					                          "SI-Stat", nvc_regs.nr_scr.s_si_stat,
-					                          "HW-SI", nvc_regs.nr_scr.s_hw_si,
-					                          "Soft-Ck", nvc_regs.nr_scr.s_soft_ck,
-					                          "Para-SI", nvc_regs.nr_scr.s_para_si,
-					                          "K-Int-Inh", nvc_regs.nr_scr.s_k_int_inh,
-					                          NULL));
-				}
-				else if (!strcmp(argv[0], "S"))
-				{
-					if (argc == 1)
-					{
-						for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
-							printf("debug symbol: %s = 0x%08x, type = %u\n",
-							       sym->ds_name, sym->ds_addr, sym->ds_type);
-					}
-					else if (argc == 2)
-					{
-						u_int32_t addr = debug_locate_symbol(argv[1]);
-						if (addr != DEBUG_ADDR_NONE)
-							printf("%s = 0x%08x\n", argv[1], addr);
-						else
-							printf("Symbol %s not found\n", argv[1]);
-					}
-					else if (argc == 3)
-					{
-						u_int32_t addr;
-						if (!debug_parse_addr(argv[2], &addr))
-							continue;
-
-						if (debug_locate_symbol(argv[1]) == DEBUG_ADDR_NONE)
-						{
-							struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
-							rom_add_symbol(sym);
-						}
-						else
-							printf("Symbol %s already exists\n", argv[1]);
-					}
-					else
-					{
-						debug_usage('S');
-						continue;
-					}
-				}
-				else if (!strcmp(argv[0], "w"))
-				{
-					if (argc == 1)
-					{
-						for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
-						{
-							debug_str_t addr_s, ops_s;
-							printf("Watch at %s, ops = %s\n",
-							       debug_format_addr(watch->dw_addr, addr_s),
-							       debug_format_perms(watch->dw_ops, ops_s));
-						}
-					}
-					else if (argc == 3)
-					{
-						int ops;
-						if (!strcmp(argv[1], "read"))
-							ops = PROT_READ;
-						else if (!strcmp(argv[1], "write"))
-							ops = PROT_WRITE;
-						else if (!strcmp(argv[1], "all"))
-							ops = PROT_READ | PROT_WRITE;
-						else if (!strcmp(argv[1], "none"))
-							ops = 0;
-						else
-						{
-							debug_usage('w');
-							continue;
-						}
-
-						u_int32_t addr;
-						if (!debug_parse_addr(argv[2], &addr))
-						{
-							debug_usage('w');
-							continue;
-						}
-
-						struct debug_watch **prevp = &(debug_watches);
-						struct debug_watch *watch;
-						for (watch = debug_watches; watch; watch = watch->dw_next)
-						{
-							if (watch->dw_addr == addr)
-								break;
-							prevp = &(watch->dw_next);
-						}
-						if (watch)
-						{
-							if (ops)
-							{
-								if (watch->dw_ops == ops)
-									printf("Watch at 0x%08x already exists\n", addr);
-								else
-									watch->dw_ops = ops;
-							}
-							else
-							{
-								*prevp = watch->dw_next;
-								free(watch);
-							}
-						}
-						else
-						{
-							if (!ops)
-								printf("No watch found for 0x%08x\n", addr);
-							else
-							{
-								watch = malloc(sizeof(*watch));
-								if (!watch)
-									err(1, "Allocate debug watch");
-								watch->dw_addr = addr;
-								watch->dw_ops = ops;
-								watch->dw_next = debug_watches;
-								debug_watches = watch;
-							}
-						}
-					}
-					else
-						debug_usage('w');
-				}
-				else if (!strcmp(argv[0], "W") || !strcmp(argv[0], "world"))
-				{
-					if (argc == 1)
-						printf("World mask 0x%08x\n", vip_world_mask);
-					else if (argc == 2)
-						vip_world_mask = strtoul(argv[1], NULL, 0);
-					else
-					{
-						debug_usage('W');
-						continue;
-					}
-				}
-				else if (!strcmp(argv[0], "t"))
-				{
-					if (argc > 1)
-					{
-						if (!debug_toggle_trace(argv[1]))
-						{
-							debug_usage('t');
-							continue;
-						}
-					}
-					else
-					{
-						for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
-							debug_show_trace(debug_traces[i]);
-					}
-				}
-				else if (!strcmp(argv[0], "j") || !strcmp(argv[0], "jump"))
-				{
-					if (argc != 2)
-					{
-						debug_usage('j');
-						continue;
-					}
-
-					u_int32_t addr;
-					if (!debug_parse_addr(argv[1], &addr))
-						printf("Could not parse address %s\n", argv[1]);
-
-					cpu_state.cs_pc = addr;
-				}
-				else
-					printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
-			}
+			debug_exec(...)
 		}
 		else
 		{
-			putchar('\n');
+			debug_putchar('\n');
 			tk_quit();
 			break;
 		}
@@ -5539,7 +5600,52 @@ debug_step(void)
 
 	main_block_sigint();
 
-	return running;
+	//return running;
+#endif // DEBUG_TTY
+
+	return true;
+}
+
+void
+debug_putchar(char ch)
+{
+	size_t next_end = debug_console_end + 1;
+	if (next_end >= sizeof(debug_console_buffer))
+		next_end = 0;
+
+	if (next_end == debug_console_begin)
+	{
+		size_t next_begin = debug_console_begin + 1;
+		if (next_begin >= sizeof(debug_console_buffer))
+			next_begin = 0;
+
+		if (next_begin == debug_console_end)
+		{
+			fprintf(stderr, "Console buffer overflow\n");
+			return;
+		}
+
+		debug_console_begin = next_begin;
+	}
+
+	debug_console_buffer[debug_console_end] = ch;
+	debug_console_end = next_end;
+	debug_console_dirty = true;
+}
+
+void __printflike(1, 2)
+debug_printf(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	char msg[2048];
+	size_t length = vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+#if DEBUG_TTY
+	fputs(msg, stdout);
+#endif // DEBUG_TTY
+	for (size_t offset = 0; offset < length; ++offset)
+		debug_putchar(msg[offset]);
 }
 
 void __printflike(2, 3)
@@ -5548,42 +5654,12 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	char trace[2048];
-	size_t length;
-	length = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
+	size_t length = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
 	length+= vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
-	fputs(trace, stdout);
+	va_end(ap);
+	debug_printf("%s", trace);
 	if (debug_trace_file)
 		fputs(trace, debug_trace_file);
-
-	size_t offset = 0;
-	while (offset < length)
-	{
-		size_t next_end = debug_console_end + 1;
-		if (next_end >= sizeof(debug_console_buffer))
-			next_end = 0;
-
-		if (next_end == debug_console_begin)
-		{
-			size_t next_begin = debug_console_begin + 1;
-			if (next_begin >= sizeof(debug_console_buffer))
-				next_begin = 0;
-
-			if (next_begin == debug_console_end)
-			{
-				fprintf(stderr, "Console buffer overflow\n");
-				break;
-			}
-
-			debug_console_begin = next_begin;
-		}
-
-		debug_console_buffer[debug_console_end] = trace[offset];
-		debug_console_end = next_end;
-		debug_console_dirty = true;
-		++offset;
-	}
-
-	va_end(ap);
 }
 
 bool __printflike(2, 3)
@@ -5594,10 +5670,9 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	char msg[1024];
 	vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
-	fputs(msg, stderr);
-	fputc('\n', stderr);
+	debug_printf("%s\n", msg);
 
-	if (debugging)
+	if (debug_stopped)
 		return true;
 
 	if (ignore_flagp && *ignore_flagp)
@@ -5613,7 +5688,7 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 			return true;
 
 		case ERROR_DEBUG:
-			debugging = true;
+			debug_stop();
 			return false;
 
 		case ERROR_ABORT:
@@ -5622,38 +5697,47 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	return false;
 }
 
-void
-debug_frame_begin(bool paused)
+void __printflike(1, 2)
+debug_fatal_errorf(const char *fmt, ...)
 {
-	static bool clear_each_frame = false;
-	if (debug_show_console)
+	va_list ap;
+	va_start(ap, fmt);
+	char msg[1024];
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	debug_printf("%s\n", msg);
+	va_end(ap);
+	debug_stop();
+}
+
+void
+debug_frame_begin(void)
+{
+	if (!debug_stopped && debug_clear_console)
 	{
-		if (igBegin("Console", &debug_show_console, 0))
-		{
-			if (igButton("Clear", IMVEC2_ZERO))
-				debug_console_begin = debug_console_end;
-
-			igSameLine(0, -1);
-			igCheckbox("Clear before each frame", &clear_each_frame);
-		}
-		igEnd();
-	}
-
-	if (!paused && clear_each_frame)
 		debug_console_begin = debug_console_end;
+		debug_clear_console = false;
+	}
 }
 
 void
 debug_frame_end(void)
 {
-	if (!imgui_shown)
-		return;
+	//if (!imgui_shown)
+		//return;
+
+	static bool clear_each_frame = false;
 
 	if (debug_show_console)
 	{
-		igSetNextWindowSize((struct ImVec2){450, 350}, ImGuiCond_FirstUseEver);
+		igSetNextWindowSize((struct ImVec2){500, 350}, ImGuiCond_FirstUseEver);
 		if (igBegin("Console", &debug_show_console, 0))
 		{
+			if (igButton("Clear", IMVEC2_ZERO))
+				debug_clear_console = true;
+
+			igSameLine(0, -1);
+			igCheckbox("Clear before each frame", &clear_each_frame);
+
 			static bool scroll_to_end = true;
 			igSameLine(0, -1);
 			igCheckbox("Scroll to end", &scroll_to_end);
@@ -5661,7 +5745,7 @@ debug_frame_end(void)
 			//igSameLine(0, -1);
 			//igCheckbox("Debug buffers", &debug_buffers);
 
-			if (igBeginChild("Log", IMVEC2_ZERO, true, 0))
+			if (igBeginChild("Log", (struct ImVec2){0, -40}, true, 0))
 			{
 				igPushTextWrapPos(0.0f);
 				if (debug_console_begin < debug_console_end)
@@ -5732,9 +5816,34 @@ debug_frame_end(void)
 				}
 
 			}
+
 			igEndChild();
+
+			if (debug_stopped)
+			{
+				union cpu_inst inst;
+				if (cpu_fetch(cpu_state.cs_pc, &inst))
+				{
+					debug_str_t addr_s;
+					igText("frame 0: " DEBUG_ADDR_FMT ": %s\n",
+					       debug_format_addr(cpu_state.cs_pc, addr_s),
+					       debug_disasm(&inst, cpu_state.cs_pc, debug_current_context()));
+				}
+			}
+			else
+				igText("");
 		}
 		igEnd();
+	}
+
+	if (clear_each_frame)
+		debug_clear_console = true;
+
+	if (debug_stepping_frame)
+	{
+		debug_printf("\nStepped one frame\n");
+		debug_stepping_frame = false;
+		debug_stop();
 	}
 }
 
@@ -6075,8 +6184,9 @@ imgui_frame_begin(void)
 		imgui_shown = !imgui_shown;
 
 	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
-		main_toggle_paused();
-	main_step_frame = igIsKeyPressed(SDL_SCANCODE_F8, true);
+		debug_toggle_stopped();
+	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F8, true))
+		debug_next_frame();
 
 	imgui_key_toggle(SDL_SCANCODE_GRAVE, &debug_show_console, true);
 	imgui_key_toggle(SDL_SCANCODE_F1, &vip_worlds_open, true);
@@ -6117,11 +6227,11 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
-			if (igMenuItem("Pause", "F9", main_paused, true))
-				main_toggle_paused();
+			if (igMenuItem("Pause", "F9", debug_is_stopped(), true))
+				debug_toggle_stopped();
 
-			if (igMenuItem("Advance frame", "F8", false, true))
-				main_step_frame = true;
+			if (igMenuItem("Advance frame", "F8", false, debug_is_stopped()))
+				debug_next_frame();
 
 			igSeparator();
 
@@ -6204,39 +6314,7 @@ void
 imgui_frame_end(void)
 {
 	if (imgui_shown)
-	{
-		char id[64];
-		snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
-		igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
-		igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
-		struct ImGuiStyle *style = igGetStyle();
-		u_int width = 384 * imgui_emu_scale, height = 224 * imgui_emu_scale;
-		struct ImVec2 content_size =
-		{
-				width + style->WindowBorderSize * 2,
-				height + style->WindowBorderSize
-		};
-		igSetNextWindowPos((struct ImVec2){tk_width / 2.0, tk_height / 2.0},
-		                   ImGuiCond_FirstUseEver,
-		                   (struct ImVec2){0.5, 0.5});
-		igSetNextWindowContentSize(content_size);
-		if (igBegin(id, NULL, ImGuiWindowFlags_NoResize |
-				ImGuiWindowFlags_AlwaysAutoResize |
-				ImGuiWindowFlags_NoFocusOnAppearing))
-		{
-			struct ImVec2 view_pos;
-			struct ImVec2 content_min;
-			igGetWindowPos(&view_pos);
-			igGetWindowContentRegionMin(&content_min);
-			imgui_emu_x = view_pos.x + content_min.x + style->WindowBorderSize;
-			imgui_emu_y = tk_height - (view_pos.y + content_min.y + height);
-			ImDrawList_AddCallback(igGetWindowDrawList(), imgui_draw_emu, NULL);
-		}
-		igEnd();
-		igPopStyleVar(2);
-
 		igRender();
-	}
 	else
 		igEndFrame();
 }
@@ -6266,8 +6344,6 @@ imgui_debug_image(enum gl_texture texture, u_int width, u_int height)
 
 u_int32_t main_usec;
 bool main_trace = false;
-bool main_paused;
-bool main_step_frame;
 static int main_speed;
 struct main_stats_t main_stats;
 
@@ -6305,8 +6381,8 @@ main_update_caption(const char *stats)
 	char caption[100];
 	size_t offset = 0;
 	offset+= snprintf(caption, sizeof(caption), (stats) ? "%s: %s [%s]" : "%s: %s", "VVBoy", rom_name, stats);
-	if (main_paused)
-		offset+= snprintf(caption + offset, sizeof(caption) - offset, " *Paused*");
+	if (debug_is_stopped())
+		offset+= snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
 	else if (main_speed != 0)
 		offset += snprintf(caption + offset, sizeof(caption) - offset, " *Speed %gx*", pow(2.0, main_speed));
 	tk_update_caption(caption);
@@ -6343,8 +6419,6 @@ main_reset(void)
 {
 	main_restart_clock();
 
-	main_paused = false;
-	main_step_frame = false;
 	main_speed = 0;
 
 	vip_reset();
@@ -6355,22 +6429,16 @@ main_reset(void)
 bool
 main_step(void)
 {
-	vip_step();
-	vsu_step();
 	if (!nvc_step())
 		return false;
+
+	vip_step();
+	vsu_step();
 
 	if (++main_usec == 1000000)
 		main_restart_clock();
 
 	return true;
-}
-
-void
-main_toggle_paused(void)
-{
-	main_paused = !main_paused;
-	main_update_caption(NULL);
 }
 
 void
@@ -6412,6 +6480,45 @@ main_unblock_sigint(void)
 }
 
 void
+main_draw(void)
+{
+	if (imgui_shown)
+	{
+		char id[64];
+		snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
+		igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+		igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
+		struct ImGuiStyle *style = igGetStyle();
+		u_int width = 384 * imgui_emu_scale, height = 224 * imgui_emu_scale;
+		struct ImVec2 content_size =
+				{
+						width + style->WindowBorderSize * 2,
+						height + style->WindowBorderSize
+				};
+		igSetNextWindowPos((struct ImVec2){tk_width / 2.0, tk_height / 2.0},
+		                   ImGuiCond_FirstUseEver,
+		                   (struct ImVec2){0.5, 0.5});
+		igSetNextWindowContentSize(content_size);
+		if (igBegin(id, NULL, ImGuiWindowFlags_NoResize |
+		                      ImGuiWindowFlags_AlwaysAutoResize |
+		                      ImGuiWindowFlags_NoFocusOnAppearing))
+		{
+			struct ImVec2 view_pos;
+			struct ImVec2 content_min;
+			igGetWindowPos(&view_pos);
+			igGetWindowContentRegionMin(&content_min);
+			imgui_emu_x = view_pos.x + content_min.x + style->WindowBorderSize;
+			imgui_emu_y = tk_height - (view_pos.y + content_min.y + height);
+			ImDrawList_AddCallback(igGetWindowDrawList(), imgui_draw_emu, NULL);
+		}
+		igEnd();
+		igPopStyleVar(2);
+	}
+	else
+		gl_draw(0, 0, tk_width, tk_height);
+}
+
+void
 main_frame(void)
 {
 	gl_clear();
@@ -6419,9 +6526,8 @@ main_frame(void)
 	imgui_frame_begin();
 
 	u_int main_frame_usec = 20000;
-	bool paused = (main_paused && !main_step_frame);
 
-	debug_frame_begin(paused);
+	debug_frame_begin();
 	nvc_frame_begin();
 	vip_frame_begin();
 
@@ -6446,30 +6552,26 @@ main_frame(void)
 	}
 #endif // 0
 
-	if (!paused)
-	{
-		if (main_trace)
-			debug_tracef("main", "Begin frame\n");
+	if (main_trace)
+		debug_tracef("main", "Begin frame\n");
 
-		if (main_speed != 0)
-			main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
+	if (main_speed != 0)
+		main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
 
-		while (main_step() && (main_usec % main_frame_usec) != 0);
+	while (main_step() && (main_usec % main_frame_usec) != 0);
 
-		// Check SIGINT -> Debugger
-		sigset_t sigpend;
-		sigpending(&sigpend);
-		if (sigismember(&sigpend, SIGINT))
-			debugging = true;
+	// Check SIGINT -> Debugger
+	sigset_t sigpend;
+	sigpending(&sigpend);
+	if (sigismember(&sigpend, SIGINT))
+		debug_stop();
 
-		if (main_trace)
-			debug_tracef("main", "End frame\n");
-	}
+	if (main_trace)
+		debug_tracef("main", "End frame\n");
 
-	vip_frame_end(paused);
+	vip_frame_end();
 
-	if (!imgui_shown)
-		gl_draw(0, 0, tk_width, tk_height);
+	main_draw();
 
 	debug_frame_end();
 

@@ -280,7 +280,8 @@ rom_read_isx(struct rom_file *file)
 					return false;
 
 #if 0
-				fprintf(stderr, "ISX debug symbol: %s = 0x%08x, unk = %hhu\n", debug_sym->ds_name, debug_sym->ds_addr, type);
+				debug_printf("ISX debug symbol: %s = 0x%08x, unk = %hhu\n",
+							 debug_sym->ds_name, debug_sym->ds_addr, type);
 #endif // 0
 
 				debug_add_symbol(debug_sym);
