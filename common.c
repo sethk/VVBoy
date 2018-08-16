@@ -321,6 +321,8 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 	enum mem_segment seg = MEM_ADDR2SEG(addr);
 	if (seg == MEM_SEG_VSU)
 		vsu_mem_write(&request, src);
+	else if (seg == MEM_SEG_NVC)
+		nvc_mem_write(&request, src);
 	else switch (size)
 	{
 		case 1:
@@ -3770,7 +3772,7 @@ struct nvc_regs
 	u_int8_t nr_sdhr;
 	u_int8_t nr_tlr;
 	u_int8_t nr_thr;
-	struct
+	struct nvc_tcr
 	{
 		unsigned t_enb : 1,
 		t_z_stat : 1,
@@ -3824,8 +3826,13 @@ struct nvc_regs
 #endif // INTERFACE
 
 static struct nvc_regs nvc_regs;
-static u_int nvc_next_tick;
-static u_int nvc_timer_frac;
+static struct
+{
+	u_int16_t nt_preset;
+	u_int16_t nt_next_count;
+	u_int nt_next_tick;
+	u_int nt_tick_frac;
+} nvc_timer;
 static u_int nvc_cycles_per_usec = 20;
 
 bool
@@ -3879,8 +3886,7 @@ nvc_reset(void)
 	nvc_regs.nr_scr.s_rfu2 = 1;
 	nvc_keys = KEY_SGN;
 	nvc_regs.nr_tlr = nvc_regs.nr_thr = 0xff;
-	nvc_next_tick = 0;
-	nvc_timer_frac = 0;
+	nvc_timer.nt_preset = 0xffff;
 	// TODO: Initialize other NVC interval registers
 	cpu_reset();
 }
@@ -3932,72 +3938,76 @@ nvc_frame_begin(void)
 #endif // 0
 }
 
+static void
+nvc_timer_set(u_int16_t next_count)
+{
+	u_int tick_usec;
+	if (nvc_regs.nr_tcr.t_clk_sel)
+	{
+		tick_usec = 305;
+		nvc_timer.nt_tick_frac+= 175781250;
+	}
+	else
+	{
+		tick_usec = 1525;
+		nvc_timer.nt_tick_frac+= 878906250;
+	}
+	if (nvc_timer.nt_tick_frac > 1000000000)
+	{
+		++tick_usec;
+		nvc_timer.nt_tick_frac -= 1000000000;
+	}
+	nvc_timer.nt_next_tick = (main_usec + tick_usec) % 1000000;
+	nvc_timer.nt_next_count = next_count;
+}
+
+static char *
+nvc_format_timer(debug_str_t s)
+{
+	debug_str_t tcr_s;
+	snprintf(s, debug_str_len,
+	         "TCR = %s, THR:TLR = %02hhx:%02hhx, preset = 0x%04x, next count = 0x%04x, next tick = %u",
+	         debug_format_flags(tcr_s,
+	                            "T-Enb", nvc_regs.nr_tcr.t_enb,
+	                            "Z-Stat", nvc_regs.nr_tcr.t_z_stat,
+	                            "Z-Stat-Clr", nvc_regs.nr_tcr.t_z_stat_clr,
+	                            "Tim-Z-Int", nvc_regs.nr_tcr.t_z_int,
+	                            "T-Clk-Sel", nvc_regs.nr_tcr.t_clk_sel,
+	                            NULL),
+	         nvc_regs.nr_thr, nvc_regs.nr_tlr,
+	         nvc_timer.nt_preset,
+	         nvc_timer.nt_next_count,
+	         nvc_timer.nt_next_tick);
+	return s;
+}
+
+static void
+nvc_trace_timer(const char *desc)
+{
+	debug_str_t timer_s;
+	debug_tracef("nvc.tim", "%s - %s\n", desc, nvc_format_timer(timer_s));
+}
+
 bool
 nvc_step(void)
 {
-	if (main_usec == nvc_next_tick)
+	if (nvc_regs.nr_tcr.t_enb && main_usec == nvc_timer.nt_next_tick)
 	{
-		if (nvc_regs.nr_tcr.t_enb)
-		{
-			static u_int8_t debug_last_tcr = 0;
-			if (debug_trace_nvc_tim && debug_last_tcr != *(u_int8_t *)&(nvc_regs.nr_tcr))
-			{
-				debug_str_t tcr_s;
-				debug_tracef("nvc.tim", "TCR = %s, THR:TLR = %02hhx:%02hhx, nvc_next_tick = %u\n",
-				             debug_format_flags(tcr_s,
-				                                "T-Enb", nvc_regs.nr_tcr.t_enb,
-				                                "Z-Stat", nvc_regs.nr_tcr.t_z_stat,
-				                                "Z-Stat-Clr", nvc_regs.nr_tcr.t_z_stat_clr,
-				                                "Tim-Z-Int", nvc_regs.nr_tcr.t_z_int,
-				                                "T-Clk-Sel", nvc_regs.nr_tcr.t_clk_sel,
-				                                NULL),
-				             nvc_regs.nr_thr, nvc_regs.nr_tlr,
-				             nvc_next_tick);
-				debug_last_tcr = *(u_int8_t *)&(nvc_regs.nr_tcr);
-			}
-			if (nvc_regs.nr_tlr > 0)
-				--nvc_regs.nr_tlr;
-			else if (nvc_regs.nr_thr > 0)
-			{
-				--nvc_regs.nr_thr;
-				nvc_regs.nr_tlr = 0xff;
-			}
-			else if (!nvc_regs.nr_tcr.t_z_stat)
-			{
-				nvc_regs.nr_tcr.t_z_stat = 1;
-				if (debug_trace_nvc_tim)
-					debug_tracef("nvc.tim", "Timer expired\n");
-				if (nvc_regs.nr_tcr.t_z_int)
-					cpu_intr(NVC_INTTIM);
-			}
-		}
-		else
-		{
-			if (nvc_regs.nr_tcr.t_z_stat && nvc_regs.nr_tcr.t_z_stat_clr)
-			{
-				if (debug_trace_nvc_tim)
-					debug_tracef("nvc.tim", "Clearing timer interrupt\n");
-				nvc_regs.nr_tcr.t_z_stat = 0;
-			}
-		}
+		nvc_regs.nr_tlr = nvc_timer.nt_next_count & 0xff;
+		nvc_regs.nr_thr = nvc_timer.nt_next_count >> 8;
 
-		u_int tick_usec;
-		if (nvc_regs.nr_tcr.t_clk_sel)
-		{
-			tick_usec = 305;
-			nvc_timer_frac+= 175781250;
-		}
+		if (nvc_timer.nt_next_count > 0)
+			nvc_timer_set(nvc_timer.nt_next_count - 1);
 		else
 		{
-			tick_usec = 1525;
-			nvc_timer_frac += 878906250;
+			nvc_regs.nr_tcr.t_z_stat = 1;
+			nvc_timer_set(nvc_timer.nt_preset);
+
+			if (debug_trace_nvc_tim)
+				nvc_trace_timer("Timer expired");
+			if (nvc_regs.nr_tcr.t_z_int)
+				cpu_intr(NVC_INTTIM);
 		}
-		if (nvc_timer_frac > 1000000000)
-		{
-			++tick_usec;
-			nvc_timer_frac -= 1000000000;
-		}
-		nvc_next_tick = (nvc_next_tick + tick_usec) % 1000000;
 	}
 
 	for (u_int x = 0; x < nvc_cycles_per_usec; ++x)
@@ -4065,7 +4075,6 @@ nvc_mem_prepare(struct mem_request *request)
 				break;
 			case 0x02000020:
 				request->mr_perms = PROT_READ | PROT_WRITE;
-				request->mr_mask = 0x1d;
 				break;
 			default:
 				request->mr_perms = 0;
@@ -4080,6 +4089,67 @@ nvc_mem_prepare(struct mem_request *request)
 	}
 
 	return true;
+}
+
+void
+nvc_mem_write(const struct mem_request *request, const void *src)
+{
+	switch (request->mr_emu)
+	{
+		case 0x02000020:
+		{
+			const struct nvc_tcr *new_tcr = (struct nvc_tcr *)src;
+
+			nvc_regs.nr_tcr.t_z_int = new_tcr->t_z_int;
+
+			if (nvc_regs.nr_tcr.t_clk_sel != new_tcr->t_clk_sel)
+			{
+				if (nvc_regs.nr_tcr.t_enb)
+				{
+					static bool ignore_sel = false;
+					debug_runtime_errorf(&ignore_sel, "T-Clk-Sel changed while timer enabled");
+				}
+				nvc_regs.nr_tcr.t_clk_sel = new_tcr->t_clk_sel;
+			}
+
+			if (!nvc_regs.nr_tcr.t_enb && new_tcr->t_enb)
+			{
+				nvc_regs.nr_tcr.t_enb = 1;
+				nvc_timer_set(nvc_timer.nt_preset);
+
+				if (debug_trace_nvc_tim)
+					nvc_trace_timer("Timer enabled");
+			}
+			else if (nvc_regs.nr_tcr.t_enb && !new_tcr->t_enb)
+			{
+				nvc_regs.nr_tcr.t_enb = 0;
+
+				if (debug_trace_nvc_tim)
+					nvc_trace_timer("Timer disabled");
+			}
+
+			if (nvc_regs.nr_tcr.t_z_stat && new_tcr->t_z_stat_clr)
+			{
+				nvc_regs.nr_tcr.t_z_stat = 0;
+				if (debug_trace_nvc_tim)
+					nvc_trace_timer("Cleared timer zero status");
+			}
+			break;
+		}
+		case 0x0200001c:
+			nvc_timer.nt_preset = (nvc_timer.nt_preset & 0xff) | *(u_int8_t *)src << 8;
+			if (debug_trace_nvc_tim)
+				nvc_trace_timer("Set timer high");
+			break;
+		case 0x02000018:
+			nvc_timer.nt_preset = (nvc_timer.nt_preset & 0xff00) | *(u_int8_t *)src;
+			if (debug_trace_nvc_tim)
+				nvc_trace_timer("Set timer low");
+			break;
+
+		default:
+			*(u_int8_t *)request->mr_host = *(u_int8_t *)src;
+	}
 }
 
 /* DEBUG */
