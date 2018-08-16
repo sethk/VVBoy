@@ -4237,8 +4237,8 @@ static Tokenizer *s_token;
 static struct debug_symbol *debug_syms = NULL;
 
 static bool debug_show_console = false;
-static char debug_console_buffer[16384];
-static bool debug_console_dirty = false;
+static char debug_console_buffer[16 * 1024];
+static bool debug_console_dirty = true;
 static size_t debug_console_begin = 0, debug_console_end = 0;
 static bool debug_clear_console = false;
 
@@ -5512,6 +5512,7 @@ debug_exec(const char *cmd)
 
 	int argc;
 	const char **argv;
+	tok_reset(s_token);
 	if (tok_str(s_token, cmd, &argc, &argv) == 0 && argc > 0)
 	{
 		if (!strcmp(argv[0], "?") || !strcmp(argv[0], "help"))
@@ -6003,7 +6004,6 @@ debug_step(void)
 	//bool running = true;
 	while (true)
 	{
-		tok_reset(s_token);
 		int length;
 		const char *line = el_gets(s_editline, &length);
 		if (line)
@@ -6132,109 +6132,145 @@ debug_fatal_errorf(const char *fmt, ...)
 void
 debug_frame_begin(void)
 {
-	if (!debug_stopped && debug_clear_console)
+	if (debug_clear_console)
 	{
 		debug_console_begin = debug_console_end;
 		debug_clear_console = false;
 	}
 }
 
+static void
+debug_draw_console(bool show_buffers)
+{
+	if (debug_console_begin < debug_console_end)
+		igTextUnformatted(debug_console_buffer + debug_console_begin,
+		                  debug_console_buffer + debug_console_end);
+	else if (debug_console_end < debug_console_begin)
+	{
+		size_t overlap_begin = debug_console_begin;
+		size_t high_end;
+		for (high_end = sizeof(debug_console_buffer) - 1; high_end > debug_console_begin; --high_end)
+			if (debug_console_buffer[high_end] == '\n')
+			{
+				overlap_begin = high_end + 1;
+				break;
+			}
+
+		size_t overlap_end;
+		size_t low_begin = 0;
+		for (overlap_end = 0; overlap_end < debug_console_begin; ++overlap_end)
+			if (debug_console_buffer[overlap_end] == '\n')
+			{
+				low_begin = overlap_end + 1;
+				break;
+			}
+
+		if (high_end > debug_console_begin)
+		{
+			if (show_buffers)
+				igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {1, 0.5, 0.5, 1});
+			igTextUnformatted(debug_console_buffer + debug_console_begin,
+			                  debug_console_buffer + high_end + 1);
+			if (show_buffers)
+				igPopStyleColor(1);
+		}
+
+		if (show_buffers)
+			igPushStyleColor(ImGuiCol_Text, (struct ImVec4){1, 0, 1, 1});
+		igTextWrapped((show_buffers) ? "[%.*s][%.*s]" : "%.*s%.*s",
+		              sizeof(debug_console_buffer) - overlap_begin,
+		              debug_console_buffer + overlap_begin,
+		              overlap_end,
+		              debug_console_buffer);
+		if (show_buffers)
+			igPopStyleColor(1);
+
+		if (low_begin < debug_console_end)
+		{
+			size_t low_end = debug_console_end - 1;
+			if (debug_console_buffer[low_end] == '\n')
+				--low_end;
+
+			if (low_begin < low_end)
+			{
+				if (show_buffers)
+					igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {0.5, 0.5, 1, 1});
+				igTextUnformatted(debug_console_buffer + low_begin, debug_console_buffer + low_end + 1);
+				if (show_buffers)
+					igPopStyleColor(1);
+			}
+		}
+	}
+}
+
 void
 debug_frame_end(void)
 {
-	//if (!imgui_shown)
-		//return;
+	if (debug_stepping_frame)
+	{
+		debug_printf("\nStepped one frame\n");
+		debug_stepping_frame = false;
+		debug_stop();
+	}
 
 	static bool clear_each_frame = false;
+	static bool scroll_to_end = true;
+	static bool scroll_next_draw = false;
+
+	if ((igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI)) && igIsKeyPressed(SDL_SCANCODE_K, false))
+		debug_clear_console = true;
 
 	if (debug_show_console)
 	{
 		igSetNextWindowSize((struct ImVec2){500, 350}, ImGuiCond_FirstUseEver);
-		if (igBegin("Console", &debug_show_console, 0))
+		if (igBegin("Console", &debug_show_console, ImGuiWindowFlags_MenuBar))
 		{
-			if (igButton("Clear", IMVEC2_ZERO))
-				debug_clear_console = true;
+			static bool wrap_lines = true;
+			static bool show_buffers = false;
 
-			igSameLine(0, -1);
-			igCheckbox("Clear before each frame", &clear_each_frame);
-
-			static bool scroll_to_end = true;
-			igSameLine(0, -1);
-			igCheckbox("Scroll to end", &scroll_to_end);
-			static bool debug_buffers = false;
-			//igSameLine(0, -1);
-			//igCheckbox("Debug buffers", &debug_buffers);
-
-			if (igBeginChild("Log", (struct ImVec2){0, -40}, true, 0))
+			if (igBeginMenuBar())
 			{
-				igPushTextWrapPos(0.0f);
-				if (debug_console_begin < debug_console_end)
-					igTextUnformatted(debug_console_buffer + debug_console_begin,
-					                  debug_console_buffer + debug_console_end);
-				else if (debug_console_end < debug_console_begin)
+				if (igBeginMenu("Trap", true))
 				{
-					size_t overlap_begin = debug_console_begin;
-					size_t high_end;
-					for (high_end = sizeof(debug_console_buffer) - 1; high_end > debug_console_begin; --high_end)
-						if (debug_console_buffer[high_end] == '\n')
-						{
-							overlap_begin = high_end + 1;
-							break;
-						}
+					igMenuItemPtr("VIP draw start", NULL, &vip_trap_draw_start, true);
 
-					size_t overlap_end;
-					size_t low_begin = 0;
-					for (overlap_end = 0; overlap_end < debug_console_begin; ++overlap_end)
-						if (debug_console_buffer[overlap_end] == '\n')
-						{
-							low_begin = overlap_end + 1;
-							break;
-						}
-
-					if (high_end > debug_console_begin)
-					{
-						if (debug_buffers)
-							igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {1, 0.5, 0.5, 1});
-						igTextUnformatted(debug_console_buffer + debug_console_begin,
-						                  debug_console_buffer + high_end + 1);
-						if (debug_buffers)
-							igPopStyleColor(1);
-					}
-
-					if (debug_buffers)
-						igPushStyleColor(ImGuiCol_Text, (struct ImVec4){1, 0, 1, 1});
-					igTextWrapped((debug_buffers) ? "[%.*s][%.*s]" : "%.*s%.*s",
-					              sizeof(debug_console_buffer) - overlap_begin,
-					              debug_console_buffer + overlap_begin,
-					              overlap_end,
-					              debug_console_buffer);
-					if (debug_buffers)
-						igPopStyleColor(1);
-
-					if (low_begin < debug_console_end)
-					{
-						size_t low_end = debug_console_end - 1;
-						if (debug_console_buffer[low_end] == '\n')
-							--low_end;
-
-						if (low_begin < low_end)
-						{
-							if (debug_buffers)
-								igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {0.5, 0.5, 1, 1});
-							igTextUnformatted(debug_console_buffer + low_begin, debug_console_buffer + low_end + 1);
-							if (debug_buffers)
-								igPopStyleColor(1);
-						}
-					}
-				}
-				igPopTextWrapPos();
-
-				if (scroll_to_end && debug_console_dirty)
-				{
-					igSetScrollHere(1.0f);
-					debug_console_dirty = false;
+					igEndMenu();
 				}
 
+				if (igBeginMenu("Log", true))
+				{
+					if (igMenuItem("Clear", NULL, false, true))
+						debug_clear_console = true;
+					igMenuItemPtr("Clear before each frame", NULL, &clear_each_frame, true);
+					igSeparator();
+					igMenuItemPtr("Scroll to end", NULL, &scroll_to_end, true);
+					igSeparator();
+					igMenuItemPtr("Wrap lines", NULL, &wrap_lines, true);
+					igMenuItemPtr("Show buffers", NULL, &show_buffers, true);
+
+					igEndMenu();
+				}
+
+				igEndMenuBar();
+			}
+
+			if (igBeginChild("Log", (struct ImVec2){0, -44}, true, 0))
+			{
+				if (wrap_lines)
+					igPushTextWrapPos(0.0f);
+				igPushFont(imgui_font_fixed);
+
+				debug_draw_console(show_buffers);
+
+				if (scroll_next_draw)
+				{
+					igSetScrollHere(1.0);
+					scroll_next_draw = false;
+				}
+
+				igPopFont();
+				if (wrap_lines)
+					igPopTextWrapPos();
 			}
 
 			igEndChild();
@@ -6245,26 +6281,43 @@ debug_frame_end(void)
 				if (cpu_fetch(cpu_state.cs_pc, &inst))
 				{
 					debug_str_t addr_s;
-					igText("frame 0: " DEBUG_ADDR_FMT ": %s\n",
+					igText(DEBUG_ADDR_FMT ": %s\n",
 					       debug_format_addr(cpu_state.cs_pc, addr_s),
 					       debug_disasm(&inst, cpu_state.cs_pc, debug_current_context()));
 				}
 			}
 			else
 				igText("");
+
+			static bool reclaim_focus = true;
+			static char cmd[256];
+			igPushItemWidth(igGetContentRegionAvailWidth());
+			if (igInputText("##Command", cmd, sizeof(cmd), ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
+			{
+				debug_printf("vvboy> %s\n", cmd);
+				debug_exec(cmd);
+				cmd[0] = '\0';
+				reclaim_focus = true;
+			}
+			igPopItemWidth();
+			igSetItemDefaultFocus();
+			if (reclaim_focus)
+			{
+				igSetKeyboardFocusHere(-1);
+				reclaim_focus = false;
+			}
 		}
 		igEnd();
 	}
 
-	if (clear_each_frame)
-		debug_clear_console = true;
-
-	if (debug_stepping_frame)
+	if (debug_console_dirty)
 	{
-		debug_printf("\nStepped one frame\n");
-		debug_stepping_frame = false;
-		debug_stop();
+		scroll_next_draw = scroll_to_end; // Scrolling happens on next frame after window size change
+		debug_console_dirty = false;
 	}
+
+	if (clear_each_frame && !debug_stopped)
+		debug_clear_console = true;
 }
 
 /* GL */
@@ -6565,6 +6618,7 @@ static u_int imgui_emu_x, imgui_emu_y;
 static u_int imgui_emu_scale = 2;
 
 struct ImGuiContext *imgui_context;
+struct ImFont *imgui_font_fixed;
 
 const struct ImVec2 IMVEC2_ZERO = {0, 0};
 
@@ -6576,6 +6630,10 @@ imgui_init(void)
 	struct ImGuiIO *io = igGetIO();
 	io->IniFilename = NULL;
 	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "vendor/cimgui/imgui/misc/fonts/Roboto-Medium.ttf", 16.0f, NULL, NULL);
+	imgui_font_fixed = ImFontAtlas_AddFontDefault(io->Fonts, NULL);
+	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
+	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
+	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
 
 	return true;
 }
@@ -6600,7 +6658,7 @@ imgui_key_toggle(int key_index, bool *togglep, bool show_on_active)
 void
 imgui_frame_begin(void)
 {
-	if (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) || igIsKeyPressed(SDL_SCANCODE_SPACE, false))
+	if (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(SDL_SCANCODE_SPACE, false)*/)
 		imgui_shown = !imgui_shown;
 
 	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
