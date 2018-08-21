@@ -6321,7 +6321,6 @@ debug_frame_end(void)
 
 	static bool clear_each_frame = false;
 	static bool scroll_to_end = true;
-	static bool scroll_next_draw = false;
 
 	if ((igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI)) && igIsKeyPressed(SDL_SCANCODE_K, false))
 		debug_clear_console = true;
@@ -6333,6 +6332,7 @@ debug_frame_end(void)
 		{
 			static bool wrap_lines = true;
 			static bool show_buffers = false;
+			static bool scroll_next_draw = false;
 
 			if (igBeginMenuBar())
 			{
@@ -6395,6 +6395,12 @@ debug_frame_end(void)
 			else
 				igText("");
 
+			if (debug_console_dirty)
+			{
+				scroll_next_draw = scroll_to_end; // Scrolling happens on next frame after window size change
+				debug_console_dirty = false;
+			}
+
 			static bool reclaim_focus = true;
 			static char cmd[256];
 			igPushItemWidth(igGetContentRegionAvailWidth());
@@ -6414,12 +6420,6 @@ debug_frame_end(void)
 			}
 		}
 		igEnd();
-	}
-
-	if (debug_console_dirty)
-	{
-		scroll_next_draw = scroll_to_end; // Scrolling happens on next frame after window size change
-		debug_console_dirty = false;
 	}
 
 	if (clear_each_frame && !debug_stopped)
