@@ -5794,7 +5794,7 @@ debug_exec(const char *cmd)
 						}
 						addr+= int_size;
 					}
-					else if (!strcmp(format, "addr"))
+					else if (!strcmp(format, "a") || !strcmp(format, "addr"))
 					{
 						u_int32_t addr_value;
 						if (debug_mem_read(addr, &addr_value, sizeof(addr_value)))
@@ -6004,13 +6004,16 @@ debug_exec(const char *cmd)
 		{
 			if (argc == 1)
 			{
-				for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
-				{
-					debug_str_t addr_s, ops_s;
-					debug_printf("Watch at %s, ops = %s\n",
-					             debug_format_addr(watch->dw_addr, addr_s),
-					             debug_format_perms(watch->dw_ops, ops_s));
-				}
+				if (!debug_watches)
+					debug_printf("No watches set\n");
+				else
+					for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
+					{
+						debug_str_t addr_s, ops_s;
+						debug_printf("Watch at %s, ops = %s\n",
+						             debug_format_addr(watch->dw_addr, addr_s),
+						             debug_format_perms(watch->dw_ops, ops_s));
+					}
 			}
 			else if (argc == 3)
 			{
