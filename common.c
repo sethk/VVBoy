@@ -21,6 +21,8 @@
 #include <err.h>
 #include <histedit.h>
 #include <float.h>
+#define _SEARCH_PRIVATE
+#include <search.h>
 #include <OpenGL/gl3.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
@@ -4241,6 +4243,7 @@ static Tokenizer *s_token;
 
 // TODO: Use hcreate()
 static struct debug_symbol *debug_syms = NULL;
+static struct node *debug_addrs = NULL;
 
 static bool debug_show_console = false;
 static char debug_console_buffer[16 * 1024];
@@ -4300,6 +4303,17 @@ debug_init(void)
 	return true;
 }
 
+static int
+debug_symbol_cmpaddr(const struct debug_symbol *sym1, const struct debug_symbol *sym2)
+{
+	if (sym1->ds_addr < sym2->ds_addr)
+		return -1;
+	else if (sym1->ds_addr > sym2->ds_addr)
+		return 1;
+	else
+		return 0;
+}
+
 void
 debug_clear_syms(void)
 {
@@ -4309,6 +4323,8 @@ debug_clear_syms(void)
 		debug_syms = debug_sym->ds_next;
 		debug_destroy_symbol(debug_sym);
 	}
+	assert(!debug_syms);
+	assert(!debug_addrs);
 }
 
 void
@@ -4365,7 +4381,7 @@ typedef char debug_str_t[96];
 #endif // INTERFACE
 
 struct debug_symbol *
-debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
+debug_resolve_addr_slow(u_int32_t addr, u_int32_t *match_offsetp)
 {
 	struct debug_symbol *sym = debug_syms;
 	struct debug_symbol *match_sym = NULL;
@@ -4386,6 +4402,51 @@ debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
 	}
 
 	return match_sym;
+}
+
+static struct debug_symbol *
+debug_search_addr(struct node *root, u_int32_t addr, u_int32_t *match_offsetp, bool inexact)
+{
+	if (!root)
+		return NULL;
+	struct debug_symbol *root_sym = (struct debug_symbol *)root->key;
+	if (addr < root_sym->ds_addr)
+		return debug_search_addr(root->llink, addr, match_offsetp, inexact);
+	else if (addr > root_sym->ds_addr)
+	{
+		struct debug_symbol *next_sym = debug_search_addr(root->rlink, addr, match_offsetp, inexact);
+		if (next_sym)
+			return next_sym;
+		else if (inexact)
+		{
+			u_int32_t offset = addr - root_sym->ds_addr;
+			if (offset <= 8192)
+			{
+				*match_offsetp = offset;
+				return root_sym;
+			}
+		}
+
+		return NULL;
+	}
+	else
+	{
+		*match_offsetp = 0;
+		return root_sym;
+	}
+}
+
+struct debug_symbol *
+debug_resolve_addr(u_int32_t addr, u_int32_t *match_offsetp)
+{
+	struct debug_symbol *sym = debug_search_addr(debug_addrs, addr, match_offsetp, true);
+
+#if 0
+	u_int32_t other_offset = *match_offsetp;
+	struct debug_symbol *other_sym = debug_resolve_addr_slow(addr, &other_offset);
+	assert(other_sym == sym && *match_offsetp == other_offset);
+#endif // 1
+	return sym;
 }
 
 const char *
@@ -4430,8 +4491,28 @@ const char *debug_rnames[32] =
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
+	struct node *existing;
+	existing = tfind(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+	if (existing)
+	{
+		struct debug_symbol *existing_sym = (struct debug_symbol *)existing->key;
+		debug_printf("Duplicate symbol %s has identical address to %s (0x%08x)\n",
+				debug_sym->ds_name, existing_sym->ds_name, existing_sym->ds_addr);
+		return;
+	}
+
+	u_int32_t existing_addr = debug_locate_symbol(debug_sym->ds_name);
+	if (existing_addr != DEBUG_ADDR_NONE)
+	{
+		debug_printf("Duplicate symbol with name %s\n", debug_sym->ds_name);
+		return;
+	}
+
 	debug_sym->ds_next = debug_syms;
 	debug_syms = debug_sym;
+
+	if (!existing && debug_sym->ds_type == ISX_SYMBOL_POINTER)
+		tsearch(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 }
 
 struct debug_symbol *
@@ -4449,6 +4530,17 @@ debug_create_symbol(const char *name, u_int32_t addr)
 	return debug_sym;
 }
 
+struct debug_symbol *
+debug_create_symbolf(u_int32_t addr, const char *fmt, ...)
+{
+	char name[64 + 1];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(name, sizeof(name), fmt, ap);
+	va_end(ap);
+	return debug_create_symbol(name, addr);
+}
+
 void
 debug_create_symbol_array(const char *base_name, u_int32_t start, u_int count, u_int32_t size)
 {
@@ -4463,6 +4555,9 @@ debug_create_symbol_array(const char *base_name, u_int32_t start, u_int count, u
 void
 debug_destroy_symbol(struct debug_symbol *debug_sym)
 {
+	if (debug_sym->ds_type == ISX_SYMBOL_POINTER)
+		tdelete(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+
 	if (debug_sym->ds_name)
 		free(debug_sym->ds_name);
 	free(debug_sym);
