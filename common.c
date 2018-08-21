@@ -4615,7 +4615,7 @@ debug_get_reg(struct debug_disasm_context *context, u_int rnum)
 static void
 debug_put_reg(struct debug_disasm_context *context, u_int rnum, union cpu_reg reg)
 {
-	if (context)
+	if (context && rnum != 0)
 	{
 		context->ddc_regs[rnum] = reg;
 		context->ddc_regmask |= (1 << rnum);
