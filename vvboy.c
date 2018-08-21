@@ -12,6 +12,8 @@ main(int ac, char * const *av)
 	extern int optind;
 	bool help = false;
 	bool debugging = false;
+	bool linebuf = false;
+	static const char *trace_path = NULL;
 	static const char *usage_fmt = "usage: %s [-d] [ -t <subsystem> ] [ -T <trace.log> ] { <file.vb> | <file.isx> }\n";
 	while ((ch = getopt(ac, av, "dt:T:")) != -1)
 		switch (ch)
@@ -21,16 +23,15 @@ main(int ac, char * const *av)
 			case 'd':
 				debugging = true;
 				break;
+			case 'l':
+				linebuf = true;
+				break;
 			case 't':
 				if (!debug_toggle_trace(optarg))
 					help = true;
 				break;
 			case 'T':
-				debug_trace_file = fopen(optarg, "w");
-				if (!debug_trace_file)
-					err(EX_CANTCREAT, "Can't open trace file %s", optarg);
-				if (setlinebuf(debug_trace_file) != 0)
-					err(EX_OSERR, "Can't set trace line-buffered");
+				trace_path = optarg;
 				break;
 		}
 	ac-= optind;
@@ -40,6 +41,15 @@ main(int ac, char * const *av)
 	{
 		fprintf(stderr, usage_fmt, getprogname());
 		return EX_USAGE;
+	}
+
+	if (trace_path)
+	{
+		debug_trace_file = fopen(optarg, "w");
+		if (!debug_trace_file)
+			err(EX_CANTCREAT, "Can't open trace file %s", optarg);
+		if (linebuf && setlinebuf(debug_trace_file) != 0)
+			err(EX_OSERR, "Can't set trace line-buffered");
 	}
 
 	if (!rom_load(av[0]))
