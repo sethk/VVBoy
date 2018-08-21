@@ -1138,6 +1138,11 @@ cpu_exec(const union cpu_inst inst)
 			// TODO: Divide by zero exception
 			u_int64_t left = cpu_state.cs_r[inst.ci_i.i_reg2].u,
 					right = cpu_state.cs_r[inst.ci_i.i_reg1].u;
+			if (right == 0)
+			{
+				debug_fatal_errorf("TODO: Divide by zero exception");
+				return false;
+			}
 			u_int64_t result = left / right;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
