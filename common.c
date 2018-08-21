@@ -2526,7 +2526,7 @@ vip_chr_read_slow(const struct vip_chr *vc, u_int x, u_int y, bool hflip, bool v
 u_int8_t
 vip_fb_read_slow(const u_int8_t *fb, u_int16_t x, u_int16_t y)
 {
-	u_int offset = x * 224 + y;
+	u_int offset = x * 256 + y;
 	u_int shift = (offset % 4) * 2;
 	return (fb[offset / 4] >> shift) & 0b11;
 }

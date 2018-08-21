@@ -17,7 +17,7 @@ vip_fb_write(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
 {
 	assert(y < 224);
 	assert(x < 384);
-	u_int offset = x * 224 + y;
+	u_int offset = x * 256 + y;
 	u_int shift = (offset % 4) * 2;
 	u_int8_t mask = ~(0b11 << shift);
 	fb[offset / 4] = (fb[offset / 4] & mask) | (value << shift);
@@ -411,6 +411,7 @@ vip_fb_convert(const u_int8_t *fb, const struct vip_ctc *clm_tbl, u_int32_t *arg
 				*argb++ = lut[(*fb >> 6) & 0x3];
 				++fb;
 			}
+			fb+= 8; // framebuffer columns are actually 256 rows
 		}
 		++ctc;
 	}
