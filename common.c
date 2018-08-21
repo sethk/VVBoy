@@ -3490,13 +3490,18 @@ void
 vsu_add_syms(void)
 {
 	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80);
-	debug_create_symbol("SND5.MOD", 0x01000280);
-	debug_create_symbol("SOUND1", 0x01000400);
-	debug_create_symbol("SOUND2", 0x01000440);
-	debug_create_symbol("SOUND3", 0x01000480);
-	debug_create_symbol("SOUND4", 0x010004c0);
-	debug_create_symbol("SOUND5", 0x01000500);
-	debug_create_symbol("SOUND6", 0x01000540);
+	for (u_int i = 0; i < 6; ++i)
+	{
+		u_int32_t base = 0x01000400 + (i * 0x40);
+		u_int sound = i + 1;
+		debug_create_symbolf(base + 0x00, "S%uINT", sound);
+		debug_create_symbolf(base + 0x04, "S%uLRV", sound);
+		debug_create_symbolf(base + 0x08, "S%uFQL", sound);
+		debug_create_symbolf(base + 0x0c, "S%uFQH", sound);
+		debug_create_symbolf(base + 0x10, "S%uEV0", sound);
+		debug_create_symbolf(base + 0x14, "S%uEV1", sound);
+		debug_create_symbolf(base + 0x18, "S%uRAM", sound);
+	}
 	debug_create_symbol("SSTOP", 0x01000580);
 }
 
