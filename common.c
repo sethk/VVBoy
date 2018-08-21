@@ -3841,14 +3841,12 @@ static struct
 	u_int nt_next_tick;
 	u_int nt_tick_frac;
 } nvc_timer;
-static u_int nvc_cycles_per_usec = 20;
+u_int nvc_cycles_per_usec = 20;
+static u_int16_t nvc_keys;
 
 bool
 nvc_init(void)
 {
-	if (getenv("CYCLES_PER_USEC"))
-		nvc_cycles_per_usec = atoi(getenv("CYCLES_PER_USEC"));
-
 	return cpu_init();
 }
 
@@ -4024,8 +4022,6 @@ nvc_step(void)
 
 	return true;
 }
-
-u_int16_t nvc_keys;
 
 void
 nvc_input(enum nvc_key key, bool state)
@@ -6794,6 +6790,7 @@ imgui_frame_begin(void)
 	}
 
 	static bool demo_open = false;
+	static bool show_timing = false;
 	if (igBeginMainMenuBar())
 	{
 		if (igBeginMenu("File", true))
@@ -6867,6 +6864,7 @@ imgui_frame_begin(void)
 			igMenuItemPtr("Use global palette", NULL, &vip_use_bright, true);
 			igMenuItemPtr("Accurate scanner timing", NULL, &vip_scan_accurate, true);
 			igMenuItemPtr("Draw rows...", NULL, &vip_rows_open, true);
+			igMenuItemPtr("Timing...", NULL, &show_timing, true);
 
 			igSeparator();
 
@@ -6885,6 +6883,16 @@ imgui_frame_begin(void)
 		}
 
 		igEndMainMenuBar();
+	}
+
+	if (show_timing)
+	{
+		if (igBegin("Timing", &show_timing, ImGuiWindowFlags_NoResize))
+		{
+			igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 5, 50, NULL);
+
+			igEnd();
+		}
 	}
 
 	if (demo_open)
