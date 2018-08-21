@@ -644,8 +644,14 @@ cpu_init(void)
 void
 cpu_add_syms(void)
 {
+	debug_create_symbol("vect.fpe", 0xffffff60);
+	debug_create_symbol("vect.zdiv", 0xffffff80);
+	debug_create_symbol("vect.ill", 0xffffff90);
+	debug_create_symbol("vect.trapa", 0xffffffa0);
+	debug_create_symbol("vect.trapb", 0xffffffb0);
+	debug_create_symbol("vect.atrap", 0xffffffc0);
+	debug_create_symbol("vect.nmi", 0xffffffd0);
 	debug_create_symbol("vect.reset", 0xfffffff0);
-	debug_create_symbol(".reset", 0x07000000 + (0xfffffff0 & mem_segs[MEM_SEG_ROM].ms_addrmask));
 }
 
 void

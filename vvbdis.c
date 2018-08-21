@@ -223,6 +223,13 @@ main(int ac, char * const *av)
 	create_entry_func(0xfffffe20);
 	create_entry_func(0xfffffe30);
 	create_entry_func(0xfffffe40);
+	create_entry_func(0xffffff60);
+	create_entry_func(0xffffff80);
+	create_entry_func(0xffffff90);
+	create_entry_func(0xffffffa0);
+	create_entry_func(0xffffffb0);
+	create_entry_func(0xffffffc0);
+	create_entry_func(0xffffffd0);
 	create_entry_func(0xfffffff0);
 
 	u_int32_t begin = base_addr;
