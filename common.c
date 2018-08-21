@@ -242,7 +242,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp
 	if ((request.mr_perms & request.mr_ops) != request.mr_ops)
 	{
 		debug_str_t addr_s, ops_s, perms_s;
-		debug_fatal_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s\n",
+		debug_fatal_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s",
 		                   debug_format_addr(addr, addr_s),
 		                   debug_format_perms(request.mr_ops, ops_s),
 		                   debug_format_perms(request.mr_perms, perms_s));
@@ -253,7 +253,7 @@ mem_read(u_int32_t addr, void *dest, size_t size, bool is_exec, u_int *mem_waitp
 	{
 		debug_str_t addr_s;
 		debug_str_t hex_s;
-		debug_tracef("mem.read", "[" DEBUG_ADDR_FMT "] -> %s\n",
+		debug_tracef("mem.read", "[" DEBUG_ADDR_FMT "] -> %s",
 		             debug_format_addr(addr, addr_s),
 		             debug_format_hex(request.mr_host, size, hex_s));
 	}
@@ -294,7 +294,7 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 	if (!mem_prepare(&request))
 	{
 		// TODO: SEGV
-		debug_fatal_errorf("Bus error at 0x%08x\n", addr);
+		debug_fatal_errorf("Bus error at 0x%08x", addr);
 		return false;
 	}
 
@@ -314,7 +314,7 @@ mem_write(u_int32_t addr, const void *src, size_t size, u_int *mem_waitp)
 	{
 		debug_str_t addr_s;
 		debug_str_t hex_s;
-		debug_tracef("mem.write", "[" DEBUG_ADDR_FMT "] <- %s\n",
+		debug_tracef("mem.write", "[" DEBUG_ADDR_FMT "] <- %s",
 		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
 	}
 
@@ -686,7 +686,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	u_int mem_wait;
 	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true, &mem_wait))
 	{
-		debug_fatal_errorf("Could not read instruction at 0x%08x\n", addr);
+		debug_fatal_errorf("Could not read instruction at 0x%08x", addr);
 		return false;
 	}
 	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
@@ -694,7 +694,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	{
 		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2, true, &mem_wait))
 		{
-			debug_fatal_errorf("Could not read instruction at 0x%08x\n", addr + 2);
+			debug_fatal_errorf("Could not read instruction at 0x%08x", addr + 2);
 			return false;
 		}
 		inst->ci_hwords[1] = OSSwapLittleToHostInt16(inst->ci_hwords[1]);
@@ -782,7 +782,7 @@ cpu_getfl(enum cpu_bcond cond)
 			return !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
 			         cpu_state.cs_psw.psw_flags.f_z);
 		default:
-			debug_fatal_errorf("Handle branch cond\n", stderr);
+			debug_fatal_errorf("Handle branch cond");
 			return false;
 	}
 }
@@ -878,7 +878,7 @@ cpu_float_reserved(float f)
 		default:
 		{
 			cpu_state.cs_psw.psw_flags.f_fro = 1;
-			debug_fatal_errorf("TODO: Reserved operand exception\n", stderr);
+			debug_fatal_errorf("TODO: Reserved operand exception");
 			return true;
 		}
 	}
@@ -1065,7 +1065,7 @@ cpu_exec(const union cpu_inst inst)
 			if (debug_trace_cpu_jmp)
 			{
 				debug_str_t addr_s, dest_addr_s;
-				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": %-4s %s\n",
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": %-4s %s",
 				             debug_format_addr(cpu_state.cs_pc, addr_s),
 				             (inst.ci_i.i_reg1 == 31) ? "RET" : "JMP",
 				             debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, dest_addr_s));
@@ -1227,7 +1227,7 @@ cpu_exec(const union cpu_inst inst)
 			{
 				debug_str_t addr_s, dest_addr_s;
 				u_int32_t dest_addr = (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc;
-				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": RETI %s\n",
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": RETI %s",
 				             debug_format_addr(cpu_state.cs_pc, addr_s),
 				             debug_format_addr(dest_addr, dest_addr_s));
 			}
@@ -1376,7 +1376,7 @@ cpu_exec(const union cpu_inst inst)
 			if (debug_trace_cpu_jmp)
 			{
 				debug_str_t addr_s, dest_addr_s;
-				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": CALL %s(0x%08x, 0x%08x, 0x%08x, 0x%08x)\n",
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": CALL %s(0x%08x, 0x%08x, 0x%08x, 0x%08x)",
 				             debug_format_addr(cpu_state.cs_pc, addr_s),
 				             debug_format_addr(cpu_state.cs_pc + disp, dest_addr_s),
 				             cpu_state.cs_r[6].u,
@@ -1548,7 +1548,7 @@ cpu_exec(const union cpu_inst inst)
 					if (source >= (double)INT32_MAX + 0.5 || source <= (double)INT32_MIN - 0.5)
 					{
 						cpu_state.cs_psw.psw_flags.f_fiv = 1;
-						debug_fatal_errorf("TODO: Floating-point invalid operation exception\n", stderr);
+						debug_fatal_errorf("TODO: Floating-point invalid operation exception");
 						return false;
 					}
 					cpu_setfl_float_zsoc(source);
@@ -1609,7 +1609,7 @@ cpu_exec(const union cpu_inst inst)
 						if (left == 0)
 						{
 							cpu_state.cs_psw.psw_flags.f_fiv = 1;
-							debug_fatal_errorf("TODO: Invalid operation exception\n", stderr);
+							debug_fatal_errorf("TODO: Invalid operation exception");
 							return false;
 						}
 						else if (cpu_float_reserved(left))
@@ -1617,7 +1617,7 @@ cpu_exec(const union cpu_inst inst)
 						else
 						{
 							cpu_state.cs_psw.psw_flags.f_fzd = 1;
-							debug_fatal_errorf("TODO: Divide by zero exception\n", stderr);
+							debug_fatal_errorf("TODO: Divide by zero exception");
 							return false;
 						}
 					}
@@ -2077,14 +2077,14 @@ cpu_step(void)
 	union cpu_inst inst;
 	if (!cpu_fetch(cpu_state.cs_pc, &inst))
 	{
-		debug_fatal_errorf("TODO: bus error fetching inst from PC 0x%08x\n", cpu_state.cs_pc);
+		debug_fatal_errorf("TODO: bus error fetching inst from PC 0x%08x", cpu_state.cs_pc);
 		return false;
 	}
 
 	if (debug_trace_cpu)
 	{
 		debug_str_t addr_s;
-		debug_tracef("cpu", DEBUG_ADDR_FMT ": %s\n",
+		debug_tracef("cpu", DEBUG_ADDR_FMT ": %s",
 		             debug_format_addr(cpu_state.cs_pc, addr_s),
 		             debug_disasm(&inst, cpu_state.cs_pc, debug_current_context()));
 	}
@@ -2106,7 +2106,7 @@ cpu_intr(enum nvc_intlevel level)
 			if (debug_trace_cpu_int)
 			{
 				debug_str_t addr_s;
-				debug_tracef("cpu", DEBUG_ADDR_FMT ": Interrupt level=%d\n",
+				debug_tracef("cpu", DEBUG_ADDR_FMT ": Interrupt level=%d",
 				             debug_format_addr(cpu_state.cs_pc, addr_s), level);
 			}
 
@@ -2121,7 +2121,7 @@ cpu_intr(enum nvc_intlevel level)
 			if (debug_trace_cpu_jmp)
 			{
 				debug_str_t addr_s, dest_addr_s;
-				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": INT%u %s\n",
+				debug_tracef("cpu.jmp", DEBUG_ADDR_FMT ": INT%u %s",
 				             debug_format_addr(cpu_state.cs_pc, addr_s),
 				             level,
 				             debug_format_addr(cpu_state.cs_ecr.ecr_eicc, dest_addr_s));
@@ -2457,7 +2457,7 @@ static void
 vip_clear_start(u_int fb_index)
 {
 	if (debug_trace_vip)
-		debug_tracef("vip", "Clear FB%u start\n", fb_index);
+		debug_tracef("vip", "Clear FB%u start", fb_index);
 
 	if (fb_index == 0)
 		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
@@ -2469,7 +2469,7 @@ static void
 vip_clear_finish(u_int fb_index)
 {
 	if (debug_trace_vip)
-		debug_tracef("vip", "Clear FB%u finish\n", fb_index);
+		debug_tracef("vip", "Clear FB%u finish", fb_index);
 
 	if (fb_index == 0)
 	{
@@ -2589,18 +2589,18 @@ vip_frame_clock(void)
 	enum vip_intflag intflags = VIP_FRAMESTART;
 
 	if (debug_trace_vip)
-		debug_tracef("vip", "FRAMESTART\n");
+		debug_tracef("vip", "FRAMESTART");
 
 	if (vip_frame_cycles == 0)
 	{
 		intflags|= VIP_GAMESTART;
 		if (debug_trace_vip)
-			debug_tracef("vip", "GAMESTART\n");
+			debug_tracef("vip", "GAMESTART");
 
 		if (vip_regs.vr_xpctrl.vx_xprst)
 		{
 			if (debug_trace_vip)
-				debug_tracef("vip", "XPRST\n");
+				debug_tracef("vip", "XPRST");
 			vip_regs.vr_intenb&= ~vip_xpints;
 			vip_regs.vr_intpnd&= ~vip_xpints;
 			vip_regs.vr_xpctrl.vx_xprst = 0;
@@ -2613,7 +2613,7 @@ vip_frame_clock(void)
 		else if (vip_regs.vr_xpctrl.vx_xpen != vip_regs.vr_xpstts.vx_xpen)
 		{
 			if (debug_trace_vip)
-				debug_tracef("vip", "XPEN=%d\n", vip_regs.vr_xpctrl.vx_xpen);
+				debug_tracef("vip", "XPEN=%d", vip_regs.vr_xpctrl.vx_xpen);
 			vip_regs.vr_xpstts.vx_xpen = vip_regs.vr_xpctrl.vx_xpen;
 		}
 
@@ -2624,7 +2624,7 @@ vip_frame_clock(void)
 				u_int fb_index = !vip_disp_index;
 
 				if (debug_trace_vip)
-					debug_tracef("vip", "Draw FB%u start\n", fb_index);
+					debug_tracef("vip", "Draw FB%u start", fb_index);
 
 				if (fb_index == 0)
 					vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
@@ -2668,7 +2668,7 @@ vip_step(void)
 	if (vip_regs.vr_dpctrl.vd_dprst)
 	{
 		if (debug_trace_vip)
-			debug_tracef("vip", "DPRST\n");
+			debug_tracef("vip", "DPRST");
 		vip_regs.vr_dpctrl.vd_dprst = 0;
 		vip_regs.vr_intenb&= ~vip_dpints;
 		vip_regs.vr_intpnd&= ~vip_dpints;
@@ -2689,13 +2689,13 @@ vip_step(void)
 		if (vip_regs.vr_dpctrl.vd_synce != vip_regs.vr_dpstts.vd_synce)
 		{
 			if (debug_trace_vip)
-				debug_tracef("vip", "SYNCE=%d\n", vip_regs.vr_dpctrl.vd_synce);
+				debug_tracef("vip", "SYNCE=%d", vip_regs.vr_dpctrl.vd_synce);
 			vip_regs.vr_dpstts.vd_synce = vip_regs.vr_dpctrl.vd_synce;
 		}
 		if (vip_regs.vr_dpctrl.vd_disp != vip_regs.vr_dpstts.vd_disp)
 		{
 			if (debug_trace_vip)
-				debug_tracef("vip", "DISP=%d\n", vip_regs.vr_dpctrl.vd_disp);
+				debug_tracef("vip", "DISP=%d", vip_regs.vr_dpctrl.vd_disp);
 			vip_regs.vr_dpstts.vd_disp = vip_regs.vr_dpctrl.vd_disp;
 		}
 	}
@@ -2717,13 +2717,13 @@ vip_step(void)
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 1;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display L:FB0 start\n");
+					debug_tracef("vip", "Display L:FB0 start");
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 1;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display L:FB1 start\n");
+					debug_tracef("vip", "Display L:FB1 start");
 			}
 
 			if (vip_scan_accurate)
@@ -2738,13 +2738,13 @@ vip_step(void)
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb0 = 0;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display L:FB0 finish\n");
+					debug_tracef("vip", "Display L:FB0 finish");
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_l_fb1 = 0;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display L:FB1 finish\n");
+					debug_tracef("vip", "Display L:FB1 finish");
 			}
 			vip_raise(VIP_LFBEND);
 		}
@@ -2757,13 +2757,13 @@ vip_step(void)
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 1;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display R:FB0 start\n");
+					debug_tracef("vip", "Display R:FB0 start");
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 1;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display R:FB1 start\n");
+					debug_tracef("vip", "Display R:FB1 start");
 			}
 
 			if (vip_scan_accurate)
@@ -2778,13 +2778,13 @@ vip_step(void)
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb0 = 0;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display R:FB0 finish\n");
+					debug_tracef("vip", "Display R:FB0 finish");
 			}
 			else
 			{
 				vip_regs.vr_dpstts.vd_dpbsy_r_fb1 = 0;
 				if (debug_trace_vip)
-					debug_tracef("vip", "Display R:FB1 finish\n");
+					debug_tracef("vip", "Display R:FB1 finish");
 			}
 
 			vip_raise(VIP_RFBEND);
@@ -2821,7 +2821,7 @@ vip_xp_step(u_int fb_index)
 			vip_draw_finish(fb_index);
 
 			if (debug_trace_vip)
-				debug_tracef("vip", "Draw FB%u finish\n", fb_index);
+				debug_tracef("vip", "Draw FB%u finish", fb_index);
 
 			if (fb_index == 0)
 				vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
@@ -2835,7 +2835,7 @@ vip_xp_step(u_int fb_index)
 	else
 	{
 		if (debug_trace_vip)
-			debug_tracef("vip", "Draw FB%u SBCOUNT=%u\n", fb_index, vip_regs.vr_xpstts.vx_sbcount);
+			debug_tracef("vip", "Draw FB%u SBCOUNT=%u", fb_index, vip_regs.vr_xpstts.vx_sbcount);
 
 		u_int8_t *left_fb, *right_fb;
 		if (fb_index == 0)
@@ -3096,7 +3096,7 @@ vip_toggle_rows(void)
 		if (!vip_row_mask)
 			vip_row_mask = (1 << 28) - 1;
 	}
-	debug_tracef("vip", "Row mask 0x%08x\n", vip_row_mask);
+	debug_tracef("vip", "Row mask 0x%08x", vip_row_mask);
 }
 
 void
@@ -3110,7 +3110,7 @@ vip_toggle_worlds(void)
 		if (!vip_world_mask)
 			vip_world_mask = ~0;
 	}
-	debug_tracef("vip", "World mask 0x%08x\n", vip_world_mask);
+	debug_tracef("vip", "World mask 0x%08x", vip_world_mask);
 }
 
 void
@@ -3713,7 +3713,7 @@ static void
 vsu_stop_sound(u_int sound)
 {
 	if (vsu_states[sound].vs_started)
-		debug_tracef("vsu", "Stopping SOUND%u\n", sound);
+		debug_tracef("vsu", "Stopping SOUND%u", sound);
 }
 
 void
@@ -3739,7 +3739,7 @@ vsu_mem_write(const struct mem_request *request, const void *src)
 			// SxINT
 			if (value & 0x80)
 			{
-				debug_tracef("vsu", "Starting SOUND%u\n", sound);
+				debug_tracef("vsu", "Starting SOUND%u", sound);
 				const struct vsu_sound_regs *vsr = &(vsu_regs.vr_sounds[sound]);
 				struct vsu_state *state = &(vsu_states[sound]);
 				state->vs_started = true;
@@ -3985,7 +3985,7 @@ static void
 nvc_trace_timer(const char *desc)
 {
 	debug_str_t timer_s;
-	debug_tracef("nvc.tim", "%s - %s\n", desc, nvc_format_timer(timer_s));
+	debug_tracef("nvc.tim", "%s - %s", desc, nvc_format_timer(timer_s));
 }
 
 bool
@@ -4038,7 +4038,7 @@ nvc_input(enum nvc_key key, bool state)
 		nvc_regs.nr_sdlr = nvc_keys & 0xff;
 		nvc_regs.nr_sdhr = nvc_keys >> 8;
 		if (debug_trace_nvc)
-			debug_tracef("nvc", "Serial data 0x%08x -> 0x%08x, raise intr = %d\n", old_nvc_keys, nvc_keys, raise_intr);
+			debug_tracef("nvc", "Serial data 0x%08x -> 0x%08x, raise intr = %d", old_nvc_keys, nvc_keys, raise_intr);
 
 		nvc_regs.nr_scr.s_si_stat = 0;
 
@@ -5214,7 +5214,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 #endif // 0
 			if ((base = debug_locate_symbol(sym_name)) == DEBUG_ADDR_NONE)
 			{
-				debug_printf("Symbol not found: %s", s);
+				debug_printf("Symbol not found: %s\n", sym_name);
 				return false;
 			}
 			if (num_parsed >= 2 && *sign == '-')
@@ -5222,7 +5222,7 @@ debug_parse_addr(const char *s, u_int32_t *addrp)
 		}
 		else
 		{
-			debug_printf("Invalid address format “%s”", s);
+			debug_printf("Invalid address format “%s”\n", s);
 			return false;
 		}
 	}
@@ -5481,7 +5481,7 @@ debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 	if (debug_find_watch(addr, PROT_READ))
 	{
 		debug_str_t addr_s, mem_addr_s, hex_s;
-		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] -> %s\n",
+		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] -> %s",
 		             debug_format_addr(pc, addr_s),
 		             debug_format_addr(addr, mem_addr_s),
 		             debug_format_hex((u_int8_t *)&value, byte_size, hex_s));
@@ -5494,7 +5494,7 @@ debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size
 	if (debug_find_watch(addr, PROT_WRITE))
 	{
 		debug_str_t addr_s, mem_addr_s, hex_s;
-		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] <- %s\n",
+		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] <- %s",
 		             debug_format_addr(pc, addr_s),
 		             debug_format_addr(addr, mem_addr_s),
 		             debug_format_hex((u_int8_t *)&value, byte_size, hex_s));
@@ -6077,9 +6077,14 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	size_t length = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
 	length+= vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
 	va_end(ap);
-	debug_printf("%s", trace);
-	if (debug_trace_file)
+
+	if (!debug_trace_file)
+		debug_printf("%s\n", trace);
+	else
+	{
 		fputs(trace, debug_trace_file);
+		fputc('\n', debug_trace_file);
+	}
 }
 
 bool __printflike(2, 3)
@@ -6881,7 +6886,7 @@ main_restart_clock(void)
 		u_int32_t delta = ticks - main_stats.ms_start_ticks;
 		float fps = (float)main_stats.ms_frames / ((float)delta / 1000);
 		if (main_trace)
-			debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts\n",
+			debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts",
 						 main_stats.ms_frames, delta, fps,
 						 main_stats.ms_insts,
 						 main_stats.ms_intrs);
@@ -7036,7 +7041,7 @@ main_frame(void)
 #endif // 0
 
 	if (main_trace)
-		debug_tracef("main", "Begin frame\n");
+		debug_tracef("main", "Begin frame");
 
 	if (main_speed != 0)
 		main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
@@ -7050,7 +7055,7 @@ main_frame(void)
 		debug_stop();
 
 	if (main_trace)
-		debug_tracef("main", "End frame\n");
+		debug_tracef("main", "End frame");
 
 	vip_frame_end();
 	vsu_frame_end();
