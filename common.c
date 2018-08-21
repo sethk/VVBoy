@@ -2903,16 +2903,9 @@ vip_mem_prepare(struct mem_request *request)
 		request->mr_wait = 4;
 
 	static bool ignore_mirror = false;
-	if (request->mr_emu & 0x00f80000)
+	if (request->mr_emu & 0xfff80000)
 	{
 		u_int32_t mirror = request->mr_emu & 0x7ffff;
-		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", request->mr_emu, mirror))
-			return false;
-		request->mr_emu = mirror;
-	}
-	else if (request->mr_emu >= 0x40000 && request->mr_emu < 0x60000 && (request->mr_emu & 0x5ff00) != 0x5f800)
-	{
-		u_int32_t mirror = 0x5f800 | (request->mr_emu & 0x7f);
 		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", request->mr_emu, mirror))
 			return false;
 		request->mr_emu = mirror;
@@ -2922,7 +2915,16 @@ vip_mem_prepare(struct mem_request *request)
 		request->mr_host = (u_int8_t *)&vip_vrm + request->mr_emu;
 	else if (request->mr_emu < 0x40000)
 		request->mr_host = (u_int8_t *)&vip_dram + (request->mr_emu & 0x1ffff);
-	else if ((request->mr_emu & 0xfff00) == 0x5f800)
+	else if (request->mr_emu < 0x5f800)
+	{
+		static bool ignore_junk = false;
+		if (!debug_runtime_errorf(&ignore_junk, "Writing to VIP junk memory at 0x%08x", request->mr_emu))
+			return false;
+		assert(request->mr_size <= 4);
+		static u_int32_t junk;
+		request->mr_host = &junk;
+	}
+	else if (request->mr_emu < 0x60000)
 	{
 		if (request->mr_size & 1)
 		{
