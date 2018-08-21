@@ -1233,7 +1233,8 @@ cpu_exec(const union cpu_inst inst)
 		case OP_RETI:
 			if (!cpu_state.cs_psw.psw_flags.f_ep)
 			{
-				debug_runtime_errorf(NULL, "Tried to return from interrupt/exception while EP=0\n");
+				static bool ignore_reti = false;
+				debug_runtime_errorf(&ignore_reti, "Tried to return from interrupt/exception while EP=0\n");
 				break;
 			}
 
@@ -6204,6 +6205,9 @@ debug_tracef(const char *tag, const char *fmt, ...)
 bool __printflike(2, 3)
 debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 {
+	if (ignore_flagp && *ignore_flagp)
+		return true;
+
 	va_list ap;
 	va_start(ap, fmt);
 	char msg[1024];
@@ -6212,9 +6216,6 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	debug_printf("%s\n", msg);
 
 	if (debug_stopped)
-		return true;
-
-	if (ignore_flagp && *ignore_flagp)
 		return true;
 
 	switch (tk_runtime_error(msg, (ignore_flagp != NULL)))
