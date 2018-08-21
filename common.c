@@ -1044,6 +1044,7 @@ cpu_exec(const union cpu_inst inst)
 #ifndef NDEBUG
 	u_int32_t old_pc = cpu_state.cs_pc;
 #endif // !NDEBUG
+	static u_int32_t old_lp = 0x0;
 
 	switch (inst.ci_i.i_opcode)
 	{
@@ -1395,6 +1396,8 @@ cpu_exec(const union cpu_inst inst)
 			cpu_state.cs_r[31].u = cpu_state.cs_pc + 4;
 			cpu_state.cs_pc+= disp;
 
+			old_lp = cpu_state.cs_r[31].u;
+
 			cpu_wait = 3;
 
 			return true;
@@ -1701,6 +1704,21 @@ cpu_exec(const union cpu_inst inst)
 		cpu_state.cs_r[0].s = 0;
 		if (!debug_runtime_errorf(NULL, "r0 written to with non-zero value\n"))
 			return false;
+	}
+
+	if (debug_trace_cpu_lp)
+	{
+		if (old_lp != cpu_state.cs_r[31].u)
+		{
+			debug_str_t pc_s;
+			debug_str_t old_lp_s;
+			debug_str_t lp_s;
+			debug_tracef("cpu.lp", "%s: Link pointer changed %s -> %s",
+			             debug_format_addr(cpu_state.cs_pc, pc_s),
+			             debug_format_addr(old_lp, old_lp_s),
+			             debug_format_addr(cpu_state.cs_r[31].u, lp_s));
+			old_lp = cpu_state.cs_r[31].u;
+		}
 	}
 
 	assert(cpu_state.cs_pc == old_pc);
@@ -4191,6 +4209,7 @@ nvc_mem_write(const struct mem_request *request, const void *src)
 bool debug_trace_cpu = false;
 bool debug_trace_cpu_jmp = false;
 bool debug_trace_cpu_int = false;
+bool debug_trace_cpu_lp = false;
 bool debug_trace_mem_read = false;
 bool debug_trace_mem_write = false;
 bool debug_trace_vip = false;
@@ -4216,6 +4235,7 @@ static struct debug_trace debug_traces[] =
 				{"cpu", "Trace CPU", &debug_trace_cpu},
 				{"cpu.jmp", "Trace CPU jumps", &debug_trace_cpu_jmp},
 				{"cpu.int", "Trace CPU interrupts", &debug_trace_cpu_int},
+				{"cpu.lp", "Trace CPU link pointer", &debug_trace_cpu_lp},
 				{"mem.read", "Trace memory reads", &debug_trace_mem_read},
 				{"mem.write", "Trace memory writes", &debug_trace_mem_write},
 				{"vip", "Trace VIP", &debug_trace_vip},
