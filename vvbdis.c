@@ -111,9 +111,8 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 static void
 create_entry_func(u_int32_t entry_addr)
 {
-	u_int32_t rom_addr = base_addr + (entry_addr & mem_segs[MEM_SEG_ROM].ms_addrmask);
 	u_int32_t offset;
-	struct debug_symbol *entry_sym = debug_resolve_addr(rom_addr, &offset);
+	struct debug_symbol *entry_sym = debug_resolve_addr(entry_addr, &offset);
 	assert(entry_sym);
 	assert(offset == 0);
 	struct func *entry_func = create_func(entry_sym);
@@ -147,7 +146,19 @@ static void
 fetch_inst(union cpu_inst *inst, u_int32_t pc)
 {
 	if (!cpu_fetch(pc, inst))
-		errx(1, "Could not fetch instruction");
+		errx(1, "Could not fetch instruction at 0x%08x", pc);
+}
+
+static void
+incr_pc(u_int32_t *pcp, union cpu_inst *inst)
+{
+	size_t inst_size = cpu_inst_size(inst);
+	if (inst_size > 0xffffffff - *pcp)
+	{
+		*pcp = 0xffffffff;
+		return;
+	}
+	*pcp+= inst_size;
 }
 
 static void
@@ -172,6 +183,7 @@ int
 main(int ac, char * const *av)
 {
 	bool funcs_only = true;
+	debug_trace_file = stderr;
 
 	int ch;
 	while ((ch = getopt(ac, av, "ab:v")) != -1)
@@ -279,7 +291,7 @@ main(int ac, char * const *av)
 			}
 		}
 
-		pc+= cpu_inst_size(&inst);
+		incr_pc(&pc, &inst);
 	}
 
 	if (funcs_only)
@@ -300,6 +312,13 @@ main(int ac, char * const *av)
 			{
 				union cpu_inst inst;
 				fetch_inst(&inst, pc);
+
+				if (inst.ci_hwords[0] == 0xffff && inst.ci_hwords[1] == 0xffff)
+				{
+					printf(";; Stopping at improbable instruction 0xffff 0xffff\n");
+					break;
+				}
+
 				show_disasm(&inst, pc, &context);
 
 				if (inst.ci_i.i_opcode == OP_BCOND)
@@ -316,7 +335,7 @@ main(int ac, char * const *av)
 						pc >= last_branch)
 					break;
 
-				pc+= cpu_inst_size(&inst);
+				incr_pc(&pc, &inst);
 
 				u_int32_t offset;
 				if ((next_func && pc == next_func->f_debug_sym->ds_addr) ||
@@ -340,10 +359,17 @@ main(int ac, char * const *av)
 		{
 			u_int32_t offset;
 			struct debug_symbol *next_sym = debug_resolve_addr(pc, &offset);
-			struct debug_disasm_context *context = NULL;
 			if (next_sym != sym)
 			{
 				sym = next_sym;
+
+				if (offset == 2)
+				{
+					printf(";; Realigning by -2 bytes\n");
+					pc-= 2;
+					offset = 0;
+				}
+
 				if (offset == 0)
 				{
 					struct func *func;
@@ -358,8 +384,8 @@ main(int ac, char * const *av)
 			}
 			union cpu_inst inst;
 			fetch_inst(&inst, pc);
-			show_disasm(&inst, pc, context);
-			pc+= cpu_inst_size(&inst);
+			show_disasm(&inst, pc, &context);
+			incr_pc(&pc, &inst);
 		}
 	}
 

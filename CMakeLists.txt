@@ -34,6 +34,7 @@ add_custom_target(GenHeaders
         DEPENDS makeheaders ${ALL_SOURCES})
 
 add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES} ${IMGUI_SOURCES})
+target_compile_definitions(vvbdis PRIVATE DEBUG_TTY)
 add_dependencies(vvbdis GenHeaders)
 add_executable(vvboy ${VVBOY_SOURCES} vvboy.h ${COMMON_SOURCES} ${TK_SOURCES} ${IMGUI_SOURCES})
 add_dependencies(vvboy GenHeaders)

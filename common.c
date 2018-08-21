@@ -3883,17 +3883,11 @@ nvc_add_syms(void)
 	debug_create_symbol("CCSR", 0x02000004);
 	debug_create_symbol("CCR", 0x02000000);
 
-	u_int32_t rom_mask = mem_segs[MEM_SEG_ROM].ms_addrmask;
 	debug_create_symbol("vect.key", 0xfffffe00);
-	debug_create_symbol(".intkey", 0x07000000 + (0xfffffe00 & rom_mask));
 	debug_create_symbol("vect.tim", 0xfffffe10);
-	debug_create_symbol(".inttim", 0x07000000 + (0xfffffe10 & rom_mask));
 	debug_create_symbol("vect.cro", 0xfffffe20);
-	debug_create_symbol(".intcro", 0x07000000 + (0xfffffe20 & rom_mask));
 	debug_create_symbol("vect.com", 0xfffffe30);
-	debug_create_symbol(".intcom", 0x07000000 + (0xfffffe30 & rom_mask));
 	debug_create_symbol("vect.vip", 0xfffffe40);
-	debug_create_symbol(".intvip", 0x07000000 + (0xfffffe40 & rom_mask));
 }
 
 void
@@ -6124,9 +6118,7 @@ debug_step(void)
 		int length;
 		const char *line = el_gets(s_editline, &length);
 		if (line)
-		{
-			debug_exec(...)
-		}
+			debug_exec(line);
 		else
 		{
 			debug_putchar('\n');
