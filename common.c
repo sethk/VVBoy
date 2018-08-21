@@ -3363,7 +3363,7 @@ vip_frame_begin(void)
 
 	if (vip_fb_open)
 	{
-		if (igBegin("VIP Frame Buffers", &vip_fb_open, 0))
+		if (igBegin("VIP Frame Buffers", &vip_fb_open, ImGuiWindowFlags_NoResize))
 		{
 			static int fb_index = 0;
 			igCombo2("Buffer", &fb_index, "Left 0\0Right 0\0Left 1\0Right 1", 0);
@@ -6909,7 +6909,7 @@ imgui_frame_begin(void)
 
 		if (igBeginMenu("View", true))
 		{
-			igMenuItemPtr("Debug console", "`", &debug_show_console, true);
+			igMenuItemPtr("Debug console...", "`", &debug_show_console, true);
 
 			igSeparator();
 
