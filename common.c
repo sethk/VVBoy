@@ -4222,6 +4222,7 @@ static bool debug_stopped = false;
 static bool debug_stepping = false;
 static bool debug_stepping_frame = false;
 static u_int32_t debug_break = DEBUG_ADDR_NONE;
+static u_int32_t debug_next_pc = DEBUG_ADDR_NONE;
 
 struct debug_trace
 {
@@ -5224,6 +5225,7 @@ static const struct debug_help
 				{'q', "", "Quit the emulator (aliases: quit, exit)"},
 				{'c', "", "Continue execution (aliases: cont)"},
 				{'s', "", "Step into the next instruction (aliases: step)"},
+				{'n', "", "Step over the next instruction, ignoring calls (aliases: next)"},
 				{'b', "[<addr>]", "Set or remove breakpoint\n"
 								  "\t\tOmit address to clear breakpoint"},
 				{'i', "", "Show CPU info (aliases: info)"},
@@ -5394,6 +5396,29 @@ debug_toggle_stopped(void)
 		debug_printf("\nEmulation resumed\n");
 		debug_stopped = false;
 	}
+}
+
+void
+debug_step_inst(void)
+{
+	assert(debug_stopped);
+	debug_stepping = true;
+	debug_stopped = false;
+}
+
+void
+debug_next_inst(void)
+{
+	assert(debug_stopped);
+	union cpu_inst inst;
+	if (cpu_fetch(cpu_state.cs_pc, &inst))
+	{
+		if (inst.ci_i.i_opcode == OP_JMP)
+			debug_next_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
+		else
+			debug_next_pc = cpu_state.cs_pc + cpu_inst_size(&inst);
+	}
+	debug_stopped = false;
 }
 
 void
@@ -5654,10 +5679,14 @@ debug_exec(const char *cmd)
 		else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
 		{
 			if (debug_stopped)
-			{
-				debug_stepping = true;
-				debug_stopped = false;
-			}
+				debug_step_inst();
+			else
+				debug_printf("Not stopped in debugger\n");
+		}
+		else if (!strcmp(argv[0], "n") || !strcmp(argv[0], "next"))
+		{
+			if (debug_stopped)
+				debug_next_inst();
 			else
 				debug_printf("Not stopped in debugger\n");
 		}
@@ -6096,23 +6125,44 @@ debug_exec(const char *cmd)
 	}
 }
 
+static void
+debug_print_inst(void)
+{
+	union cpu_inst inst;
+	if (cpu_fetch(cpu_state.cs_pc, &inst))
+	{
+		debug_str_t addr_s;
+		debug_printf(DEBUG_ADDR_FMT ": %s\n",
+					 debug_format_addr(cpu_state.cs_pc, addr_s),
+					 debug_disasm(&inst, cpu_state.cs_pc, debug_current_context()));
+	}
+}
+
 bool
 debug_step(void)
 {
 	if (debug_stopped)
 		return false;
 
-	if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
-	{
-		debug_printf("\nStopped at breakpoint\n");
-		debug_stop();
-	}
-
 	if (debug_stepping)
 	{
+		debug_print_inst();
 		debug_stop();
 		debug_stepping = false;
 		return true;
+	}
+	else if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
+	{
+		debug_printf("\nStopped at breakpoint\n");
+		debug_stop();
+		return false;
+	}
+	else if (debug_next_pc != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_next_pc)
+	{
+		debug_print_inst();
+		debug_stop();
+		debug_next_pc = DEBUG_ADDR_NONE;
+		return false;
 	}
 
 #if DEBUG_TTY
@@ -6781,6 +6831,8 @@ imgui_frame_begin(void)
 	if (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(SDL_SCANCODE_SPACE, false)*/)
 		imgui_shown = !imgui_shown;
 
+	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F7, true))
+		debug_step_inst();
 	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
 		debug_toggle_stopped();
 	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F8, true))
@@ -6836,6 +6888,11 @@ imgui_frame_begin(void)
 
 			if (igBeginMenu("Debug", true))
 			{
+				if (igMenuItem("Step instruction", "F7", false, debug_is_stopped()))
+					debug_step_inst();
+
+				igSeparator();
+
 				for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
 					igMenuItemPtr(debug_traces[i].dt_label, NULL, debug_traces[i].dt_tracep, true);
 
