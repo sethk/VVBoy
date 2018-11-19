@@ -321,12 +321,23 @@ main(int ac, char * const *av)
 
 				show_disasm(&inst, pc, &context);
 
-				if (inst.ci_i.i_opcode == OP_BCOND)
+				if (verbose)
+					fflush(stdout);
+
+				if (inst.ci_iii.iii_opcode == OP_BCOND)
 				{
 					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
 					u_int32_t target = pc + disp;
+
+					if (verbose >= 2)
+						fprintf(stderr, "Branch target at 0x%08x: 0x%08x\n", pc, target);
+
 					if (target > last_branch)
+					{
+						if (verbose)
+							fprintf(stderr, "Moving last branch to 0x%08x\n", target);
 						last_branch = target;
+					}
 				}
 				else if ((/*inst.ci_i.i_opcode == OP_JR ||*/
 						  inst.ci_i.i_opcode == OP_JMP ||
