@@ -2469,6 +2469,8 @@ static u_int vip_disp_index = 0;
 static u_int vip_frame_cycles = 0;
 bool vip_use_bright = true;
 static bool vip_scan_accurate = false;
+static u_int vip_xp_interval = 250;
+
 enum vip_event
 {
 	VIP_EVENT_FRAMESTART = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(0),
@@ -2924,7 +2926,7 @@ vip_step(void)
 		}
 	}
 
-	if (vip_regs.vr_xpstts.vx_xpen && (scanner_usec % 250) == 0)
+	if (vip_regs.vr_xpstts.vx_xpen && (scanner_usec % vip_xp_interval) == 0)
 	{
 		if (vip_regs.vr_xpstts.vx_xpbsy_fb0)
 			vip_xp_step(0);
@@ -7116,9 +7118,11 @@ imgui_frame_begin(void)
 
 	if (show_timing)
 	{
-		if (igBegin("Timing", &show_timing, ImGuiWindowFlags_NoResize))
+		if (igBegin("Timing", &show_timing, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
 		{
-			igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 5, 50, NULL);
+			igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 1, 100, NULL);
+
+			igSliderInt("VIP drawing duration", (int *)&vip_xp_interval, 1, 1000, NULL);
 
 			igEnd();
 		}
