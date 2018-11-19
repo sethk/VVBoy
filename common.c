@@ -430,7 +430,7 @@ wram_fini(void)
 #if INTERFACE
 #   define CPU_MAX_PC (0xfffffffe)
 
-	union cpu_reg {u_int32_t u; int32_t s; float f; int16_t s16; u_int8_t u8s[4];};
+	union cpu_reg {u_int32_t u; int32_t s; float f; u_int16_t u16; int16_t s16; u_int8_t u8s[4];};
 	typedef union cpu_reg cpu_regs_t[32];
 
 	union cpu_inst
@@ -728,7 +728,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	u_int mem_wait;
 	if (!mem_read(addr, &(inst->ci_hwords[0]), 2, true, &mem_wait))
 	{
-		debug_fatal_errorf("Could not read instruction at 0x%08x", addr);
+		debug_printf("Could not read instruction at 0x%08x", addr);
 		return false;
 	}
 	inst->ci_hwords[0] = OSSwapLittleToHostInt16(inst->ci_hwords[0]);
@@ -736,7 +736,7 @@ cpu_fetch(u_int32_t addr, union cpu_inst *inst)
 	{
 		if (!mem_read(addr + 2, &(inst->ci_hwords[1]), 2, true, &mem_wait))
 		{
-			debug_fatal_errorf("Could not read instruction at 0x%08x", addr + 2);
+			debug_printf("Could not read instruction at 0x%08x", addr + 2);
 			return false;
 		}
 		inst->ci_hwords[1] = OSSwapLittleToHostInt16(inst->ci_hwords[1]);
@@ -749,6 +749,14 @@ static const u_int64_t sign_bit64 = 0x8000000000000000;
 static const u_int64_t sign_bits32to64 = 0xffffffff80000000;
 
 #if INTERFACE
+inline static u_int32_t
+cpu_extend8(u_int32_t s8)
+{
+	if ((s8 & 0x80) == 0x80)
+		s8|= 0xffffff00;
+	return s8;
+}
+
 inline static u_int32_t
 cpu_extend9(u_int32_t s9)
 {
@@ -1261,7 +1269,7 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		case OP_SAR2:
 			cpu_state.cs_r[inst.ci_ii.ii_reg2].u =
-					cpu_shift_arith_right(cpu_state.cs_r[inst.ci_ii.ii_reg2].u, inst.ci_ii.ii_imm5 & 0x1f);
+					cpu_shift_arith_right(cpu_state.cs_r[inst.ci_ii.ii_reg2].u, inst.ci_ii.ii_imm5);
 			break;
 			/*
    OP_TRAP  = 0b011000,
@@ -1462,9 +1470,6 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ORI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u | inst.ci_v.v_imm16;
-			u_int32_t eresult = cpu_state.cs_r[inst.ci_v.v_reg1].u | cpu_extend16(inst.ci_v.v_imm16);
-			if (result != eresult)
-				result = eresult;
 			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
@@ -1472,9 +1477,6 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ANDI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u & inst.ci_v.v_imm16;
-			u_int32_t eresult = cpu_state.cs_r[inst.ci_v.v_reg1].u & cpu_extend16(inst.ci_v.v_imm16);
-			if (result != eresult)
-				result = eresult;
 			cpu_setfl_zs0(result);
 			if (inst.ci_v.v_reg2)
 				cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
@@ -1483,8 +1485,6 @@ cpu_exec(const union cpu_inst inst)
 		case OP_XORI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u ^ inst.ci_v.v_imm16;
-			u_int32_t eresult = cpu_state.cs_r[inst.ci_v.v_reg1].u ^ cpu_extend16(inst.ci_v.v_imm16);
-			assert(result == eresult);
 			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
@@ -1500,10 +1500,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int mem_wait;
 			if (!mem_read(addr, &value, sizeof(value), false, &mem_wait))
 				return false;
-			if ((value & 0x80) == 0x80)
-				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffffff00 | value;
-			else
-				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
+			cpu_state.cs_r[inst.ci_vi.vi_reg2].u = cpu_extend8(value);
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, value, 1);
 
@@ -1519,11 +1516,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int mem_wait;
 			if (!mem_read(addr, &value, sizeof(value), false, &mem_wait))
 				return false;
-			// TODO: Use (int16_t) here
-			if ((value & 0x8000) == 0x8000)
-				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = 0xffff0000 | value;
-			else
-				cpu_state.cs_r[inst.ci_vi.vi_reg2].u = value;
+			cpu_state.cs_r[inst.ci_vi.vi_reg2].u = cpu_extend16(value);
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, value, 2);
 
@@ -1549,12 +1542,12 @@ cpu_exec(const union cpu_inst inst)
 		case OP_OUT_B:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
-			u_int8_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xff;
+			u_int8_t *src = cpu_state.cs_r[inst.ci_vi.vi_reg2].u8s + 0;
 			u_int mem_wait;
-			if (!mem_write(addr, &value, sizeof(value), &mem_wait))
+			if (!mem_write(addr, src, sizeof(*src), &mem_wait))
 				return false;
 			if (debug_watches)
-				debug_watch_write(cpu_state.cs_pc, addr, value, 1);
+				debug_watch_write(cpu_state.cs_pc, addr, *src, sizeof(*src));
 
 			cpu_wait = 1 + mem_wait; // 2 for successive stores
 
@@ -1564,12 +1557,12 @@ cpu_exec(const union cpu_inst inst)
 		case OP_OUT_H:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
-			u_int16_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u & 0xffff;
+			u_int16_t *src = &(cpu_state.cs_r[inst.ci_vi.vi_reg2].u16);
 			u_int mem_wait;
-			if (!mem_write(addr, &value, sizeof(value), &mem_wait))
+			if (!mem_write(addr, src, sizeof(*src), &mem_wait))
 				return false;
 			if (debug_watches)
-				debug_watch_write(cpu_state.cs_pc, addr, value, 2);
+				debug_watch_write(cpu_state.cs_pc, addr, *src, sizeof(*src));
 
 			cpu_wait = 1 + mem_wait; // 2 for successive stores
 
@@ -1579,12 +1572,12 @@ cpu_exec(const union cpu_inst inst)
 		case OP_OUT_W:
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
-			u_int32_t value = cpu_state.cs_r[inst.ci_vi.vi_reg2].u;
+			u_int32_t *src = &(cpu_state.cs_r[inst.ci_vi.vi_reg2].u);
 			u_int mem_wait;
-			if (!mem_write(addr, &value, sizeof(value), &mem_wait))
+			if (!mem_write(addr, src, sizeof(*src), &mem_wait))
 				return false;
 			if (debug_watches)
-				debug_watch_write(cpu_state.cs_pc, addr, value, 4);
+				debug_watch_write(cpu_state.cs_pc, addr, *src, sizeof(*src));
 
 			cpu_wait = 1 + mem_wait; // 2 for successive stores
 
@@ -3026,7 +3019,7 @@ vip_mem_prepare(struct mem_request *request)
 	else if (request->mr_emu < 0x5f800)
 	{
 		static bool ignore_junk = false;
-		if (!debug_runtime_errorf(&ignore_junk, "Writing to VIP junk memory at 0x%08x", request->mr_emu))
+		if (!debug_runtime_errorf(&ignore_junk, "Accessing VIP junk memory at 0x%08x", request->mr_emu))
 			return false;
 		assert(request->mr_size <= 4);
 		static u_int32_t junk;
@@ -5234,15 +5227,13 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			debug_disasm_v(decode, decomp, inst, "MOVEA", "%3$s <- 0x%2$08x + extend(0x%1$04hx)", context);
 			break;
 		case OP_ANDI:
-			debug_disasm_v(decode, decomp, inst, "ANDI", "0x%2$08x & 0x%1$04hx", context);
+			debug_disasm_v(decode, decomp, inst, "ANDI", "%3$s <- 0x%2$08x & 0x%1$04hx", context);
 			break;
 		case OP_MOVHI:
 			debug_disasm_v(decode, decomp, inst, "MOVHI", "%3$s <- 0x%2$08x | (0x%1$04hx << 16)", context);
 			break;
 		case OP_XORI:
-			snprintf(decode, debug_str_len, "%s %hXh, %s, %s",
-			         mnemonic, inst->ci_v.v_imm16, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
-			debug_clear_reg(context, inst->ci_v.v_reg2);
+			debug_disasm_v(decode, decomp, inst, "XORI", "%3$s <- 0x%2$08x ^ 0x%1$04hx", context);
 			break;
 		case OP_ADDI:
 			debug_disasm_v(decode, decomp, inst, "ADDI", "%3$s <- 0x%2$08x + extend(0x%1$04hx)", context);
