@@ -6955,7 +6955,7 @@ imgui_init(void)
 
 	struct ImGuiIO *io = igGetIO();
 	io->IniFilename = NULL;
-	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "vendor/cimgui/imgui/misc/fonts/Roboto-Medium.ttf", 16.0f, NULL, NULL);
+	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "Roboto-Medium.ttf", 16.0f, NULL, NULL);
 	imgui_font_fixed = ImFontAtlas_AddFontDefault(io->Fonts, NULL);
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);

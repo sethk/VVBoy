@@ -32,6 +32,8 @@ add_custom_target(GenHeaders
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         BYPRODUCTS ${GEN_HEADERS}
         DEPENDS makeheaders ${ALL_SOURCES})
+file(COPY ${IMGUI_DIR}/imgui/misc/fonts/Roboto-Medium.ttf DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY gamecontrollerdb.txt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 add_executable(vvbdis ${VVBDIS_SOURCES} vvbdis.h ${COMMON_SOURCES} ${IMGUI_SOURCES})
 target_compile_definitions(vvbdis PRIVATE DEBUG_TTY)
