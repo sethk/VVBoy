@@ -6,6 +6,7 @@
 #endif // INTERFACE
 
 #include "common.h"
+#include "events.h"
 
 #include <sys/stat.h>
 #include <sys/fcntl.h>
@@ -93,6 +94,25 @@ validate_seg_size(size_t size)
 	return (remainder(log2size, 1.0) == 0.0);
 }
 #endif // !NDEBUG
+
+enum mem_event
+{
+	MEM_EVENT_WATCH_READ = EVENT_SUBSYS_BITS(EVENT_SUBSYS_MEM) | EVENT_WHICH_BITS(0),
+	MEM_EVENT_WATCH_WRITE = EVENT_SUBSYS_BITS(EVENT_SUBSYS_MEM) | EVENT_WHICH_BITS(1)
+};
+
+bool
+mem_init(void)
+{
+	events_set_desc(MEM_EVENT_WATCH_READ, "[0x%08x] -> %08x");
+	events_set_desc(MEM_EVENT_WATCH_WRITE, "[0x%08x] <- %08x");
+	return true;
+}
+
+void
+mem_fini(void)
+{
+}
 
 bool
 mem_seg_alloc(enum mem_segment seg, size_t size, int perms)
@@ -632,11 +652,25 @@ struct cpu_state
 };
 
 static struct cpu_state cpu_state;
+bool cpu_accurate_timing = false;
 static u_int cpu_wait;
+
+enum cpu_event
+{
+	CPU_EVENT_INTR_ENTER = EVENT_SUBSYS_BITS(EVENT_SUBSYS_CPU) | EVENT_WHICH_BITS(0),
+	CPU_EVENT_INTR_RETURN = EVENT_SUBSYS_BITS(EVENT_SUBSYS_CPU) | EVENT_WHICH_BITS(1),
+	CPU_EVENT_INTR_ENABLE = EVENT_SUBSYS_BITS(EVENT_SUBSYS_CPU) | EVENT_WHICH_BITS(2),
+	CPU_EVENT_INTR_DISABLE = EVENT_SUBSYS_BITS(EVENT_SUBSYS_CPU) | EVENT_WHICH_BITS(3),
+};
 
 bool
 cpu_init(void)
 {
+	events_set_desc(CPU_EVENT_INTR_ENTER, "Interrupt %u (%s)");
+	events_set_desc(CPU_EVENT_INTR_RETURN, "Return from interrupt");
+	events_set_desc(CPU_EVENT_INTR_ENABLE, "Enable interrupts");
+	events_set_desc(CPU_EVENT_INTR_DISABLE, "Disable interrupts");
+
 	cpu_state.cs_r[0].u = 0; // Read-only
 	cpu_wait = 1;
 
@@ -647,7 +681,7 @@ void
 cpu_add_syms(void)
 {
 	debug_create_symbol("vect.fpe", 0xffffff60);
-	debug_create_symbol("vect.zdiv", 0xffffff80);
+	debug_create_symbol("vect.div0", 0xffffff80);
 	debug_create_symbol("vect.ill", 0xffffff90);
 	debug_create_symbol("vect.trapa", 0xffffffa0);
 	debug_create_symbol("vect.trapb", 0xffffffb0);
@@ -1221,6 +1255,9 @@ cpu_exec(const union cpu_inst inst)
 			break;
 		case OP_CLI:
 			cpu_state.cs_psw.psw_flags.f_id = 0;
+
+			events_fire(CPU_EVENT_INTR_ENABLE, 0, NULL);
+
 			break;
 		case OP_SAR2:
 			cpu_state.cs_r[inst.ci_ii.ii_reg2].u =
@@ -1260,6 +1297,8 @@ cpu_exec(const union cpu_inst inst)
 
 			cpu_wait = 10;
 
+			events_fire(CPU_EVENT_INTR_RETURN, 0, 0);
+
 			return true;
 			/*
    OP_HALT  = 0b011010,
@@ -1280,8 +1319,17 @@ cpu_exec(const union cpu_inst inst)
 					cpu_state.cs_fepsw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
 					break;
 				case REGID_PSW:
+				{
+					bool old_id = cpu_state.cs_psw.psw_flags.f_id;
+
 					cpu_state.cs_psw.psw_word = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
+
+					if (old_id != cpu_state.cs_psw.psw_flags.f_id)
+						events_fire((cpu_state.cs_psw.psw_flags.f_id) ? CPU_EVENT_INTR_DISABLE : CPU_EVENT_INTR_ENABLE,
+								0, NULL);
+
 					break;
+				}
 				case REGID_CHCW:
 				{
 					u_int32_t chcw = cpu_state.cs_r[inst.ci_ii.ii_reg2].u;
@@ -1322,6 +1370,9 @@ cpu_exec(const union cpu_inst inst)
 			}
 		case OP_SEI:
 			cpu_state.cs_psw.psw_flags.f_id = 1;
+
+			events_fire(CPU_EVENT_INTR_DISABLE, 0, NULL);
+
 			break;
 		case OP_BSTR:
 		{
@@ -1411,6 +1462,9 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ORI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u | inst.ci_v.v_imm16;
+			u_int32_t eresult = cpu_state.cs_r[inst.ci_v.v_reg1].u | cpu_extend16(inst.ci_v.v_imm16);
+			if (result != eresult)
+				result = eresult;
 			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
@@ -1418,6 +1472,9 @@ cpu_exec(const union cpu_inst inst)
 		case OP_ANDI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u & inst.ci_v.v_imm16;
+			u_int32_t eresult = cpu_state.cs_r[inst.ci_v.v_reg1].u & cpu_extend16(inst.ci_v.v_imm16);
+			if (result != eresult)
+				result = eresult;
 			cpu_setfl_zs0(result);
 			if (inst.ci_v.v_reg2)
 				cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
@@ -1426,6 +1483,8 @@ cpu_exec(const union cpu_inst inst)
 		case OP_XORI:
 		{
 			u_int32_t result = cpu_state.cs_r[inst.ci_v.v_reg1].u ^ inst.ci_v.v_imm16;
+			u_int32_t eresult = cpu_state.cs_r[inst.ci_v.v_reg1].u ^ cpu_extend16(inst.ci_v.v_imm16);
+			assert(result == eresult);
 			cpu_setfl_zs0(result);
 			cpu_state.cs_r[inst.ci_v.v_reg2].u = result;
 			break;
@@ -2099,8 +2158,13 @@ cpu_step(void)
 {
 	if (cpu_wait > 1)
 	{
-		--cpu_wait;
-		return true;
+		if (cpu_accurate_timing)
+		{
+			--cpu_wait;
+			return true;
+		}
+		else
+			cpu_wait = 0;
 	}
 
 	if (!debug_step())
@@ -2160,6 +2224,8 @@ cpu_intr(enum nvc_intlevel level)
 			}
 
 			cpu_state.cs_pc = cpu_state.cs_ecr.ecr_eicc;
+
+			events_fire(CPU_EVENT_INTR_ENTER, level, nvc_intnames[level]);
 
 			++main_stats.ms_intrs;
 		}
@@ -2410,10 +2476,34 @@ static u_int vip_disp_index = 0;
 static u_int vip_frame_cycles = 0;
 bool vip_use_bright = true;
 static bool vip_scan_accurate = false;
+enum vip_event
+{
+	VIP_EVENT_FRAMESTART = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(0),
+	VIP_EVENT_GAMESTART = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(1),
+	VIP_EVENT_DRAW_ENABLE = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(2),
+	VIP_EVENT_DRAW_DISABLE = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(3),
+	VIP_EVENT_DRAW_START = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_START_BIT | EVENT_WHICH_BITS(4),
+	VIP_EVENT_DRAW_FINISH = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_FINISH_BIT | EVENT_WHICH_BITS(4),
+	VIP_EVENT_CLEAR_START = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_START_BIT | EVENT_WHICH_BITS(5),
+	VIP_EVENT_CLEAR_FINISH = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_FINISH_BIT | EVENT_WHICH_BITS(5)
+};
+
+enum scan_event
+{
+	SCAN_EVENT_DISP_START = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_START_BIT | EVENT_WHICH_BITS(0),
+	SCAN_EVENT_DISP_FINISH = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_FINISH_BIT | EVENT_WHICH_BITS(0)
+};
 
 bool
 vip_init(void)
 {
+	events_set_desc(VIP_EVENT_FRAMESTART, "FRAMESTART FRMCYC=%i");
+	events_set_desc(VIP_EVENT_GAMESTART, "GAMESTART");
+	events_set_desc(VIP_EVENT_DRAW_ENABLE, "Draw enable");
+	events_set_desc(VIP_EVENT_DRAW_DISABLE, "Draw disable");
+	events_set_desc(VIP_EVENT_DRAW_START, "Draw FB%u");
+	events_set_desc(VIP_EVENT_CLEAR_START, "Clear FB%u");
+	events_set_desc(SCAN_EVENT_DISP_START, "Display FB%u");
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
 	bzero(&vip_regs, sizeof(vip_regs));
@@ -2495,6 +2585,8 @@ vip_clear_start(u_int fb_index)
 		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 1;
 	else
 		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 1;
+
+	events_fire(VIP_EVENT_CLEAR_START, fb_index, 0);
 }
 
 static void
@@ -2515,6 +2607,8 @@ vip_clear_finish(u_int fb_index)
 		bzero(vip_vrm.vv_right1, sizeof(vip_vrm.vv_right1));
 		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
 	}
+
+	events_fire(VIP_EVENT_CLEAR_FINISH, fb_index, 0);
 }
 
 struct vip_chr *
@@ -2623,11 +2717,15 @@ vip_frame_clock(void)
 	if (debug_trace_vip)
 		debug_tracef("vip", "FRAMESTART");
 
+	events_fire(VIP_EVENT_FRAMESTART, vip_frame_cycles, 0);
+
 	if (vip_frame_cycles == 0)
 	{
 		intflags|= VIP_GAMESTART;
 		if (debug_trace_vip)
 			debug_tracef("vip", "GAMESTART");
+
+		events_fire(VIP_EVENT_GAMESTART, 0, 0);
 
 		if (vip_regs.vr_xpctrl.vx_xprst)
 		{
@@ -2647,6 +2745,8 @@ vip_frame_clock(void)
 			if (debug_trace_vip)
 				debug_tracef("vip", "XPEN=%d", vip_regs.vr_xpctrl.vx_xpen);
 			vip_regs.vr_xpstts.vx_xpen = vip_regs.vr_xpctrl.vx_xpen;
+
+			events_fire((vip_regs.vr_xpstts.vx_xpen) ? VIP_EVENT_DRAW_ENABLE : VIP_EVENT_DRAW_DISABLE, 0, 0);
 		}
 
 		if (vip_regs.vr_xpstts.vx_xpen)
@@ -2665,6 +2765,8 @@ vip_frame_clock(void)
 
 				vip_draw_start(fb_index);
 				vip_update_sbcount(0);
+
+				events_fire(VIP_EVENT_DRAW_START, fb_index, 0);
 			}
 			// else TODO: OVERTIME
 		}
@@ -2760,6 +2862,8 @@ vip_step(void)
 
 			if (vip_scan_accurate)
 				vip_scan_out(vip_disp_index, false);
+
+			events_fire(SCAN_EVENT_DISP_START, vip_disp_index, 0);
 		}
 	}
 	else if (scanner_usec == 7500 && vip_regs.vr_dpstts.vd_synce)
@@ -2779,6 +2883,8 @@ vip_step(void)
 					debug_tracef("vip", "Display L:FB1 finish");
 			}
 			vip_raise(VIP_LFBEND);
+
+			events_fire(SCAN_EVENT_DISP_FINISH, vip_disp_index, 0);
 		}
 	}
 	else if (scanner_usec == 12500 && vip_regs.vr_dpstts.vd_synce)
@@ -2862,6 +2968,8 @@ vip_xp_step(u_int fb_index)
 
 			vip_regs.vr_xpstts.vx_sbcount = 0;
 			vip_raise(VIP_XPEND);
+
+			events_fire(VIP_EVENT_DRAW_FINISH, fb_index, 0);
 		}
 	}
 	else
@@ -3170,6 +3278,11 @@ vip_frame_begin(void)
 						vip_bgm_types &= ~mask;
 				}
 			}
+
+			igSameLine(0, -1);
+			if (igButton("Force draw enabled", IMVEC2_ZERO))
+				vip_regs.vr_xpctrl.vx_xpen = 1;
+
 			igSeparator();
 
 			igColumns(5, "Worlds", true);
@@ -3840,7 +3953,8 @@ struct nvc_regs
 		NVC_INTTIM = 1,
 		NVC_INTCRO = 2,
 		NVC_INTCOM = 3,
-		NVC_INTVIP = 4
+		NVC_INTVIP = 4,
+		NVC_NUM_INTLEVEL
 	};
 
 	enum nvc_key
@@ -3874,10 +3988,30 @@ static struct
 } nvc_timer;
 u_int nvc_cycles_per_usec = 20;
 static u_int16_t nvc_keys;
+const char * const nvc_intnames[(enum nvc_intlevel)NVC_NUM_INTLEVEL] =
+		{
+				[NVC_INTKEY] = "KEY",
+				[NVC_INTTIM] = "TIM",
+				[NVC_INTCRO] = "CRO",
+				[NVC_INTCOM] = "COM",
+				[NVC_INTVIP] = "VIP",
+		};
+
+enum nvc_event
+{
+	NVC_EVENT_TIMER_SET = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(0),
+	NVC_EVENT_TIMER_EXPIRED = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(1),
+	NVC_EVENT_KEY_DOWN = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(2),
+	NVC_EVENT_KEY_UP = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(3)
+};
 
 bool
 nvc_init(void)
 {
+	events_set_desc(NVC_EVENT_TIMER_SET, "Timer set");
+	events_set_desc(NVC_EVENT_TIMER_EXPIRED, "Timer expired");
+	events_set_desc(NVC_EVENT_KEY_DOWN, "Key 0x%x down");
+	events_set_desc(NVC_EVENT_KEY_UP, "Key 0x%x up");
 	return cpu_init();
 }
 
@@ -4038,6 +4172,8 @@ nvc_step(void)
 				nvc_trace_timer("Timer expired");
 			if (nvc_regs.nr_tcr.t_z_int)
 				cpu_intr(NVC_INTTIM);
+
+			events_fire(NVC_EVENT_TIMER_EXPIRED, 0, 0);
 		}
 	}
 
@@ -4056,6 +4192,8 @@ nvc_input(enum nvc_key key, bool state)
 		nvc_keys|= key;
 	else
 		nvc_keys&= ~key;
+
+	events_fire((state) ? NVC_EVENT_KEY_DOWN : NVC_EVENT_KEY_UP, key, 0);
 
 	//if ((main_usec % 512) == 0) // takes about 512 µs to read the controller data
 	if (nvc_regs.nr_scr.s_hw_si)
@@ -5634,6 +5772,8 @@ debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 		             debug_format_addr(pc, addr_s),
 		             debug_format_addr(addr, mem_addr_s),
 		             debug_format_hex((u_int8_t *)&value, byte_size, hex_s));
+
+		events_fire(MEM_EVENT_WATCH_READ, addr, (void *)(uintptr_t)value);
 	}
 }
 
@@ -5647,6 +5787,8 @@ debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size
 		             debug_format_addr(pc, addr_s),
 		             debug_format_addr(addr, mem_addr_s),
 		             debug_format_hex((u_int8_t *)&value, byte_size, hex_s));
+
+		events_fire(MEM_EVENT_WATCH_WRITE, addr, (void *)(uintptr_t)value);
 	}
 }
 
@@ -6800,6 +6942,10 @@ static u_int imgui_emu_scale = 2;
 struct ImGuiContext *imgui_context;
 struct ImFont *imgui_font_fixed;
 
+#if INTERFACE
+#   define IMVEC2(x, y) ((struct ImVec2){(x), (y)})
+#endif // INTERFACE
+
 const struct ImVec2 IMVEC2_ZERO = {0, 0};
 
 static bool
@@ -6824,15 +6970,19 @@ imgui_fini(void)
 	igDestroyContext(imgui_context);
 }
 
-static void
+static bool
 imgui_key_toggle(int key_index, bool *togglep, bool show_on_active)
 {
 	if (igIsKeyPressed(key_index, false))
 	{
 		*togglep = !*togglep;
 		if (show_on_active && *togglep)
+		{
 			imgui_shown = true;
+			return true;
+		}
 	}
+	return false;
 }
 
 void
@@ -6857,7 +7007,9 @@ imgui_frame_begin(void)
 
 	if (igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI))
 	{
-		if (igIsKeyPressed(SDL_SCANCODE_1, false))
+		if (igIsKeyPressed(SDL_SCANCODE_R, false))
+			main_reset();
+		else if (igIsKeyPressed(SDL_SCANCODE_1, false))
 			imgui_emu_scale = 1;
 		else if (igIsKeyPressed(SDL_SCANCODE_2, false))
 			imgui_emu_scale = 2;
@@ -6915,6 +7067,7 @@ imgui_frame_begin(void)
 		if (igBeginMenu("View", true))
 		{
 			igMenuItemPtr("Debug console...", "`", &debug_show_console, true);
+			igMenuItemPtr("Events...", NULL, &events_shown, true);
 
 			igSeparator();
 
@@ -7032,7 +7185,9 @@ struct main_stats_t main_stats;
 bool
 main_init(void)
 {
-	return (sram_init() &&
+	return (events_init() &&
+			mem_init() &&
+			sram_init() &&
 			wram_init() &&
 			vip_init() &&
 			vsu_init() &&
@@ -7055,6 +7210,8 @@ main_fini(void)
 	vip_fini();
 	wram_fini();
 	sram_fini();
+	mem_fini();
+	events_fini();
 }
 
 void
@@ -7094,6 +7251,8 @@ main_restart_clock(void)
 	main_stats.ms_intrs = 0;
 
 	main_usec = 0;
+
+	events_clear();
 }
 
 void
@@ -7257,6 +7416,7 @@ main_frame(void)
 	main_draw();
 
 	debug_frame_end();
+	events_frame_end();
 
 	imgui_frame_end();
 }

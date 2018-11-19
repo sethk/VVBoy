@@ -5,6 +5,7 @@
 /vvboy.h
 /rom.h
 /common.h
+/events.h
 /tk_sdl.h
 /tk_null.h
 /vip_draw.h
