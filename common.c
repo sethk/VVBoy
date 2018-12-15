@@ -6450,7 +6450,9 @@ debug_fatal_errorf(const char *fmt, ...)
 	vsnprintf(msg, sizeof(msg), fmt, ap);
 	debug_printf("%s\n", msg);
 	va_end(ap);
-	debug_stop();
+
+	if (!debug_stopped)
+		debug_stop();
 }
 
 void
