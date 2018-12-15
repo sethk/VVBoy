@@ -1121,6 +1121,15 @@ cpu_exec(const union cpu_inst inst)
 				             (inst.ci_i.i_reg1 == 31) ? "RET" : "JMP",
 				             debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, dest_addr_s));
 			}
+
+			if (MEM_ADDR2SEG(cpu_state.cs_r[inst.ci_i.i_reg1].u) != MEM_SEG_ROM)
+			{
+				debug_str_t addr_s;
+				if (!debug_runtime_errorf(NULL, "JMP to non-ROM addr " DEBUG_ADDR_FMT,
+							debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, addr_s)))
+					return false;
+			}
+
 			cpu_state.cs_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
 
 			cpu_wait = 3;
