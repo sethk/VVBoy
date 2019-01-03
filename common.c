@@ -2209,7 +2209,7 @@ cpu_intr(enum nvc_intlevel level)
 			}
 
 			cpu_state.cs_eipc = cpu_state.cs_pc;
-			cpu_state.cs_eipsw = cpu_state.cs_eipsw;
+			cpu_state.cs_eipsw = cpu_state.cs_psw;
 			cpu_state.cs_ecr.ecr_eicc = 0xfe00 | (level << 4);
 			cpu_state.cs_psw.psw_flags.f_ep = 1;
 			cpu_state.cs_psw.psw_flags.f_id = 1;
