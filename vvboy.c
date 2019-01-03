@@ -45,9 +45,9 @@ main(int ac, char * const *av)
 
 	if (trace_path)
 	{
-		debug_trace_file = fopen(optarg, "w");
+		debug_trace_file = fopen(trace_path, "w");
 		if (!debug_trace_file)
-			err(EX_CANTCREAT, "Can't open trace file %s", optarg);
+			err(EX_CANTCREAT, "Can't open trace file %s", trace_path);
 		if (linebuf && setlinebuf(debug_trace_file) != 0)
 			err(EX_OSERR, "Can't set trace line-buffered");
 	}
