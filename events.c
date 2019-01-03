@@ -37,6 +37,7 @@ struct event
 };
 
 bool events_shown;
+static bool events_capturing = false;
 static bool events_overflowed = false;
 static struct event events[64 * 1024];
 static u_int events_count;
@@ -83,6 +84,9 @@ events_set_desc(u_int16_t code, const char *fmt)
 void
 events_fire(u_int16_t code, u_int32_t index, const void *user_data)
 {
+	if (!events_capturing)
+		return;
+
 	if (events_count < sizeof(events) / sizeof(events[0]))
 	{
 		enum event_subsys subsys = EVENT_GET_SUBSYS(code);
@@ -115,6 +119,9 @@ events_fire(u_int16_t code, u_int32_t index, const void *user_data)
 void
 events_clear(void)
 {
+	if (!events_capturing)
+		return;
+
 	events_count = 0;
 	for (enum event_subsys subsys = 0; subsys < EVENT_NUM_SUBSYS; ++subsys)
 	{
@@ -133,6 +140,8 @@ events_frame_end(void)
 		igSetNextWindowSize(IMVEC2(750, 450), ImGuiCond_FirstUseEver);
 		if (igBegin("Events", &events_shown, 0))
 		{
+			igCheckbox("Capture", &events_capturing);
+
 			static bool scroll_to_end = false;
 			static float scroll_to_pos = -1;
 
