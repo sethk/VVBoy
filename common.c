@@ -2494,8 +2494,10 @@ enum vip_event
 
 enum scan_event
 {
-	SCAN_EVENT_DISP_START = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_START_BIT | EVENT_WHICH_BITS(0),
-	SCAN_EVENT_DISP_FINISH = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_FINISH_BIT | EVENT_WHICH_BITS(0)
+	SCAN_EVENT_LDISP_START = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_START_BIT | EVENT_WHICH_BITS(0),
+	SCAN_EVENT_LDISP_FINISH = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_FINISH_BIT | EVENT_WHICH_BITS(0),
+	SCAN_EVENT_RDISP_START = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_START_BIT | EVENT_WHICH_BITS(1),
+	SCAN_EVENT_RDISP_FINISH = EVENT_SUBSYS_BITS(EVENT_SUBSYS_SCAN) | EVENT_FINISH_BIT | EVENT_WHICH_BITS(1)
 };
 
 bool
@@ -2507,7 +2509,8 @@ vip_init(void)
 	events_set_desc(VIP_EVENT_DRAW_DISABLE, "Draw disable");
 	events_set_desc(VIP_EVENT_DRAW_START, "Draw FB%u");
 	events_set_desc(VIP_EVENT_CLEAR_START, "Clear FB%u");
-	events_set_desc(SCAN_EVENT_DISP_START, "Display FB%u");
+	events_set_desc(SCAN_EVENT_LDISP_START, "Display L:FB%u");
+	events_set_desc(SCAN_EVENT_RDISP_START, "Display R:FB%u");
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
 	bzero(&vip_regs, sizeof(vip_regs));
@@ -2867,7 +2870,7 @@ vip_step(void)
 			if (vip_scan_accurate)
 				vip_scan_out(vip_disp_index, false);
 
-			events_fire(SCAN_EVENT_DISP_START, vip_disp_index, 0);
+			events_fire(SCAN_EVENT_LDISP_START, vip_disp_index, 0);
 		}
 	}
 	else if (scanner_usec == 7500 && vip_regs.vr_dpstts.vd_synce)
@@ -2888,7 +2891,7 @@ vip_step(void)
 			}
 			vip_raise(VIP_LFBEND);
 
-			events_fire(SCAN_EVENT_DISP_FINISH, vip_disp_index, 0);
+			events_fire(SCAN_EVENT_LDISP_FINISH, vip_disp_index, 0);
 		}
 	}
 	else if (scanner_usec == 12500 && vip_regs.vr_dpstts.vd_synce)
@@ -2910,6 +2913,8 @@ vip_step(void)
 
 			if (vip_scan_accurate)
 				vip_scan_out(vip_disp_index, true);
+
+			events_fire(SCAN_EVENT_RDISP_START, vip_disp_index, 0);
 		}
 	}
 	else if (scanner_usec == 17500 && vip_regs.vr_dpstts.vd_synce)
@@ -2930,6 +2935,9 @@ vip_step(void)
 			}
 
 			vip_raise(VIP_RFBEND);
+
+			events_fire(SCAN_EVENT_RDISP_FINISH, vip_disp_index, 0);
+
 			vip_disp_index = (vip_disp_index + 1) % 2;
 			++main_stats.ms_frames;
 		}
