@@ -1080,6 +1080,26 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	return true;
 }
 
+u_int32_t
+cpu_next_pc(const union cpu_inst inst)
+{
+	if (inst.ci_i.i_opcode == OP_JMP)
+		return cpu_state.cs_r[inst.ci_i.i_reg1].u;
+	else if (inst.ci_i.i_opcode == OP_RETI)
+		return cpu_state.cs_r[31].u;
+	else if (inst.ci_iii.iii_opcode == OP_BCOND)
+	{
+		bool branch = cpu_getfl(inst.ci_iii.iii_cond);
+		if (branch)
+		{
+			u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
+			return cpu_state.cs_pc + disp;
+		}
+	}
+
+	return cpu_state.cs_pc + cpu_inst_size(&inst);
+}
+
 static bool
 cpu_exec(const union cpu_inst inst)
 {
@@ -4375,8 +4395,16 @@ bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 FILE *debug_trace_file = NULL;
 
-static bool debug_stopped = false;
-static bool debug_stepping = false;
+enum debug_mode
+{
+	DEBUG_RUN,
+	DEBUG_STOP,
+	DEBUG_CONTINUE,
+	DEBUG_STEP,
+	DEBUG_NEXT
+};
+
+static enum debug_mode debug_mode = DEBUG_RUN;
 static bool debug_stepping_frame = false;
 static u_int32_t debug_break = DEBUG_ADDR_NONE;
 static u_int32_t debug_next_pc = DEBUG_ADDR_NONE;
@@ -5378,11 +5406,13 @@ static const struct debug_help
 		{
 				{'?', "", "Display this help (aliases: help)"},
 				{'q', "", "Quit the emulator (aliases: quit, exit)"},
+				{'h', "", "Stop execution (aliases: halt, stop)"},
 				{'c', "", "Continue execution (aliases: cont)"},
 				{'s', "", "Step into the next instruction (aliases: step)"},
 				{'n', "", "Step over the next instruction, ignoring calls (aliases: next)"},
 				{'b', "[<addr>]", "Set or remove breakpoint\n"
 								  "\t\tOmit address to clear breakpoint"},
+				{'f', "", "Finish executing the current function (aliases: finish)"},
 				{'i', "", "Show CPU info (aliases: info)"},
 				{'x', "<addr> [<format>[<size>]] [<count>]", "Examine memory at <addr>\n"
 						          "\t\tFormats: h (hex), i (instructions), b (binary), a (address), C (VIP CHR),"
@@ -5519,15 +5549,29 @@ debug_disasm_at(u_int32_t *addrp)
 void
 debug_stop(void)
 {
-	if (debug_stopped)
+	if (debug_mode == DEBUG_STOP)
 	{
-		fprintf(stderr, "debug_stop() called while debug_stopped=true\n");
+		fprintf(stderr, "debug_stop() called while debug_mode=STOPPED\n");
 		return;
 	}
 
-	debug_stopped = true;
+	debug_mode = DEBUG_STOP;
 	debug_show_console = true;
 	imgui_shown = true;
+
+	main_update_caption(NULL);
+}
+
+void
+debug_continue(void)
+{
+	if (debug_mode != DEBUG_STOP)
+	{
+		fprintf(stderr, "debug_run() called while debug_mode=%u\n", debug_mode);
+		return;
+	}
+
+	debug_mode = DEBUG_CONTINUE;
 
 	main_update_caption(NULL);
 }
@@ -5535,13 +5579,13 @@ debug_stop(void)
 bool
 debug_is_stopped(void)
 {
-	return debug_stopped;
+	return (debug_mode == DEBUG_STOP);
 }
 
 void
 debug_toggle_stopped(void)
 {
-	if (!debug_stopped)
+	if (debug_mode != DEBUG_STOP)
 	{
 		debug_printf("\nEmulation paused\n");
 		debug_stop();
@@ -5549,40 +5593,35 @@ debug_toggle_stopped(void)
 	else
 	{
 		debug_printf("\nEmulation resumed\n");
-		debug_stopped = false;
+		debug_continue();
 	}
 }
 
 void
 debug_step_inst(void)
 {
-	assert(debug_stopped);
-	debug_stepping = true;
-	debug_stopped = false;
+	assert(debug_mode == DEBUG_STOP);
+	debug_mode = DEBUG_STEP;
 }
 
 void
 debug_next_inst(void)
 {
-	assert(debug_stopped);
+	assert(debug_mode == DEBUG_STOP);
 	union cpu_inst inst;
 	if (cpu_fetch(cpu_state.cs_pc, &inst))
 	{
-		if (inst.ci_i.i_opcode == OP_JMP)
-			debug_next_pc = cpu_state.cs_r[inst.ci_i.i_reg1].u;
-		else
-			debug_next_pc = cpu_state.cs_pc + cpu_inst_size(&inst);
+		debug_next_pc = cpu_next_pc(inst);
+		debug_continue();
 	}
-	debug_stopped = false;
 }
 
 void
 debug_next_frame(void)
 {
-	assert(debug_stopped);
-	assert(!debug_stepping);
+	assert(debug_mode == DEBUG_STOP);
 	debug_stepping_frame = true;
-	debug_stopped = false;
+	debug_continue();
 }
 
 char *
@@ -5825,26 +5864,33 @@ debug_exec(const char *cmd)
 		else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
 		{
 			tk_quit();
-			debug_stopped = false;
+			debug_mode = DEBUG_RUN;
 			running = false;
+		}
+		else if (!strcmp(argv[0], "h") || !strcmp(argv[0], "halt") || !strcmp(argv[0], "stop"))
+		{
+			if (debug_mode == DEBUG_RUN)
+				debug_mode = DEBUG_STOP;
+			else
+				debug_printf("Not running\n");
 		}
 		else if (!strcmp(argv[0], "c") || !strcmp(argv[0], "cont"))
 		{
-			if (debug_stopped)
-				debug_stopped = false;
+			if (debug_mode == DEBUG_STOP)
+				debug_mode = DEBUG_CONTINUE;
 			else
 				debug_printf("Not stopped in debugger\n");
 		}
 		else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
 		{
-			if (debug_stopped)
+			if (debug_mode == DEBUG_STOP)
 				debug_step_inst();
 			else
 				debug_printf("Not stopped in debugger\n");
 		}
 		else if (!strcmp(argv[0], "n") || !strcmp(argv[0], "next"))
 		{
-			if (debug_stopped)
+			if (debug_mode == DEBUG_STOP)
 				debug_next_inst();
 			else
 				debug_printf("Not stopped in debugger\n");
@@ -5870,6 +5916,16 @@ debug_exec(const char *cmd)
 				debug_break = DEBUG_ADDR_NONE;
 				debug_printf("Cleared breakpoint\n");
 			}
+		}
+		else if (!strcmp(argv[0], "f") || !strcmp(argv[0], "finish"))
+		{
+			if (debug_mode == DEBUG_STOP)
+			{
+				debug_next_pc = cpu_state.cs_r[31].u;
+				debug_continue();
+			}
+			else
+				debug_printf("Not stopped in debugger\n");
 		}
 		else if (!strcmp(argv[0], "i") || !strcmp(argv[0], "info"))
 		{
@@ -6303,29 +6359,35 @@ debug_print_inst(void)
 bool
 debug_step(void)
 {
-	if (debug_stopped)
-		return false;
-
-	if (debug_stepping)
+	if (debug_mode == DEBUG_RUN)
 	{
-		debug_print_inst();
-		debug_stop();
-		debug_stepping = false;
+		if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
+		{
+			debug_printf("\nStopped at breakpoint\n");
+			debug_stop();
+			return false;
+		}
+		else if (debug_next_pc != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_next_pc)
+		{
+			debug_print_inst();
+			debug_stop();
+			debug_next_pc = DEBUG_ADDR_NONE;
+			return false;
+		}
+	}
+	else if (debug_mode == DEBUG_CONTINUE)
+	{
+		debug_mode = DEBUG_RUN;
 		return true;
 	}
-	else if (debug_break != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_break)
-	{
-		debug_printf("\nStopped at breakpoint\n");
-		debug_stop();
-		return false;
-	}
-	else if (debug_next_pc != DEBUG_ADDR_NONE && cpu_state.cs_pc == debug_next_pc)
+	else if (debug_mode == DEBUG_STEP)
 	{
 		debug_print_inst();
 		debug_stop();
-		debug_next_pc = DEBUG_ADDR_NONE;
-		return false;
+		return true;
 	}
+	else if (debug_mode == DEBUG_STOP)
+		return false;
 
 #if DEBUG_TTY
 	main_unblock_sigint();
@@ -6427,7 +6489,7 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	va_end(ap);
 	debug_printf("%s\n", msg);
 
-	if (debug_stopped)
+	if (debug_mode == DEBUG_STOP)
 		return true;
 
 	switch (tk_runtime_error(msg, (ignore_flagp != NULL)))
@@ -6459,7 +6521,7 @@ debug_fatal_errorf(const char *fmt, ...)
 	debug_printf("%s\n", msg);
 	va_end(ap);
 
-	if (!debug_stopped)
+	if (debug_mode != DEBUG_STOP)
 		debug_stop();
 }
 
@@ -6609,7 +6671,7 @@ debug_frame_end(void)
 
 			igEndChild();
 
-			if (debug_stopped)
+			if (debug_mode == DEBUG_STOP)
 			{
 				union cpu_inst inst;
 				if (cpu_fetch(cpu_state.cs_pc, &inst))
@@ -6650,7 +6712,7 @@ debug_frame_end(void)
 		igEnd();
 	}
 
-	if (clear_each_frame && !debug_stopped)
+	if (clear_each_frame && debug_mode != DEBUG_STOP)
 		debug_clear_console = true;
 }
 
