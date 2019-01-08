@@ -51,6 +51,9 @@ func_addr_valid(u_int32_t func_addr)
 static void
 upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u_int32_t caller_addr)
 {
+	if (verbose >= 2)
+		fprintf(stderr, "Upsert func 0x%08x basename %s, caller 0x%08x\n", func_addr, basename, caller_addr);
+
 	if (!func_addr_valid(func_addr))
 	{
 		if (verbose >= 1)
@@ -105,6 +108,10 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 	caller->fc_next = NULL;
 	*prev_callerp = caller;
 
+	if (verbose >= 2)
+		fprintf(stderr, "Added caller 0x%08x to function %s at 0x%08x\n",
+				caller->fc_addr, func->f_debug_sym->ds_name, func->f_debug_sym->ds_addr);
+
 	++func->f_call_count;
 }
 
@@ -139,6 +146,35 @@ show_func(const struct debug_symbol *sym, const struct func *func)
 			printf(";;\t%s\n", debug_format_addr(caller->fc_addr, addr_s));
 		}
 		puts(";;");
+	}
+}
+
+static void
+show_call_graph(const struct func *func)
+{
+	for (struct func_caller *caller = func->f_callers; caller; caller = caller->fc_next)
+	{
+		u_int32_t offset;
+		struct debug_symbol *caller_sym = debug_resolve_addr(caller->fc_addr, &offset);
+		if (!caller_sym)
+		{
+			debug_str_t addr_s;
+			fprintf(stderr, "Could not resolve caller address %s\n", debug_format_addr(caller->fc_addr, addr_s));
+			continue;
+		}
+
+		struct func *caller_func;
+		for (caller_func = funcs; caller_func; caller_func = caller_func->f_next)
+			if (caller_func->f_debug_sym == caller_sym)
+				break;
+
+		if (!caller_func)
+		{
+			fprintf(stderr, "Could not find caller func for symbol %s\n", caller_sym->ds_name);
+			continue;
+		}
+
+		printf("\t\"%s\" -> \"%s\";\n", caller_sym->ds_name, func->f_debug_sym->ds_name);
 	}
 }
 
@@ -182,11 +218,12 @@ usage(void)
 int
 main(int ac, char * const *av)
 {
+	bool show_graph = false;
 	bool funcs_only = true;
 	debug_trace_file = stderr;
 
 	int ch;
-	while ((ch = getopt(ac, av, "ab:v")) != -1)
+	while ((ch = getopt(ac, av, "ab:gv")) != -1)
 		switch (ch)
 		{
 			default:
@@ -207,6 +244,11 @@ main(int ac, char * const *av)
 				}
 				break;
 			}
+
+			case 'g':
+				show_graph = true;
+				break;
+
 			case 'v':
 				++verbose;
 				break;
@@ -257,6 +299,15 @@ main(int ac, char * const *av)
 		fetch_inst(&inst, pc);
 		debug_disasm(&inst, pc, &context);
 
+		u_int32_t caller_addr;
+		if (pc >= end - 0x1ff)
+		{
+			// Adjust PC for interrupt vectors
+			caller_addr = 0xfffffffe - (end - pc);
+		}
+		else
+			caller_addr = pc;
+
 		switch ((enum cpu_opcode)inst.ci_i.i_opcode)
 		{
 			default:
@@ -266,7 +317,7 @@ main(int ac, char * const *av)
 			{
 				u_int32_t disp = cpu_inst_disp26(&inst);
 				u_int32_t func_addr = pc + disp;
-				upsert_func("func", func_addr, &func_sym_index, pc);
+				upsert_func("func", func_addr, &func_sym_index, caller_addr);
 				break;
 			}
 			case OP_JMP:
@@ -274,7 +325,7 @@ main(int ac, char * const *av)
 				const union cpu_reg *jmp_reg;
 
 				if (verbose >= 2)
-					fprintf(stderr, "Found JMP at 0x%08x: %s\n", pc, debug_disasm(&inst, pc, NULL));
+					fprintf(stderr, "Found JMP at 0x%08x: %s\n", caller_addr, debug_disasm(&inst, caller_addr, NULL));
 				if (inst.ci_i.i_reg1 == 31)
 				{
 					if (verbose >= 2)
@@ -282,7 +333,7 @@ main(int ac, char * const *av)
 				}
 				else if ((jmp_reg = debug_get_reg(&context, inst.ci_i.i_reg1)))
 				{
-					upsert_func("entry", jmp_reg->u, &entry_sym_index, pc);
+					upsert_func("entry", jmp_reg->u, &entry_sym_index, caller_addr);
 					bzero(&context, sizeof(context));
 				}
 				else if (verbose >= 1)
@@ -294,7 +345,15 @@ main(int ac, char * const *av)
 		incr_pc(&pc, &inst);
 	}
 
-	if (funcs_only)
+	if (show_graph)
+	{
+		puts("digraph calls {");
+		puts("\trankdir=LR;");
+		for (struct func *func = funcs; func; func = func->f_next)
+			show_call_graph(func);
+		puts("}");
+	}
+	else if (funcs_only)
 	{
 		struct func *next_func;
 		for (struct func *func = funcs; func; func = next_func)
