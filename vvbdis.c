@@ -21,8 +21,9 @@ static struct func
 static int verbose = 0;
 static const u_int32_t rom_addr = MEM_SEG2ADDR(MEM_SEG_ROM);
 static u_int32_t rom_end;
-static u_int32_t base_addr = rom_addr;
-static u_int32_t func_end;
+static u_int32_t text_begin = rom_addr, text_end;
+static const u_int32_t vect_begin = 0xfffffe00, vect_end = 0xfffffffe;
+
 
 static struct func *
 create_func(const struct debug_symbol *sym)
@@ -43,7 +44,7 @@ func_addr_valid(u_int32_t func_addr)
 		return false;
 	if (func_addr >= rom_addr && func_addr <= rom_end)
 		return true;
-	else if (func_addr >= base_addr && func_addr <= func_end)
+	else if (func_addr >= text_begin && func_addr <= text_end)
 		return true;
 	return false;
 }
@@ -185,6 +186,41 @@ fetch_inst(union cpu_inst *inst, u_int32_t pc)
 		errx(1, "Could not fetch instruction at 0x%08x", pc);
 }
 
+static bool
+inst_is_branch(const union cpu_inst *inst, u_int32_t pc, struct func *next_func, const struct debug_disasm_context *context, u_int32_t *targetp)
+{
+	if (inst->ci_iii.iii_opcode == OP_BCOND)
+	{
+		u_int32_t disp = cpu_extend9(inst->ci_iii.iii_disp9);
+		*targetp = pc + disp;
+		return true;
+	}
+	else if (inst->ci_i.i_opcode == OP_JMP && inst->ci_i.i_reg1 != 31)
+	{
+		if (pc >= vect_begin) // Always assume longjump from vector addresses
+			return false;
+
+		const union cpu_reg *jmp_reg;
+		if ((jmp_reg = debug_get_reg(context, inst->ci_i.i_reg1)))
+		{
+			*targetp = jmp_reg->u;
+
+			if (next_func && *targetp >= next_func->f_debug_sym->ds_addr)
+				return false;
+
+			return true;
+		}
+	}
+	else if (inst->ci_i.i_opcode == OP_JR)
+	{
+		u_int32_t disp = cpu_inst_disp26(inst);
+		*targetp = pc + disp;
+		return true;
+	}
+
+	return false;
+}
+
 static void
 incr_pc(u_int32_t *pcp, union cpu_inst *inst)
 {
@@ -203,6 +239,113 @@ show_disasm(union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *con
 	debug_str_t addr_s;
 	printf(DEBUG_ADDR_FMT ":", debug_format_addr((pc), addr_s));
 	printf(" %s\n", debug_disasm(inst, pc, context));
+}
+
+static void
+scan_area(u_int32_t begin, u_int32_t end)
+{
+	u_int32_t pc = begin;
+	static u_int func_sym_index = 0;
+	static u_int entry_sym_index = 0;
+	struct debug_disasm_context context;
+	bzero(&context, sizeof(context));
+	while (pc < end)
+	{
+		union cpu_inst inst;
+		fetch_inst(&inst, pc);
+		debug_disasm(&inst, pc, &context);
+
+#if 0
+		u_int32_t caller_addr;
+		if (pc >= end - 0x1ff)
+		{
+			// Adjust PC for interrupt vectors
+			caller_addr = 0xfffffffe - (end - pc);
+		}
+		else
+			caller_addr = pc;
+#endif // 0
+
+		switch ((enum cpu_opcode)inst.ci_i.i_opcode)
+		{
+			default:
+				break;
+			//case OP_JR:
+			case OP_JAL:
+			{
+				u_int32_t disp = cpu_inst_disp26(&inst);
+				u_int32_t func_addr = pc + disp;
+				upsert_func("func", func_addr, &func_sym_index, /*caller_addr*/pc);
+				break;
+			}
+			case OP_JMP:
+			{
+				const union cpu_reg *jmp_reg;
+
+				if (verbose >= 2)
+					fprintf(stderr, "Found JMP at 0x%08x: %s\n", /*caller_addr*/pc, debug_disasm(&inst, /*caller_addr*/pc, NULL));
+				if (inst.ci_i.i_reg1 == 31)
+				{
+					if (verbose >= 2)
+						fputs("JMP [lp] is return, skipping\n", stderr);
+				}
+				else if (pc >= vect_begin)
+				{
+					if ((jmp_reg = debug_get_reg(&context, inst.ci_i.i_reg1)))
+					{
+						upsert_func("entry", jmp_reg->u, &entry_sym_index, /*caller_addr*/pc);
+						bzero(&context, sizeof(context));
+					}
+					else if (verbose >= 1)
+						fprintf(stderr, "Can't read %s for JMP target, skipping\n", debug_rnames[inst.ci_i.i_reg1]);
+				}
+				break;
+			}
+		}
+
+		incr_pc(&pc, &inst);
+	}
+}
+
+static void
+disasm_area(u_int32_t begin, u_int32_t end)
+{
+	struct debug_symbol *sym = NULL;
+	struct debug_disasm_context context;
+	bzero(&context, sizeof(context));
+	u_int32_t pc = begin;
+	while (pc < end)
+	{
+		u_int32_t offset;
+		struct debug_symbol *next_sym = debug_resolve_addr(pc, &offset);
+		if (next_sym != sym)
+		{
+			sym = next_sym;
+
+			if (offset == 2)
+			{
+				printf(";; Realigning by -2 bytes\n");
+				pc-= 2;
+				offset = 0;
+			}
+
+			if (offset == 0)
+			{
+				struct func *func;
+				for (func = funcs; func; func = func->f_next)
+				{
+					if (func->f_debug_sym == sym)
+						break;
+				}
+				show_func(sym, func);
+				bzero(&context, sizeof(context));
+			}
+		}
+		union cpu_inst inst;
+		fetch_inst(&inst, pc);
+		show_disasm(&inst, pc, &context);
+		incr_pc(&pc, &inst);
+	}
 }
 
 static void
@@ -236,7 +379,7 @@ main(int ac, char * const *av)
 			case 'b':
 			{
 				char *endp;
-				base_addr = strtoul(optarg, &endp, 0);
+				text_begin = strtoul(optarg, &endp, 0);
 				if (*endp != '\0')
 				{
 					fprintf(stderr, "Can't parse base address %s\n", optarg);
@@ -264,13 +407,19 @@ main(int ac, char * const *av)
 
 	rom_end = MIN(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
 	assert(rom_end > rom_addr);
-	func_end = MIN(base_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
-	assert(func_end > base_addr);
-	if (verbose > 0)
+
+	text_end = debug_locate_symbol("text");
+	if (text_end == DEBUG_ADDR_NONE)
 	{
-		fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, base_addr: 0x%08x, func_end: 0x%08x\n",
-		        rom_addr, rom_end, base_addr, func_end);
+		text_end = MIN(text_begin + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+		if (verbose > 0)
+			fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
 	}
+	assert(text_end > text_begin);
+
+	if (verbose > 0)
+		fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, text_begin: 0x%08x, text_end: 0x%08x\n",
+		        rom_addr, rom_end, text_begin, text_end);
 
 	create_entry_func(0xfffffe00);
 	create_entry_func(0xfffffe10);
@@ -286,64 +435,8 @@ main(int ac, char * const *av)
 	create_entry_func(0xffffffd0);
 	create_entry_func(0xfffffff0);
 
-	u_int32_t begin = base_addr;
-	u_int32_t end = func_end;
-	u_int32_t pc = begin;
-	static u_int func_sym_index = 0;
-	static u_int entry_sym_index = 0;
-	struct debug_disasm_context context;
-	bzero(&context, sizeof(context));
-	while (pc < end)
-	{
-		union cpu_inst inst;
-		fetch_inst(&inst, pc);
-		debug_disasm(&inst, pc, &context);
-
-		u_int32_t caller_addr;
-		if (pc >= end - 0x1ff)
-		{
-			// Adjust PC for interrupt vectors
-			caller_addr = 0xfffffffe - (end - pc);
-		}
-		else
-			caller_addr = pc;
-
-		switch ((enum cpu_opcode)inst.ci_i.i_opcode)
-		{
-			default:
-				break;
-			//case OP_JR:
-			case OP_JAL:
-			{
-				u_int32_t disp = cpu_inst_disp26(&inst);
-				u_int32_t func_addr = pc + disp;
-				upsert_func("func", func_addr, &func_sym_index, caller_addr);
-				break;
-			}
-			case OP_JMP:
-			{
-				const union cpu_reg *jmp_reg;
-
-				if (verbose >= 2)
-					fprintf(stderr, "Found JMP at 0x%08x: %s\n", caller_addr, debug_disasm(&inst, caller_addr, NULL));
-				if (inst.ci_i.i_reg1 == 31)
-				{
-					if (verbose >= 2)
-						fputs("JMP [lp] is return, skipping\n", stderr);
-				}
-				else if ((jmp_reg = debug_get_reg(&context, inst.ci_i.i_reg1)))
-				{
-					upsert_func("entry", jmp_reg->u, &entry_sym_index, caller_addr);
-					bzero(&context, sizeof(context));
-				}
-				else if (verbose >= 1)
-					fprintf(stderr, "Can't read %s for JMP target, skipping\n", debug_rnames[inst.ci_i.i_reg1]);
-				break;
-			}
-		}
-
-		incr_pc(&pc, &inst);
-	}
+	scan_area(text_begin, text_end);
+	scan_area(vect_begin, vect_end);
 
 	if (show_graph)
 	{
@@ -361,8 +454,8 @@ main(int ac, char * const *av)
 			next_func = func->f_next;
 			show_func(func->f_debug_sym, func);
 
-			pc = func->f_debug_sym->ds_addr;
-			end = MIN(pc + (u_int64_t)16384, CPU_MAX_PC); // Maximum function length
+			u_int32_t pc = func->f_debug_sym->ds_addr;
+			u_int32_t end = MIN(pc + (u_int64_t)16384, CPU_MAX_PC); // Maximum function length
 			assert(end >= pc);
 			u_int32_t last_branch = 0;
 			struct debug_disasm_context context;
@@ -383,11 +476,9 @@ main(int ac, char * const *av)
 				if (verbose)
 					fflush(stdout);
 
-				if (inst.ci_iii.iii_opcode == OP_BCOND)
+				u_int32_t target;
+				if (inst_is_branch(&inst, pc, next_func, &context, &target))
 				{
-					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
-					u_int32_t target = pc + disp;
-
 					if (verbose >= 2)
 						fprintf(stderr, "Branch target at 0x%08x: 0x%08x\n", pc, target);
 
@@ -398,8 +489,7 @@ main(int ac, char * const *av)
 						last_branch = target;
 					}
 				}
-				else if ((/*inst.ci_i.i_opcode == OP_JR ||*/
-						  inst.ci_i.i_opcode == OP_JMP ||
+				else if ((inst.ci_i.i_opcode == OP_JMP ||
 						  inst.ci_i.i_opcode == OP_RETI ||
 				          inst.ci_i.i_opcode == OP_TRAP) &&
 						pc >= last_branch)
@@ -421,42 +511,8 @@ main(int ac, char * const *av)
 	}
 	else
 	{
-		struct debug_symbol *sym = NULL;
-		struct debug_disasm_context context;
-		bzero(&context, sizeof(context));
-		pc = begin;
-		while (pc < end)
-		{
-			u_int32_t offset;
-			struct debug_symbol *next_sym = debug_resolve_addr(pc, &offset);
-			if (next_sym != sym)
-			{
-				sym = next_sym;
-
-				if (offset == 2)
-				{
-					printf(";; Realigning by -2 bytes\n");
-					pc-= 2;
-					offset = 0;
-				}
-
-				if (offset == 0)
-				{
-					struct func *func;
-					for (func = funcs; func; func = func->f_next)
-					{
-						if (func->f_debug_sym == sym)
-							break;
-					}
-					show_func(sym, func);
-					bzero(&context, sizeof(context));
-				}
-			}
-			union cpu_inst inst;
-			fetch_inst(&inst, pc);
-			show_disasm(&inst, pc, &context);
-			incr_pc(&pc, &inst);
-		}
+		disasm_area(text_begin, text_end);
+		disasm_area(vect_begin, vect_end);
 	}
 
 	while (funcs)

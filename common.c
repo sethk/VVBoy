@@ -4775,7 +4775,7 @@ debug_current_context(void)
 }
 
 const union cpu_reg *
-debug_get_reg(struct debug_disasm_context *context, u_int rnum)
+debug_get_reg(const struct debug_disasm_context *context, u_int rnum)
 {
 	static const union cpu_reg zero_reg = {.u = 0};
 	static const union cpu_reg global_reg = {.u = 0x05008000};
@@ -6451,7 +6451,7 @@ debug_printf(const char *fmt, ...)
 	size_t length = vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
 #if DEBUG_TTY
-	fputs(msg, stdout);
+	fputs(msg, stderr);
 #endif // DEBUG_TTY
 	for (size_t offset = 0; offset < length; ++offset)
 		debug_putchar(msg[offset]);
@@ -6590,7 +6590,7 @@ debug_draw_console(bool show_buffers)
 			if (low_begin < low_end)
 			{
 				if (show_buffers)
-					igPushStyleColor(ImGuiCol_Text, (struct ImVec4) {0.5, 0.5, 1, 1});
+					igPushStyleColor(ImGuiCol_Text, (struct ImVec4){0.5, 0.5, 1, 1});
 				igTextUnformatted(debug_console_buffer + low_begin, debug_console_buffer + low_end + 1);
 				if (show_buffers)
 					igPopStyleColor(1);
