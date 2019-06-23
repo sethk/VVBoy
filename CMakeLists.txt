@@ -3,6 +3,7 @@ project(vvboy)
 
 add_compile_options(-Wall -Wextra -Wformat -Werror)
 set(CMAKE_C_FLAGS_RELEASE "-O3")
+#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
 find_library(EDIT_LIB edit)
 link_libraries(${EDIT_LIB})
 find_package(SDL2 REQUIRED)
