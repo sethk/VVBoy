@@ -4,6 +4,7 @@
 /doc/virtual_boy.pdf
 /vvboy.h
 /rom.h
+/vip.h
 /common.h
 /events.h
 /tk_sdl.h

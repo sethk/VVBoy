@@ -379,6 +379,13 @@ rom_add_symbol(const struct debug_symbol *sym)
 		fprintf(rom_symbol_fp, "%08x %s\n", sym->ds_addr, sym->ds_name);
 }
 
+const void *
+rom_get_read_ptr(u_int32_t addr)
+{
+	u_int32_t offset = addr & mem_segs[MEM_SEG_ROM].ms_addrmask;
+	return mem_segs[MEM_SEG_ROM].ms_ptr + offset;
+}
+
 void
 rom_unload(void)
 {
