@@ -40,3 +40,6 @@ target_compile_definitions(vvbdis PRIVATE DEBUG_TTY)
 add_dependencies(vvbdis GenHeaders)
 add_executable(vvboy ${VVBOY_SOURCES} vvboy.h ${COMMON_SOURCES} ${TK_SOURCES} ${IMGUI_SOURCES})
 add_dependencies(vvboy GenHeaders)
+
+# TODO: macOS only
+add_compile_definitions(vvboy PRIVATE GL_SILENCE_DEPRECATION)
