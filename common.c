@@ -2959,7 +2959,7 @@ vip_step(void)
 			events_fire(SCAN_EVENT_RDISP_FINISH, vip_disp_index, 0);
 
 			vip_disp_index = (vip_disp_index + 1) % 2;
-			++main_stats.ms_frames;
+			++main_stats.ms_scans;
 		}
 	}
 
@@ -5863,7 +5863,7 @@ debug_exec(const char *cmd)
 		}
 		else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
 		{
-			tk_quit();
+			main_quit();
 			debug_mode = DEBUG_RUN;
 			running = false;
 		}
@@ -6402,7 +6402,7 @@ debug_step(void)
 		else
 		{
 			debug_putchar('\n');
-			tk_quit();
+			main_quit();
 			break;
 		}
 	}
@@ -7102,7 +7102,7 @@ imgui_frame_begin(void)
 		if (igBeginMenu("File", true))
 		{
 			if (igMenuItem("Quit", "Cmd+Q", NULL, true))
-				tk_quit();
+				main_quit();
 
 			igEndMenu();
 		}
@@ -7201,7 +7201,13 @@ imgui_frame_begin(void)
 	{
 		if (igBegin("Timing", &show_timing, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
 		{
+			igCheckbox("Fixed timestep", &main_fixed_rate);
+
+			igSliderFloat("Emulation speed", &main_time_scale, 0.05, 2.0, "%.2f", 1);
+
 			igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 1, 100, NULL);
+
+			igCheckbox("Accurate instruction timing", &cpu_accurate_timing);
 
 			igSliderInt("VIP drawing duration", (int *)&vip_xp_interval, 1, 1000, NULL);
 
@@ -7246,8 +7252,9 @@ imgui_debug_image(enum gl_texture texture, u_int width, u_int height)
 #if INTERFACE
 	struct main_stats_t
 	{
-		u_int32_t ms_start_ticks;
+		u_int32_t ms_start_usec;
 		u_int ms_frames;
+		u_int ms_scans;
 		u_int ms_insts;
 		u_int ms_intrs;
 	};
@@ -7255,7 +7262,8 @@ imgui_debug_image(enum gl_texture texture, u_int width, u_int height)
 
 u_int32_t main_usec;
 bool main_trace = false;
-static int main_speed;
+bool main_fixed_rate = false;
+float main_time_scale = 1.0f;
 struct main_stats_t main_stats;
 
 bool
@@ -7298,31 +7306,35 @@ main_update_caption(const char *stats)
 	offset+= snprintf(caption, sizeof(caption), (stats) ? "%s: %s [%s]" : "%s: %s", "VVBoy", rom_name, stats);
 	if (debug_is_stopped())
 		offset+= snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
-	else if (main_speed != 0)
-		offset += snprintf(caption + offset, sizeof(caption) - offset, " *Speed %gx*", pow(2.0, main_speed));
+	else if (main_time_scale != 1.0)
+		offset += snprintf(caption + offset, sizeof(caption) - offset, " *Time Scale %gx*", main_time_scale);
 	tk_update_caption(caption);
 }
 
 static void
 main_restart_clock(void)
 {
-	u_int32_t ticks = tk_get_ticks();
+	u_int32_t usec = tk_get_usec();
 	if (main_stats.ms_insts > 0)
 	{
 		char stats_s[100];
-		u_int32_t delta = ticks - main_stats.ms_start_ticks;
-		float fps = (float)main_stats.ms_frames / ((float)delta / 1000);
+		u_int32_t delta_usecs = usec - main_stats.ms_start_usec;
+		float delta_secs = delta_usecs * 1e-6f;
+		float fps = (float)main_stats.ms_frames / delta_secs;
+		float emu_fps = (float)main_stats.ms_scans / delta_secs;
 		if (main_trace)
-			debug_tracef("main", "%u frames in %u ms (%g FPS), %u instructions, %u interrupts",
-						 main_stats.ms_frames, delta, fps,
+			debug_tracef("main", "%u frames in %u µs (%g FPS), %u scans (%g FPS), %u instructions, %u interrupts",
+						 main_stats.ms_frames, delta_usecs, fps,
+						 main_stats.ms_scans, emu_fps,
 						 main_stats.ms_insts,
 						 main_stats.ms_intrs);
-		snprintf(stats_s, sizeof(stats_s), "%.3g EMU FPS", fps);
+		snprintf(stats_s, sizeof(stats_s), "%.3g FPS, %.3g EMU FPS", fps, emu_fps);
 		main_update_caption(stats_s);
 	}
 
-	main_stats.ms_start_ticks = ticks;
+	main_stats.ms_start_usec = usec;
 	main_stats.ms_frames = 0;
+	main_stats.ms_scans = 0;
 	main_stats.ms_insts = 0;
 	main_stats.ms_intrs = 0;
 
@@ -7335,8 +7347,6 @@ void
 main_reset(void)
 {
 	main_restart_clock();
-
-	main_speed = 0;
 
 	vip_reset();
 	vsu_reset();
@@ -7356,17 +7366,6 @@ main_step(void)
 		main_restart_clock();
 
 	return true;
-}
-
-void
-main_toggle_speed(void)
-{
-	if (main_speed == -3)
-		main_speed = 0;
-	else
-		--main_speed;
-
-	main_update_caption(NULL);
 }
 
 void
@@ -7436,46 +7435,25 @@ main_draw(void)
 }
 
 void
-main_frame(void)
+main_frame(u_int delta_usecs)
 {
+	tk_frame_begin();
+
 	gl_clear();
 
 	imgui_frame_begin();
-
-	u_int main_frame_usec = 20000;
 
 	debug_frame_begin();
 	nvc_frame_begin();
 	vip_frame_begin();
 
-#if 0
-	if (igBeginMainMenuBar())
-	{
-		if (igBeginMenu("Run", true))
-		{
-			igBeginChild("Speed", (struct ImVec2){120, 30}, false, 0);
-			{
-				igSliderInt("Speed", &main_speed, -3, 3, "2^%.0f");
-				igEndChild();
-			}
-
-			if (igMenuItem("Interrupt", NULL, false, true))
-				debugging = true;
-
-			igEndMenu();
-		}
-
-		igEndMainMenuBar();
-	}
-#endif // 0
-
 	if (main_trace)
-		debug_tracef("main", "Begin frame");
+		debug_tracef("main", "Begin frame, delta_usecs=%u", delta_usecs);
 
-	if (main_speed != 0)
-		main_frame_usec = lround(20000.0 * pow(2.0, main_speed));
+	if (main_time_scale != 1.0)
+		delta_usecs = lround(delta_usecs * main_time_scale);
 
-	while (main_step() && (main_usec % main_frame_usec) != 0);
+	while (delta_usecs-- != 0 && main_step());
 
 	// Check SIGINT -> Debugger
 	sigset_t sigpend;
@@ -7495,4 +7473,8 @@ main_frame(void)
 	events_frame_end();
 
 	imgui_frame_end();
+
+	tk_frame_end();
+
+	++main_stats.ms_frames;
 }

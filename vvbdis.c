@@ -348,6 +348,12 @@ disasm_area(u_int32_t begin, u_int32_t end)
 	}
 }
 
+// TODO: Remove
+void
+main_quit()
+{
+}
+
 static void
 usage(void)
 {

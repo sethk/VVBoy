@@ -8,6 +8,7 @@
 #include <SDL.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
+#include "assert.h"
 
 #if !SDL_VERSION_ATLEAST(2, 0, 7)
 # warning Problems with game controller GUIDs on macOS with version 2.0.5
@@ -17,7 +18,6 @@
 
 u_int tk_width, tk_height;
 
-static bool tk_running = false;
 static SDL_Window *sdl_window;
 static SDL_GameController *sdl_controller;
 static SDL_GLContext sdl_gl_context;
@@ -98,64 +98,20 @@ tk_update_caption(const char *caption)
 }
 
 u_int32_t
-tk_get_ticks(void)
+tk_get_usec(void)
 {
-	return SDL_GetTicks();
-}
-
-static Uint32
-tk_frame_tick(Uint32 interval __unused, void *param __unused)
-{
-	SDL_Event event;
-	SDL_UserEvent userevent;
-
-	userevent.type = SDL_USEREVENT;
-	userevent.code = 0;
-	userevent.data1 = NULL;
-	userevent.data2 = NULL;
-
-	event.type = SDL_USEREVENT;
-	event.user = userevent;
-
-	SDL_PushEvent(&event);
-
-	return 0;
+	return SDL_GetTicks() * 1000;
 }
 
 void
-tk_frame(void)
+tk_frame_begin(void)
 {
-	static Uint32 last_ticks = 0;
-	static float smooth_interval = 20;
-	static float smooth_jitter = 0;
-	Uint32 now = SDL_GetTicks();
-	if (last_ticks)
-	{
-		Sint32 jitter = 20 - (now - last_ticks);
-#define JITTER_LPF (0.1)
-#define MIN_INTERVAL (10) // Setting a timer shorter than this is pointless due to scheduling granularity
-		smooth_jitter = smooth_jitter * (1.0 - JITTER_LPF) + (float)jitter * JITTER_LPF;
-		smooth_interval = fminf(fmaxf(smooth_interval + smooth_jitter, MIN_INTERVAL), 25);
-
-		/*
-		static u_int trace = 0;
-		if ((++trace % 20) == 0)
-			debug_tracef("sdl", "tk_frame_tick() smooth_interval = %g, jitter %d, smooth_jitter %g\n",
-					smooth_interval, jitter, smooth_jitter);
-					*/
-	}
-	last_ticks = now;
-
-	Uint32 interval = lroundf(smooth_interval);
-	if (interval > MIN_INTERVAL)
-		SDL_AddTimer(interval, tk_frame_tick, NULL);
-	else
-		tk_frame_tick(interval, NULL);
-
 	ImGui_ImplSdlGL3_NewFrame(sdl_window);
+}
 
-	main_frame();
-
+void
+tk_frame_end(void)
+{
 	struct ImDrawData *imgui_data = igGetDrawData();
 	if (imgui_data)
 		ImGui_ImplSdlGL3_RenderDrawData(imgui_data);
@@ -163,26 +119,19 @@ tk_frame(void)
 	SDL_GL_SwapWindow(sdl_window);
 }
 
-void
-tk_main(void)
+bool
+tk_poll_input()
 {
-	tk_running = true;
-
-	SDL_AddTimer(20, tk_frame_tick, NULL);
-
 	struct ImGuiIO *imgui_io = igGetIO();
 	SDL_Event event;
-	while (tk_running && SDL_WaitEvent(&event))
+	while (SDL_PollEvent(&event))
 	{
 		ImGui_ImplSdlGL3_ProcessEvent(&event);
 
 		switch (event.type)
 		{
-			case SDL_USEREVENT:
-				tk_frame();
-				break;
 			case SDL_QUIT:
-				tk_running = false;
+				return false;
 				break;
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
@@ -263,18 +212,14 @@ tk_main(void)
 		}
 	}
 
-	ImGui_ImplSdlGL3_Shutdown();
-}
-
-void
-tk_quit(void)
-{
-	tk_running = false;
+	return true;
 }
 
 void
 tk_fini(void)
 {
+	ImGui_ImplSdlGL3_Shutdown();
+
 	if (sdl_controller)
 		SDL_GameControllerClose(sdl_controller);
 

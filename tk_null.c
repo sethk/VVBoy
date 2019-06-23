@@ -24,21 +24,26 @@ tk_update_caption(const char *caption __unused)
 }
 
 u_int32_t
-tk_get_ticks(void)
+tk_get_usec(void)
 {
 	struct timeval now;
 	if (gettimeofday(&now, NULL) == -1)
 		warn("gettimeofday()");
-	return (now.tv_sec - start_time.tv_sec) * 1000 + (now.tv_usec - start_time.tv_usec) / 1000;
+	return (now.tv_sec - start_time.tv_sec) * 1000000 + (now.tv_usec - start_time.tv_usec);
 }
 
 void
-tk_main(void)
+tk_frame_begin(void)
 {
 }
 
 void
-tk_quit(void)
+tk_frame_end(void)
+{
+}
+
+void
+tk_main(void)
 {
 }
 

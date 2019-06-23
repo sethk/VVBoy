@@ -4,6 +4,54 @@
 #include <err.h>
 #include <sysexits.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <math.h>
+
+extern inline u_int maxu(u_int a, u_int b) { return a > b ? a : b; }
+extern inline u_int minu(u_int a, u_int b) { return a < b ? a : b; }
+extern inline u_int clampu(u_int x, u_int min, u_int max) { return minu(maxu(x, min), max); }
+
+static bool main_running = true;
+static const u_int main_min_fps = 25;
+static const u_int main_max_fps = 100;
+
+void
+main_quit(void)
+{
+	main_running = false;
+}
+
+static void
+main_loop(void)
+{
+	static u_int last_frame_usec = 0;
+	static const u_int max_frame_usecs = 1e6 / main_min_fps;
+	static const u_int min_frame_usecs = 1e6 / main_max_fps;
+
+	while (main_running)
+	{
+		if (!tk_poll_input())
+			return;
+
+		u_int delta_usecs;
+
+		if (main_fixed_rate)
+			delta_usecs = 20000;
+		else
+		{
+			u_int frame_usec = tk_get_usec();
+			if (last_frame_usec)
+				delta_usecs = clampu(frame_usec - last_frame_usec, min_frame_usecs, max_frame_usecs);
+			else
+				delta_usecs = min_frame_usecs;
+			last_frame_usec = frame_usec;
+		}
+
+		main_frame(delta_usecs);
+
+		//usleep(10000);
+	}
+}
 
 int
 main(int ac, char * const *av)
@@ -71,7 +119,9 @@ main(int ac, char * const *av)
 		debug_stop();
 
 	main_block_sigint();
-	tk_main();
+
+	main_loop();
+
 	main_unblock_sigint();
 
 	rom_unload();
