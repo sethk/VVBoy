@@ -6626,12 +6626,15 @@ debug_frame_end(void)
 
 			if (igBeginMenuBar())
 			{
+				// TODO: Reimplement traps using events
+				/*
 				if (igBeginMenu("Trap", true))
 				{
 					igMenuItemPtr("VIP draw start", NULL, &vip_trap_draw_start, true);
 
 					igEndMenu();
 				}
+				*/
 
 				if (igBeginMenu("Log", true))
 				{
