@@ -211,6 +211,7 @@ struct vip_vspan
 {
 	u_int vvs_scr_y;
 	u_int vvs_win_y;
+	u_int vvs_clip_y;
 	u_int vvs_height;
 };
 
@@ -220,6 +221,10 @@ struct vip_hspan
 	int vhs_win_x;
 	u_int vhs_width;
 };
+
+typedef u_int8_t vip_unpacked_row_t[384];
+typedef vip_unpacked_row_t vip_unpacked_8rows_t[8];
+typedef vip_unpacked_row_t vip_unpacked_fb_t[224];
 
 static const enum vip_intflag vip_dpints =
 		VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
@@ -487,44 +492,63 @@ vip_fb_write_clip(u_int8_t *fb, u_int16_t x, u_int16_t y, u_int8_t value)
 		vip_fb_write(fb, x, y, value);
 }
 
-static u_int8_t
-vip_bgmap_read(const struct vip_bgsc *bgmap_base, const struct vip_world_att *vwa, int x, int y, bool *opaquep)
+static bool
+vip_clip_vspan(u_int scr_clip_y, u_int scr_clip_height, int scr_y, u_int win_height, struct vip_vspan *vspan)
 {
-	u_int width_chrs = (vwa->vwa_scy + 1) * vip_bgseg_width,
-			height_chrs = (vwa->vwa_scx + 1) * vip_bgseg_height;
-	int bg_x = (u_int)x / 8, bg_y = (u_int)y / 8;
-	u_int chr_x = (u_int)x % 8, chr_y = (u_int)y % 8;
-	const struct vip_bgsc *vb;
-	if (bg_x >= 0 && (u_int)bg_x < width_chrs && bg_y >= 0 && (u_int)bg_y < height_chrs)
-		vb = &(bgmap_base[bg_y * width_chrs + bg_x]);
-	else if (vwa->vwa_over)
-		vb = &(bgmap_base[vwa->vwa_over_chrno]);
-	else
-		vb = &(bgmap_base[(bg_y % height_chrs) * width_chrs + (bg_x % width_chrs)]);
+	int max_scr_y = scr_y + win_height;
+	if (max_scr_y <= (int)scr_clip_y)
+		return false;
 
-	return vip_bgsc_read_slow(vb, chr_x, chr_y, opaquep);
+	u_int max_clip_y = scr_clip_y + scr_clip_height;
+	if (scr_y >= (int)max_clip_y)
+		return false;
+
+	if (max_scr_y > (int)max_clip_y)
+		win_height = max_clip_y - scr_y;
+
+	if (scr_y < (int)scr_clip_y)
+	{
+		vspan->vvs_scr_y = scr_clip_y;
+		vspan->vvs_win_y = scr_clip_y - scr_y;
+		vspan->vvs_clip_y = 0;
+		vspan->vvs_height = win_height - vspan->vvs_win_y;
+	}
+	else
+	{
+		vspan->vvs_scr_y = (u_int)scr_y;
+		vspan->vvs_win_y = 0;
+		vspan->vvs_clip_y = scr_y - scr_clip_y;
+		vspan->vvs_height = win_height;
+	}
+	return true;
 }
 
-static void
-vip_draw_bgmap_row(const struct vip_bgsc *bgmap_base,
-                   const struct vip_world_att *vwa,
-                   u_int y, u_int scr_y,
-                   const struct vip_hspan *hspan,
-                   u_int8_t *fb)
+static bool
+vip_clip_hspan(int scr_x, int win_x, u_int win_width, struct vip_hspan *hspan)
 {
-	u_int width = hspan->vhs_width;
-	int x = hspan->vhs_win_x;
-	u_int scr_x = hspan->vhs_scr_x;
-	while (width > 0)
+	int max_scr_x = scr_x + win_width;
+	if (max_scr_x <= 0)
+		return false;
+
+	if (scr_x >= 384)
+		return false;
+
+	if (max_scr_x > 384)
+		win_width = 384 - scr_x;
+
+	if (scr_x < 0)
 	{
-		bool opaque;
-		u_int8_t pixel = vip_bgmap_read(bgmap_base, vwa, x, y, &opaque);
-		if (opaque)
-			vip_fb_write(fb, scr_x, scr_y, pixel);
-		++x;
-		++scr_x;
-		--width;
+		hspan->vhs_scr_x = 0;
+		hspan->vhs_win_x = win_x - scr_x;
+		hspan->vhs_width = win_width + scr_x;
 	}
+	else
+	{
+		hspan->vhs_scr_x = (u_int)scr_x;
+		hspan->vhs_win_x = win_x;
+		hspan->vhs_width = win_width;
+	}
+	return true;
 }
 
 static u_int8_t
@@ -581,7 +605,7 @@ vip_bgmap_read_slow(const struct vip_bgsc *bgmap_base,
 	return vip_bgsc_read_slow(vb, chr_x, chr_y, opaquep);
 }
 
-static void
+static void __unused
 vip_draw_bgmap_row_slow(const struct vip_world_att *vwa,
                         u_int16_t *param_tbl,
                         struct vip_bgsc *bgmap_base,
@@ -614,30 +638,266 @@ vip_draw_bgmap_row_slow(const struct vip_world_att *vwa,
 	}
 }
 
-static void
-vip_draw_bgmap(const struct vip_bgsc *bgmap_base,
-               const struct vip_world_att *vwa,
-               const struct vip_vspan *vspan,
-               const struct vip_hspan *hspan,
-               u_int8_t *fb)
+struct vip_bgmap_cursor
 {
+	int vbc_bg_x, vbc_bg_y;
+	u_int vbc_chr_x, vbc_chr_y;
+	const struct vip_bgsc *vbc_bgsc;
+	const struct vip_chr *vbc_chr;
+};
+
+static void
+vip_draw_bgmap_start(struct vip_bgmap_cursor *cursor,
+		const struct vip_bgsc *bgmap_base,
+		const struct vip_world_att *vwa,
+		int win_x, int win_y)
+{
+	u_int width_chrs = (vwa->vwa_scy + 1) * vip_bgseg_width,
+		  height_chrs = (vwa->vwa_scx + 1) * vip_bgseg_height;
+
+	cursor->vbc_bg_x = (u_int)win_x / 8;
+	cursor->vbc_bg_y = (u_int)win_y / 8;
+	cursor->vbc_chr_x = (u_int)win_x % 8;
+	cursor->vbc_chr_y = (u_int)win_y % 8;
+
+	if (cursor->vbc_bg_x >= 0 && (u_int)cursor->vbc_bg_x < width_chrs && cursor->vbc_bg_y >= 0 && (u_int)cursor->vbc_bg_y < height_chrs)
+		cursor->vbc_bgsc = &(bgmap_base[cursor->vbc_bg_y * width_chrs + cursor->vbc_bg_x]);
+	else if (vwa->vwa_over)
+		cursor->vbc_bgsc = &(bgmap_base[vwa->vwa_over_chrno]);
+	else
+		cursor->vbc_bgsc = &(bgmap_base[(cursor->vbc_bg_y % height_chrs) * width_chrs + (cursor->vbc_bg_x % width_chrs)]);
+
+	cursor->vbc_chr = VIP_CHR_FIND(cursor->vbc_bgsc->vb_chrno);
+}
+
+static void
+vip_draw_bgmap_row(struct vip_bgmap_cursor cursor,
+		const struct vip_bgsc *bgmap_base,
+		const struct vip_world_att *vwa,
+		u_int scr_x, u_int width,
+		vip_unpacked_row_t row)
+{
+	u_int width_chrs = (vwa->vwa_scy + 1) * vip_bgseg_width,
+		  height_chrs = (vwa->vwa_scx + 1) * vip_bgseg_height;
+
+	while (true)
+	{
+		u_int8_t pixel = vip_chr_read_slow(cursor.vbc_chr,
+				cursor.vbc_chr_x,
+				cursor.vbc_chr_y,
+				cursor.vbc_bgsc->vb_bhflp,
+				cursor.vbc_bgsc->vb_bvflp);
+		if (pixel)
+		{
+			u_int8_t plt = vip_regs.vr_gplt[cursor.vbc_bgsc->vb_gplts];
+			row[scr_x] = (plt >> (pixel << 1)) & 0b11;
+		}
+
+		if (--width == 0)
+			break;
+
+		if (++cursor.vbc_chr_x == 8)
+		{
+			++cursor.vbc_bg_x;
+			cursor.vbc_chr_x = 0;
+
+			if (cursor.vbc_bg_x >= 0 && (u_int)cursor.vbc_bg_x < width_chrs && cursor.vbc_bg_y >= 0 && (u_int)cursor.vbc_bg_y < height_chrs)
+				cursor.vbc_bgsc = &(bgmap_base[cursor.vbc_bg_y * width_chrs + cursor.vbc_bg_x]);
+			else if (vwa->vwa_over)
+				cursor.vbc_bgsc = &(bgmap_base[vwa->vwa_over_chrno]);
+			else
+				cursor.vbc_bgsc = &(bgmap_base[(cursor.vbc_bg_y % height_chrs) * width_chrs + (cursor.vbc_bg_x % width_chrs)]);
+
+			cursor.vbc_chr = VIP_CHR_FIND(cursor.vbc_bgsc->vb_chrno);
+		}
+
+		++scr_x;
+	}
+}
+
+static void
+vip_draw_bgmap_normal_side(const struct vip_bgsc *bgmap_base,
+		const struct vip_world_att *vwa,
+		const struct vip_vspan *vspan,
+		const struct vip_hspan *hspan,
+		vip_unpacked_8rows_t rows)
+{
+	u_int width_chrs = (vwa->vwa_scy + 1) * vip_bgseg_width,
+		  height_chrs = (vwa->vwa_scx + 1) * vip_bgseg_height;
+
+	struct vip_bgmap_cursor cursor;
+	vip_draw_bgmap_start(&cursor, bgmap_base, vwa, hspan->vhs_win_x, vwa->vwa_my + vspan->vvs_win_y);
+
+	u_int clip_y = vspan->vvs_clip_y;
 	u_int height = vspan->vvs_height;
-	u_int y = vwa->vwa_my + vspan->vvs_win_y;
-	u_int scr_y = vspan->vvs_scr_y;
+	while (true)
+	{
+		vip_draw_bgmap_row(cursor, bgmap_base, vwa, hspan->vhs_scr_x, hspan->vhs_width, rows[clip_y]);
+
+		if (--height == 0)
+			break;
+
+		if (++cursor.vbc_chr_y == 8)
+		{
+			++cursor.vbc_bg_y;
+			cursor.vbc_chr_y = 0;
+
+			if (cursor.vbc_bg_x >= 0 && (u_int)cursor.vbc_bg_x < width_chrs && cursor.vbc_bg_y >= 0 && (u_int)cursor.vbc_bg_y < height_chrs)
+				cursor.vbc_bgsc = &(bgmap_base[cursor.vbc_bg_y * width_chrs + cursor.vbc_bg_x]);
+			else if (vwa->vwa_over)
+				cursor.vbc_bgsc = &(bgmap_base[vwa->vwa_over_chrno]);
+			else
+				cursor.vbc_bgsc = &(bgmap_base[(cursor.vbc_bg_y % height_chrs) * width_chrs + (cursor.vbc_bg_x % width_chrs)]);
+
+			cursor.vbc_chr = VIP_CHR_FIND(cursor.vbc_bgsc->vb_chrno);
+		}
+
+		++clip_y;
+	}
+}
+
+static void
+vip_draw_bgmap_normal(const struct vip_bgsc *bgmap_base,
+					  const struct vip_world_att *vwa,
+					  const struct vip_vspan *vspan,
+					  vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows)
+{
+	struct vip_hspan left_hspan;
+	if (vwa->vwa_lon && vip_clip_hspan(vwa->vwa_gx - vwa->vwa_gp,
+				vwa->vwa_mx - vwa->vwa_mp,
+				vwa->vwa_w + 1,
+				&left_hspan))
+		vip_draw_bgmap_normal_side(bgmap_base, vwa, vspan, &left_hspan, left_rows);
+
+	struct vip_hspan right_hspan;
+	if (vwa->vwa_ron && vip_clip_hspan(vwa->vwa_gx + vwa->vwa_gp,
+				vwa->vwa_mx + vwa->vwa_mp,
+				vwa->vwa_w + 1,
+				&right_hspan))
+		vip_draw_bgmap_normal_side(bgmap_base, vwa, vspan, &right_hspan, right_rows);
+}
+
+static void
+vip_draw_bgmap_hbias(const struct vip_bgsc *bgmap_base,
+		const struct vip_world_att *vwa,
+		const struct vip_vspan *vspan,
+		vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows)
+{
+	int scr_l_x, scr_r_x;
+	int win_l_x, win_r_x;
+	if (vwa->vwa_lon)
+	{
+		scr_l_x = vwa->vwa_gx - vwa->vwa_gp;
+		win_l_x = vwa->vwa_mx - vwa->vwa_mp;
+	}
+	if (vwa->vwa_ron)
+	{
+		scr_r_x = vwa->vwa_gx + vwa->vwa_gp;
+		win_r_x = vwa->vwa_mx + vwa->vwa_mp;
+	}
+	u_int16_t *param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
+
+	struct vip_hbias *hbias = (struct vip_hbias *)param_tbl + vspan->vvs_scr_y;
+	u_int win_y = vwa->vwa_my + vspan->vvs_win_y;
+	u_int clip_y = vspan->vvs_clip_y;
+	u_int height = vspan->vvs_height;
 	while (height > 0)
 	{
-		vip_draw_bgmap_row(bgmap_base, vwa, y, scr_y, hspan, fb);
-		++y;
-		++scr_y;
+		struct vip_hspan left_hspan;
+		if (vwa->vwa_lon && vip_clip_hspan(scr_l_x,
+										   win_l_x + hbias->vh_hofstl,
+										   vwa->vwa_w + 1,
+										   &left_hspan))
+		{
+			struct vip_bgmap_cursor cursor;
+			vip_draw_bgmap_start(&cursor, bgmap_base, vwa, left_hspan.vhs_win_x, win_y);
+			vip_draw_bgmap_row(cursor, bgmap_base, vwa, left_hspan.vhs_scr_x, left_hspan.vhs_width, left_rows[clip_y]);
+		}
+
+		struct vip_hspan right_hspan;
+		if (vwa->vwa_ron && vip_clip_hspan(scr_r_x,
+										   win_r_x + hbias->vh_hofstr,
+										   vwa->vwa_w + 1,
+										   &right_hspan))
+		{
+			struct vip_bgmap_cursor cursor;
+			vip_draw_bgmap_start(&cursor, bgmap_base, vwa, right_hspan.vhs_win_x, win_y);
+			vip_draw_bgmap_row(cursor, bgmap_base, vwa, left_hspan.vhs_scr_x, right_hspan.vhs_width, right_rows[clip_y]);
+		}
+
+		++hbias;
+		++win_y;
+		++clip_y;
 		--height;
 	}
 }
 
 static void
-vip_draw_obj_row(const struct vip_oam *obj,
-                 struct vip_chr *vc,
-                 u_int chr_y, u_int scr_y,
-                 u_int8_t *left_fb, u_int8_t *right_fb)
+vip_draw_bgmap_affine_row(const struct vip_bgsc *bgmap_base,
+		const struct vip_world_att *vwa,
+		u_int win_y,
+		const struct vip_hspan *hspan,
+		const struct vip_affine *affine,
+		vip_unpacked_row_t row)
+{
+	u_int win_x = hspan->vhs_win_x;
+	u_int scr_x = hspan->vhs_scr_x;
+	u_int width = hspan->vhs_width;
+	while (width > 0)
+	{
+		bool opaque;
+		u_int8_t pixel = vip_bgmap_read_slow(bgmap_base, vwa, win_x, win_y, false, (union vip_params *)affine, &opaque);
+		if (opaque)
+			row[scr_x] = pixel;
+
+		++win_x;
+		++scr_x;
+		--width;
+	}
+}
+
+static void
+vip_draw_bgmap_affine(const struct vip_bgsc *bgmap_base,
+		const struct vip_world_att *vwa,
+		const struct vip_vspan *vspan,
+		vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows)
+{
+	bool draw_left = vwa->vwa_lon, draw_right = vwa->vwa_ron;
+	struct vip_hspan left_hspan, right_hspan;
+	if (draw_left)
+		draw_left = vip_clip_hspan(vwa->vwa_gx - vwa->vwa_gp, 0, vwa->vwa_w + 1, &left_hspan);
+
+	if (draw_right)
+		draw_right = vip_clip_hspan(vwa->vwa_gx + vwa->vwa_gp, 0, vwa->vwa_w + 1, &right_hspan);
+
+	if (!draw_left && !draw_right)
+		return;
+
+	u_int win_y = vspan->vvs_win_y;
+	u_int clip_y = vspan->vvs_clip_y;
+	u_int16_t *param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
+	struct vip_affine *affine = (struct vip_affine *)param_tbl + vspan->vvs_win_y;
+	u_int height = vspan->vvs_height;
+	while (height > 0)
+	{
+		if (draw_left)
+			vip_draw_bgmap_affine_row(bgmap_base, vwa, win_y, &left_hspan, affine, left_rows[clip_y]);
+
+		if (draw_right)
+			vip_draw_bgmap_affine_row(bgmap_base, vwa, win_y, &right_hspan, affine, right_rows[clip_y]);
+
+		++win_y;
+		++clip_y;
+		++affine;
+		--height;
+	}
+}
+
+static void __unused
+vip_draw_obj_row_slow(const struct vip_oam *obj,
+					  struct vip_chr *vc,
+					  u_int chr_y, u_int scr_y,
+					  u_int8_t *left_fb, u_int8_t *right_fb)
 {
 	int16_t jp = cpu_extend14to16(obj->vo_jp);
 	int scr_l_x = obj->vo_jx - jp, scr_r_x = obj->vo_jx + jp;
@@ -656,65 +916,73 @@ vip_draw_obj_row(const struct vip_oam *obj,
 	}
 }
 
-static bool
-vip_clip_vspan(u_int scr_clip_y, u_int scr_clip_height, int scr_y, u_int win_height, struct vip_vspan *vspan)
+static void
+vip_draw_obj_row(const struct vip_oam *obj,
+				 struct vip_chr *vc,
+				 u_int8_t plt,
+				 u_int scr_x,
+				 u_int chr_y,
+				 u_int width,
+				 vip_unpacked_row_t row)
 {
-	int max_scr_y = scr_y + win_height;
-	if (max_scr_y <= (int)scr_clip_y)
-		return false;
-
-	u_int max_clip_y = scr_clip_y + scr_clip_height;
-	if (scr_y >= (int)max_clip_y)
-		return false;
-
-	if (max_scr_y > (int)max_clip_y)
-		win_height = max_clip_y - scr_y;
-
-	if (scr_y < (int)scr_clip_y)
+	u_int chr_x = 0;
+	while (width > 0)
 	{
-		vspan->vvs_scr_y = scr_clip_y;
-		vspan->vvs_win_y = scr_clip_y - scr_y;
-		vspan->vvs_height = win_height - vspan->vvs_win_y;
+		u_int8_t pixel = vip_chr_read_slow(vc, chr_x, chr_y, obj->vo_jhflp, obj->vo_jvflp);
+		if (pixel)
+		{
+			pixel = (plt >> (pixel << 1)) & 0b11;
+			row[scr_x] = pixel;
+		}
+		++chr_x;
+		++scr_x;
+		--width;
 	}
-	else
-	{
-		vspan->vvs_scr_y = (u_int)scr_y;
-		vspan->vvs_win_y = 0;
-		vspan->vvs_height = win_height;
-	}
-	return true;
-}
-
-static bool
-vip_clip_hspan(int scr_x, int win_x, u_int win_width, struct vip_hspan *hspan)
-{
-	int max_scr_x = scr_x + win_width;
-	if (max_scr_x <= 0)
-		return false;
-
-	if (scr_x >= 384)
-		return false;
-
-	if (max_scr_x > 384)
-		win_width = 384 - scr_x;
-
-	if (scr_x < 0)
-	{
-		hspan->vhs_scr_x = 0;
-		hspan->vhs_win_x = win_x - scr_x;
-		hspan->vhs_width = win_width + scr_x;
-	}
-	else
-	{
-		hspan->vhs_scr_x = (u_int)scr_x;
-		hspan->vhs_win_x = win_x;
-		hspan->vhs_width = win_width;
-	}
-	return true;
 }
 
 static void
-vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
+vip_draw_obj(const struct vip_oam *obj,
+			 struct vip_vspan *vspan,
+			 vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows)
+{
+	assert(obj->vo_jlon || obj->vo_jron);
+	int16_t jp = cpu_extend14to16(obj->vo_jp);
+	struct vip_hspan left_hspan, right_hspan;
+	bool draw_left = obj->vo_jlon, draw_right = obj->vo_jron;
+
+	if (draw_left)
+		draw_left = vip_clip_hspan(obj->vo_jx - jp, 0, 8, &left_hspan);
+
+	if (draw_right)
+		draw_right = vip_clip_hspan(obj->vo_jx + jp, 0, 8, &right_hspan);
+
+	if (!draw_left && !draw_right)
+		return;
+
+	struct vip_chr *vc = VIP_CHR_FIND(obj->vo_jca);
+	u_int8_t plt = vip_regs.vr_jplt[obj->vo_jplts];
+	while (vspan->vvs_height > 0)
+	{
+		if (draw_left)
+			vip_draw_obj_row(obj, vc, plt,
+					left_hspan.vhs_scr_x,
+					vspan->vvs_win_y,
+					left_hspan.vhs_width,
+					left_rows[vspan->vvs_clip_y]);
+		if (draw_right)
+			vip_draw_obj_row(obj, vc, plt,
+					right_hspan.vhs_scr_x,
+					vspan->vvs_win_y,
+					right_hspan.vhs_width,
+					right_rows[vspan->vvs_clip_y]);
+		++vspan->vvs_win_y;
+		++vspan->vvs_clip_y;
+		--vspan->vvs_height;
+	}
+}
+
+static void
+vip_draw_8rows(vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows, const u_int min_scr_y)
 {
 	u_int obj_group = 4;
 	u_int world_index = 31;
@@ -776,16 +1044,7 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 
 				struct vip_vspan vspan;
 				if (vip_clip_vspan(min_scr_y, 8, obj->vo_jy, 8, &vspan))
-				{
-					struct vip_chr *vc = VIP_CHR_FIND(obj->vo_jca);
-					while (vspan.vvs_height > 0)
-					{
-						vip_draw_obj_row(obj, vc, vspan.vvs_win_y, vspan.vvs_scr_y, left_fb, right_fb);
-						++vspan.vvs_scr_y;
-						++vspan.vvs_win_y;
-						--vspan.vvs_height;
-					}
-				}
+					vip_draw_obj(obj, &vspan, left_rows, right_rows);
 			}
 		}
 		else
@@ -793,48 +1052,21 @@ vip_draw_8rows(u_int8_t *left_fb, u_int8_t *right_fb, const u_int min_scr_y)
 			struct vip_vspan vspan;
 			if (vip_clip_vspan(min_scr_y, 8, vwa->vwa_gy, vwa->vwa_h + 1, &vspan))
 			{
+				struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
+
 				switch (vwa->vwa_bgm)
 				{
 					case WORLD_BGM_NORMAL:
-					{
-						struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
-
-						struct vip_hspan left_hspan;
-						if (vwa->vwa_lon && vip_clip_hspan(vwa->vwa_gx - vwa->vwa_gp,
-						                                   vwa->vwa_mx - vwa->vwa_mp,
-						                                   vwa->vwa_w + 1,
-						                                   &left_hspan))
-							vip_draw_bgmap(bgmap_base, vwa, &vspan, &left_hspan, left_fb);
-						struct vip_hspan right_hspan;
-						if (vwa->vwa_ron && vip_clip_hspan(vwa->vwa_gx + vwa->vwa_gp,
-						                                   vwa->vwa_mx + vwa->vwa_mp,
-						                                   vwa->vwa_w + 1,
-						                                   &right_hspan))
-							vip_draw_bgmap(bgmap_base, vwa, &vspan, &right_hspan, right_fb);
+						vip_draw_bgmap_normal(bgmap_base, vwa, &vspan, left_rows, right_rows);
 						break;
-					}
 
 					case WORLD_BGM_H_BIAS:
-					case WORLD_BGM_AFFINE:
-					{
-						struct vip_bgsc *bgmap_base = vip_dram.vd_shared.s_bgsegs[vwa->vwa_bgmap_base];
-						u_int16_t *param_tbl;
-						if (vwa->vwa_bgm == WORLD_BGM_H_BIAS || vwa->vwa_bgm == WORLD_BGM_AFFINE)
-							param_tbl = vip_dram.vd_shared.s_param_tbl + vwa->vwa_param_base;
-
-						while (vspan.vvs_height > 0)
-						{
-							vip_draw_bgmap_row_slow(vwa,
-							                        param_tbl,
-							                        bgmap_base,
-							                        vspan.vvs_win_y, vspan.vvs_scr_y,
-							                        left_fb, right_fb);
-							++vspan.vvs_scr_y;
-							++vspan.vvs_win_y;
-							--vspan.vvs_height;
-						}
+						vip_draw_bgmap_hbias(bgmap_base, vwa, &vspan, left_rows, right_rows);
 						break;
-					}
+
+					case WORLD_BGM_AFFINE:
+						vip_draw_bgmap_affine(bgmap_base, vwa, &vspan, left_rows, right_rows);
+						break;
 				}
 			}
 		}
@@ -991,6 +1223,19 @@ vip_scan_out(u_int fb_index, bool right)
 }
 
 static void
+vip_pack_8rows(vip_unpacked_8rows_t rows, u_int8_t *fb, u_int scr_y)
+{
+	assert((scr_y % 8) == 0);
+	u_int8_t *fb_col = fb + (scr_y >> 2);
+	for (u_int x = 0; x < 384; ++x)
+	{
+		fb_col[0] = rows[0][x] | (rows[1][x] << 2) | (rows[2][x] << 4) | (rows[3][x] << 6);
+		fb_col[1] = rows[4][x] | (rows[5][x] << 2) | (rows[6][x] << 4) | (rows[7][x] << 6);
+		fb_col+= 64;
+	}
+}
+
+static void
 vip_xp_step(u_int fb_index)
 {
 	if (vip_regs.vr_xpstts.vx_sbout)
@@ -1022,20 +1267,28 @@ vip_xp_step(u_int fb_index)
 		if (debug_trace_vip)
 			debug_tracef("vip", "Draw FB%u SBCOUNT=%u", fb_index, vip_regs.vr_xpstts.vx_sbcount);
 
-		u_int8_t *left_fb, *right_fb;
-		if (fb_index == 0)
-		{
-			left_fb = vip_vrm.vv_left0;
-			right_fb = vip_vrm.vv_right0;
-		}
-		else
-		{
-			left_fb = vip_vrm.vv_left1;
-			right_fb = vip_vrm.vv_right1;
-		}
-
 		if ((vip_row_mask & (1 << vip_regs.vr_xpstts.vx_sbcount)) != 0)
-			vip_draw_8rows(left_fb, right_fb, vip_regs.vr_xpstts.vx_sbcount * 8);
+		{
+			vip_unpacked_8rows_t left_rows, right_rows;
+			u_int8_t bg_pixel = vip_regs.vr_bkcol & 0b11;
+			memset(left_rows, bg_pixel, sizeof(left_rows));
+			memset(right_rows, bg_pixel, sizeof(right_rows));
+
+			u_int scr_y = vip_regs.vr_xpstts.vx_sbcount * 8;
+
+			vip_draw_8rows(left_rows, right_rows, scr_y);
+
+			if (fb_index == 0)
+			{
+				vip_pack_8rows(left_rows, vip_vrm.vv_left0, scr_y);
+				vip_pack_8rows(right_rows, vip_vrm.vv_right0, scr_y);
+			}
+			else
+			{
+				vip_pack_8rows(left_rows, vip_vrm.vv_left1, scr_y);
+				vip_pack_8rows(right_rows, vip_vrm.vv_right1, scr_y);
+			}
+		}
 
 		vip_regs.vr_xpstts.vx_sbout = 1;
 	}
