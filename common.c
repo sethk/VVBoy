@@ -3658,19 +3658,22 @@ debug_disasm_i(debug_str_t decode,
                debug_str_t decomp,
                const union cpu_inst *inst,
                const char *mnemonic,
+			   const char *reg1_fmt,
+			   const char *reg2_fmt,
                const char *decomp_fmt,
                struct debug_disasm_context *context)
 {
 	snprintf(decode, debug_str_len, "%s %s, %s",
 	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
-	const union cpu_reg *reg1 = debug_get_reg(context, inst->ci_i.i_reg1);
-	const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_i.i_reg2);
-	if (reg1 && reg2)
-		snprintf(decomp, debug_str_len, decomp_fmt,
-		         debug_rnames[inst->ci_i.i_reg1],
-		         reg1->u,
-		         debug_rnames[inst->ci_i.i_reg2],
-		         reg2->u);
+
+	debug_str_t reg1_s, reg2_s;
+	debug_disasm_fmtreg(reg1_s, reg1_fmt, context, inst->ci_i.i_reg1);
+	debug_disasm_fmtreg(reg2_s, reg2_fmt, context, inst->ci_i.i_reg2);
+	snprintf(decomp, debug_str_len, decomp_fmt,
+			 debug_rnames[inst->ci_i.i_reg1],
+			 reg1_s,
+			 debug_rnames[inst->ci_i.i_reg2],
+			 reg2_s);
 	debug_clear_reg(context, inst->ci_i.i_reg2);
 }
 
@@ -3692,7 +3695,6 @@ debug_disasm_ii(debug_str_t decode,
 	debug_str_t reg2_s;
 	debug_disasm_fmtreg(reg2_s, reg2_fmt, context, inst->ci_ii.ii_reg2);
 	snprintf(decomp, debug_str_len, decomp_fmt, debug_rnames[inst->ci_ii.ii_reg2], reg2_s, imm5_s);
-	debug_clear_reg(context, inst->ci_ii.ii_reg2);
 }
 
 static void
@@ -3706,20 +3708,22 @@ debug_disasm_v(debug_str_t decode,
                struct debug_disasm_context *context)
 {
 	debug_str_t imm16_s;
-	snprintf(imm16_s, debug_str_len, imm16_fmt, inst->ci_v.v_imm16, cpu_extend16(inst->ci_v.v_imm16));
+	u_int32_t imm32 = cpu_extend16(inst->ci_v.v_imm16);
+	snprintf(imm16_s, debug_str_len, imm16_fmt, inst->ci_v.v_imm16, imm32);
 
 	snprintf(decode, debug_str_len, "%s %s, %s, %s",
 	         mnemonic, imm16_s, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 
 	debug_str_t reg1_s;
+	debug_disasm_fmtreg(reg1_s, reg1_fmt, context, inst->ci_v.v_reg1);
+
+	snprintf(decomp, debug_str_len, decomp_fmt,
+			debug_rnames[inst->ci_v.v_reg2],
+			reg1_s,
+			imm16_s,
+			imm32);
+
 	const union cpu_reg *reg1 = debug_get_reg(context, inst->ci_v.v_reg1);
-	if (reg1)
-		snprintf(reg1_s, debug_str_len, reg1_fmt, reg1->u);
-	else
-		snprintf(reg1_s, debug_str_len, "%s", debug_rnames[inst->ci_v.v_reg1]);
-
-	snprintf(decomp, debug_str_len, decomp_fmt, debug_rnames[inst->ci_v.v_reg2], reg1_s, imm16_s);
-
 	if (reg1)
 	{
 		switch (inst->ci_v.v_opcode)
@@ -3742,6 +3746,8 @@ debug_disasm_v(debug_str_t decode,
 				debug_clear_reg(context, inst->ci_v.v_reg2);
 		}
 	}
+	else
+		debug_clear_reg(context, inst->ci_v.v_reg2);
 }
 
 static void
@@ -3763,7 +3769,7 @@ debug_disasm_vi(debug_str_t decode,
 			debug_format_addr(addr, addr_s);
 		}
 		else
-			snprintf(addr_s, debug_str_len, "%s+%hd", debug_rnames[inst->ci_vi.vi_reg1], inst->ci_vi.vi_disp16);
+			snprintf(addr_s, debug_str_len, "%s%+hd", debug_rnames[inst->ci_vi.vi_reg1], inst->ci_vi.vi_disp16);
 	}
 
 	switch (inst->ci_vi.vi_opcode)
@@ -3864,6 +3870,21 @@ debug_disasm_vii(debug_str_t decode,
 	debug_clear_reg(context, inst->vii_reg2);
 }
 
+static const char *
+debug_regid_str(enum cpu_regid regid)
+{
+	switch (regid)
+	{
+		case REGID_EIPC: return "EIPC";
+		case REGID_EIPSW: return "EIPSW";
+		case REGID_FEPC: return "FEPC";
+		case REGID_FEPSW: return "FEPSW";
+		case REGID_PSW: return "PSW";
+		case REGID_CHCW: return "CHCW";
+		default: return "???";
+	}
+}
+
 static char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *context, debug_str_t dis)
 {
@@ -3886,7 +3907,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		case OP_AND: mnemonic = "AND"; break;
 		case OP_XOR: mnemonic = "XOR"; break;
 		case OP_CLI: mnemonic = "CLI"; break;
-		case OP_LDSR: mnemonic = "LDSR"; break;
 		case OP_STSR: mnemonic = "STSR"; break;
 		case OP_SEI: mnemonic = "SEI"; break;
 		case OP_JR: mnemonic = "JR"; break;
@@ -3946,43 +3966,48 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			debug_clear_reg(context, inst->ci_i.i_reg2);
 			break;
 		case OP_ADD:
-			debug_disasm_i(decode, decomp, inst, "ADD", "%3$s <- %4$d + %2$d (0x%4$08x + 0x%2$08x)", context);
+			debug_disasm_i(decode, decomp, inst, "ADD", "%d (0x%1$08x)", "%d (0x%1$08x)", "%3$s <- %4$s + %2$s", context);
 			break;
 		case OP_CMP:
-			debug_disasm_i(decode, decomp, inst, "CMP", "%4$d <=> %2$d", context);
+			debug_disasm_i(decode, decomp, inst, "CMP", "%d", "%d", "%4$s <=> %2$s", context);
 			break;
 		case OP_DIV:
-			debug_disasm_i(decode, decomp, inst, "DIV", "%3$s <- %4$d / %2$d", context);
+			debug_disasm_i(decode, decomp, inst, "DIV", "%d", "%d", "%3$s <- %4$s / %2$s", context);
 			break;
 		case OP_XOR:
-			debug_disasm_i(decode, decomp, inst, "XOR", "%3$s <- 0x%4$08x ^ 0x%2$08x", context);
+			debug_disasm_i(decode, decomp, inst, "XOR", "0x%08x", "0x%08x", "%3$s <- %4$s ^ %2$s", context);
 			break;
 		case OP_SHL:
-			debug_disasm_i(decode, decomp, inst, "SHL", "%3$s <- %4$08x << %2$u", context);
+			debug_disasm_i(decode, decomp, inst, "SHL", "0x%08x", "%u", "%3$s <- %4s << %2$s", context);
 			break;
 		case OP_SHR:
-			debug_disasm_i(decode, decomp, inst, "SHR", "%3$s <- %4$08x >> %2$u", context);
+			debug_disasm_i(decode, decomp, inst, "SHR", "0x%08x", "%u", "%3$s <- %4$s >> %2$s", context);
 			break;
 		case OP_SAR:
-			debug_disasm_i(decode, decomp, inst, "SAR", "%3$s <- %4$08x >>> %2$u", context);
+			debug_disasm_i(decode, decomp, inst, "SAR", "0x%08x", "%u", "%3$s <- %4$s >>> %2$s", context);
 			break;
 		case OP_AND:
-			debug_disasm_i(decode, decomp, inst, "AND", "%3$s <- %4$08x & %2$08x", context);
+			debug_disasm_i(decode, decomp, inst, "AND", "0x%08x", "0x%08x", "%3$s <- %4$s & %2$s", context);
 			break;
 		case OP_OR:
-			debug_disasm_i(decode, decomp, inst, "OR", "%3$s <- 0x%4$08x | 0x%2$08x", context);
+			debug_disasm_i(decode, decomp, inst, "OR", "0x%08x", "0x%08x", "%3$s <- %4$s | %2$s", context);
 			break;
 		case OP_MOV:
-			debug_disasm_i(decode, decomp, inst, "MOV", "%3$s <- 0x%2$08x", context);
+		{
+			debug_disasm_i(decode, decomp, inst, "MOV", "%d(%1$xh)", "", "%3$s <- %2$s", context);
+			const union cpu_reg *reg1 = debug_get_reg(context, inst->ci_i.i_reg1);
+			if (reg1)
+				debug_put_reg(context, inst->ci_i.i_reg2, *reg1);
 			break;
+		}
 		case OP_MULU:
-			debug_disasm_i(decode, decomp, inst, "MULU", "%4$u × %2$u", context);
+			debug_disasm_i(decode, decomp, inst, "MULU", "%u", "%u", "%3$s <- %4$s × %2$s", context);
 			break;
 		case OP_DIVU:
-			debug_disasm_i(decode, decomp, inst, "DIVU", "%4$u ÷ %2$u", context);
+			debug_disasm_i(decode, decomp, inst, "DIVU", "%u", "%u", "%3$s <- %4$s ÷ %2$s", context);
 			break;
 		case OP_NOT:
-			debug_disasm_i(decode, decomp, inst, "NOT", "%3$s <- ~%2$u", context);
+			debug_disasm_i(decode, decomp, inst, "NOT", "%u<0x%08x>", "", "%3$s <- ~%2$s", context);
 			break;
 		case OP_JMP:
 			snprintf(decode, debug_str_len, "%s [%s]", mnemonic, debug_rnames[inst->ci_i.i_reg1]);
@@ -3996,6 +4021,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			break;
 		case OP_ADD2:
 			debug_disasm_ii(decode, decomp, inst, "ADD", "%2$i", "%i", "%1$s <- %2$s + %3$s", context);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_SETF:
 		{
@@ -4019,11 +4045,12 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 				case BCOND_BGT: mnemonic = "GT"; break;
 			}
 			debug_disasm_ii(decode, decomp, inst, "SETF", mnemonic, "?", "%1$s <- PSW:%2$s", context);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		}
 		case OP_MOV2:
 		{
-			debug_disasm_ii(decode, decomp, inst, "MOV", "%2$i", "?", "%1$s <- %3$s", context);
+			debug_disasm_ii(decode, decomp, inst, "MOV", "%2$i(%2$xh)", "?", "%1$s <- %3$s", context);
 			union cpu_reg imm;
 			imm.u = cpu_extend5to32(inst->ci_ii.ii_imm5);
 			debug_put_reg(context, inst->ci_ii.ii_reg2, imm);
@@ -4089,19 +4116,27 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			break;
 		case OP_SHL2:
 			debug_disasm_ii(decode, decomp, inst, "SHL", "%hu", "%08x", "%1$s <- %2$s << %3$s", context);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_SHR2:
 			debug_disasm_ii(decode, decomp, inst, "SHR", "%hu", "%08x", "%1$s <- %2$s >> %3$s", context);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_SAR2:
 			debug_disasm_ii(decode, decomp, inst, "SAR", "%hu", "%08x", "%1$s <- %2$s >>> %3$s", context);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_LDSR:
+		{
+			char decomp_fmt[32];
+			snprintf(decomp_fmt, sizeof(decomp_fmt), "%s <- %%2$s", debug_regid_str(inst->ci_ii.ii_imm5));
+			debug_disasm_ii(decode, decomp, inst, "LDSR", "%hu", "0x%08x", decomp_fmt, context);
+			break;
+		}
 		case OP_STSR:
 			snprintf(decode, debug_str_len, "%s %i, %s",
 			         mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
-			if (inst->ci_ii.ii_opcode == OP_STSR)
-				debug_clear_reg(context, inst->ci_ii.ii_reg2);
+			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_JR:
 		case OP_JAL:
@@ -4116,22 +4151,22 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			break;
 		}
 		case OP_ORI:
-			debug_disasm_v(decode, decomp, inst, "ORI", "0x%04hx", "%08x", "%s <- %s | %s", context);
+			debug_disasm_v(decode, decomp, inst, "ORI", "0x%04hx", "0x%08x", "%s <- %s | %s", context);
 			break;
 		case OP_MOVEA:
-			debug_disasm_v(decode, decomp, inst, "MOVEA", "%2$d", "%08x", "%s <- %s + %s", context);
+			debug_disasm_v(decode, decomp, inst, "MOVEA", "%2$d", "0x%08x", "%s <- %s + 0x%4$08x", context);
 			break;
 		case OP_ANDI:
-			debug_disasm_v(decode, decomp, inst, "ANDI", "0x%04hx", "%08x", "%s <- %s & %s", context);
+			debug_disasm_v(decode, decomp, inst, "ANDI", "0x%04hx", "0x%08x", "%s <- %s & %s", context);
 			break;
 		case OP_MOVHI:
-			debug_disasm_v(decode, decomp, inst, "MOVHI", "0x%04hx", "%08x", "%s <- %s | %s0000", context);
+			debug_disasm_v(decode, decomp, inst, "MOVHI", "0x%04hx", "0x%08x", "%s <- %s | %s0000", context);
 			break;
 		case OP_XORI:
-			debug_disasm_v(decode, decomp, inst, "XORI", "0x%04hx", "%08x", "%s <- %s ^ %s", context);
+			debug_disasm_v(decode, decomp, inst, "XORI", "0x%04hx", "0x%08x", "%s <- %s ^ %s", context);
 			break;
 		case OP_ADDI:
-			debug_disasm_v(decode, decomp, inst, "ADDI", "%2$d", "%08x", "%s <- %s + %s", context);
+			debug_disasm_v(decode, decomp, inst, "ADDI", "%2$d", "0x%08x", "%s <- %s + %s", context);
 			break;
 		case OP_CAXI:
 			debug_disasm_vi(decode, decomp, inst, "CAXI", context);
