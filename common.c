@@ -738,22 +738,22 @@ union cpu_psw
 	u_int32_t psw_word;
 	struct
 	{
-		unsigned f_z : 1;
-		unsigned f_s : 1;
-		unsigned f_ov : 1;
-		unsigned f_cy : 1;
-		unsigned f_fpr : 1;
-		unsigned f_fud : 1;
-		unsigned f_fov : 1;
-		unsigned f_fzd : 1;
-		unsigned f_fiv : 1;
-		unsigned f_fro : 1;
-		unsigned reserved1 : 2;
-		unsigned f_id : 1;
-		unsigned f_ae : 1;
-		unsigned f_ep : 1;
-		unsigned f_np : 1;
-		unsigned f_i : 4;
+		u_int f_z : 1;
+		u_int f_s : 1;
+		u_int f_ov : 1;
+		u_int f_cy : 1;
+		u_int f_fpr : 1;
+		u_int f_fud : 1;
+		u_int f_fov : 1;
+		u_int f_fzd : 1;
+		u_int f_fiv : 1;
+		u_int f_fro : 1;
+		u_int reserved1 : 2;
+		u_int f_id : 1;
+		u_int f_ae : 1;
+		u_int f_ep : 1;
+		u_int f_np : 1;
+		u_int f_i : 4;
 	} psw_flags;
 };
 
@@ -1006,10 +1006,10 @@ cpu_setfl_float(double double_result)
 			{
 				struct
 				{
-					unsigned double_mantissa : 29 __attribute__((packed));
-					unsigned single_mantissa : 23 __attribute__((packed));
-					unsigned raw_exp : 11 __attribute__((packed));
-					unsigned sign : 1 __attribute__((packed));
+					u_int double_mantissa : 29 __attribute__((packed));
+					u_int single_mantissa : 23 __attribute__((packed));
+					u_int raw_exp : 11 __attribute__((packed));
+					u_int sign : 1 __attribute__((packed));
 				} __attribute__((packed));
 				double d;
 			} result = {.d = double_result};
@@ -1936,7 +1936,7 @@ cpu_exec(const union cpu_inst inst)
 }
 
 static void
-cpu_assert_reg(const char *dis, unsigned reg, union cpu_reg value)
+cpu_assert_reg(const char *dis, u_int reg, union cpu_reg value)
 {
 	if (cpu_state.cs_r[reg].u != value.u)
 	{
@@ -2389,56 +2389,56 @@ struct vsu_regs
 	{
 		struct
 		{
-			unsigned vi_data : 5 __attribute__((packed));
-			unsigned vi_mode : 1 __attribute__((packed));
-			unsigned vi_rfu1 : 1 __attribute__((packed));
-			unsigned vi_start : 1 __attribute__((packed));
+			u_int vi_data : 5 __attribute__((packed));
+			u_int vi_mode : 1 __attribute__((packed));
+			u_int vi_rfu1 : 1 __attribute__((packed));
+			u_int vi_start : 1 __attribute__((packed));
 		} vsr_int;
 		struct
 		{
-			unsigned vl_rlevel : 4 __attribute__((packed));
-			unsigned vl_llevel : 4 __attribute__((packed));
+			u_int vl_rlevel : 4 __attribute__((packed));
+			u_int vl_llevel : 4 __attribute__((packed));
 		} vsr_lrv;
 		u_int8_t vsr_fql;
 		struct
 		{
-			unsigned vf_fqh : 3 __attribute__((packed));
-			unsigned vf_rfu1 : 5 __attribute__((packed));
+			u_int vf_fqh : 3 __attribute__((packed));
+			u_int vf_rfu1 : 5 __attribute__((packed));
 		} vsr_fqh;
 		struct
 		{
-			unsigned ve_step : 3 __attribute__((packed));
-			unsigned ve_ud : 1 __attribute__((packed));
-			unsigned ve_init : 4 __attribute__((packed));
+			u_int ve_step : 3 __attribute__((packed));
+			u_int ve_ud : 1 __attribute__((packed));
+			u_int ve_init : 4 __attribute__((packed));
 		} vsr_ev0;
 		struct
 		{
-			unsigned ve_on : 1 __attribute__((packed));
-			unsigned ve_rs : 1 __attribute__((packed));
-			unsigned ve_rfu1 : 2 __attribute__((packed));
-			unsigned ve_modswp : 1 __attribute__((packed));
-			unsigned ve_short : 1 __attribute__((packed));
-			unsigned ve_ed : 1 __attribute__((packed));
-			unsigned ve_rfu2 : 1 __attribute__((packed));
+			u_int ve_on : 1 __attribute__((packed));
+			u_int ve_rs : 1 __attribute__((packed));
+			u_int ve_rfu1 : 2 __attribute__((packed));
+			u_int ve_modswp : 1 __attribute__((packed));
+			u_int ve_short : 1 __attribute__((packed));
+			u_int ve_ed : 1 __attribute__((packed));
+			u_int ve_rfu2 : 1 __attribute__((packed));
 		} vsr_ev1;
 		struct
 		{
-			unsigned vr_addr : 3 __attribute__((packed));
-			unsigned vr_rfu1 : 5 __attribute__((packed));
+			u_int vr_addr : 3 __attribute__((packed));
+			u_int vr_rfu1 : 5 __attribute__((packed));
 		} vsr_ram;
 		struct
 		{
-			unsigned vs_shifts : 3 __attribute__((packed));
-			unsigned vs_ud : 1 __attribute__((packed));
-			unsigned vs_time : 3 __attribute__((packed));
-			unsigned vs_clk : 1 __attribute__((packed));
+			u_int vs_shifts : 3 __attribute__((packed));
+			u_int vs_ud : 1 __attribute__((packed));
+			u_int vs_time : 3 __attribute__((packed));
+			u_int vs_clk : 1 __attribute__((packed));
 		} vsr_swp;
 		u_int32_t vsr_rfu[2];
 	} vr_sounds[6];
 	struct
 	{
-		unsigned vs_stop : 1 __attribute__((packed));
-		unsigned vs_unused : 7 __attribute__((packed));
+		u_int vs_stop : 1 __attribute__((packed));
+		u_int vs_unused : 7 __attribute__((packed));
 	} vr_stop;
 	u_int32_t vs_rfu[7];
 };
@@ -2793,7 +2793,7 @@ struct nvc_regs
 	u_int8_t nr_thr;
 	struct nvc_tcr
 	{
-		unsigned t_enb : 1,
+		u_int t_enb : 1,
 		t_z_stat : 1,
 		t_z_stat_clr : 1,
 		t_z_int : 1,
@@ -2802,14 +2802,14 @@ struct nvc_regs
 	u_int8_t nr_wcr;
 	struct
 	{
-		unsigned s_abt_dis : 1,
-				s_si_stat : 1,
-				s_hw_si : 1,
-				s_rfu1 : 1,
-				s_soft_ck : 1,
-				s_para_si : 1,
-				s_rfu2 : 1,
-				s_k_int_inh : 1;
+		u_int s_abt_dis : 1,
+			  s_si_stat : 1,
+			  s_hw_si : 1,
+			  s_rfu1 : 1,
+			  s_soft_ck : 1,
+			  s_para_si : 1,
+			  s_rfu2 : 1,
+			  s_k_int_inh : 1;
 	} __attribute__((packed)) nr_scr;
 };
 

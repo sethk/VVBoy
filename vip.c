@@ -17,38 +17,38 @@
 
 	struct vip_bgsc
 	{
-		unsigned vb_chrno : 11 __attribute__((packed));
-		unsigned vb_rfu1 : 1 __attribute__((packed));
-		unsigned vb_bvflp : 1 __attribute__((packed));
-		unsigned vb_bhflp : 1 __attribute__((packed));
-		unsigned vb_gplts : 2 __attribute__((packed));
+		u_int vb_chrno : 11 __attribute__((packed));
+		u_int vb_rfu1 : 1 __attribute__((packed));
+		u_int vb_bvflp : 1 __attribute__((packed));
+		u_int vb_bhflp : 1 __attribute__((packed));
+		u_int vb_gplts : 2 __attribute__((packed));
 	};
 
 	struct vip_oam
 	{
 		int16_t vo_jx;
-		unsigned vo_jp : 14 __attribute__((packed));
-		unsigned vo_jron : 1 __attribute__((packed));
-		unsigned vo_jlon : 1 __attribute__((packed));
+		u_int vo_jp : 14 __attribute__((packed));
+		u_int vo_jron : 1 __attribute__((packed));
+		u_int vo_jlon : 1 __attribute__((packed));
 		int16_t vo_jy;
-		unsigned vo_jca : 11 __attribute__((packed));
-		unsigned vo_rfu1 : 1 __attribute__((packed));
-		unsigned vo_jvflp : 1 __attribute__((packed));
-		unsigned vo_jhflp : 1 __attribute__((packed));
-		unsigned vo_jplts : 2 __attribute__((packed));
+		u_int vo_jca : 11 __attribute__((packed));
+		u_int vo_rfu1 : 1 __attribute__((packed));
+		u_int vo_jvflp : 1 __attribute__((packed));
+		u_int vo_jhflp : 1 __attribute__((packed));
+		u_int vo_jplts : 2 __attribute__((packed));
 	};
 
 	struct vip_world_att
 	{
-		unsigned vwa_bgmap_base : 4 __attribute__((packed));
-		unsigned vwa_rfu1 : 2 __attribute__((packed));
-		unsigned vwa_end : 1 __attribute__((packed));
-		unsigned vwa_over : 1 __attribute__((packed));
-		unsigned vwa_scy : 2 __attribute__((packed));
-		unsigned vwa_scx : 2 __attribute__((packed));
-		unsigned vwa_bgm : 2 __attribute__((packed));
-		unsigned vwa_ron : 1 __attribute__((packed));
-		unsigned vwa_lon : 1 __attribute__((packed));
+		u_int vwa_bgmap_base : 4 __attribute__((packed));
+		u_int vwa_rfu1 : 2 __attribute__((packed));
+		u_int vwa_end : 1 __attribute__((packed));
+		u_int vwa_over : 1 __attribute__((packed));
+		u_int vwa_scy : 2 __attribute__((packed));
+		u_int vwa_scx : 2 __attribute__((packed));
+		u_int vwa_bgm : 2 __attribute__((packed));
+		u_int vwa_ron : 1 __attribute__((packed));
+		u_int vwa_lon : 1 __attribute__((packed));
 		int16_t vwa_gx;
 		int16_t vwa_gp;
 		int16_t vwa_gy;
@@ -147,31 +147,31 @@ enum vip_intflag
 
 struct vip_dpctrl
 {
-	unsigned vd_dprst: 1 __attribute__((packed));
-	unsigned vd_disp : 1 __attribute__((packed));
-	unsigned vd_dpbsy_l_fb0 : 1 __attribute__((packed));
-	unsigned vd_dpbsy_r_fb0 : 1 __attribute__((packed));
-	unsigned vd_dpbsy_l_fb1 : 1 __attribute__((packed));
-	unsigned vd_dpbsy_r_fb1 : 1 __attribute__((packed));
-	unsigned vd_scanrdy : 1 __attribute__((packed));
-	unsigned vd_fclk : 1 __attribute__((packed));
-	unsigned vd_re : 1 __attribute__((packed));
-	unsigned vd_synce : 1 __attribute__((packed));
-	unsigned vd_lock : 1 __attribute__((packed));
-	unsigned vd_unused : 5 __attribute__((packed));
+	u_int vd_dprst: 1 __attribute__((packed));
+	u_int vd_disp : 1 __attribute__((packed));
+	u_int vd_dpbsy_l_fb0 : 1 __attribute__((packed));
+	u_int vd_dpbsy_r_fb0 : 1 __attribute__((packed));
+	u_int vd_dpbsy_l_fb1 : 1 __attribute__((packed));
+	u_int vd_dpbsy_r_fb1 : 1 __attribute__((packed));
+	u_int vd_scanrdy : 1 __attribute__((packed));
+	u_int vd_fclk : 1 __attribute__((packed));
+	u_int vd_re : 1 __attribute__((packed));
+	u_int vd_synce : 1 __attribute__((packed));
+	u_int vd_lock : 1 __attribute__((packed));
+	u_int vd_unused : 5 __attribute__((packed));
 };
 
 struct vip_xpctrl
 {
-	unsigned vx_xprst : 1 __attribute__((packed));
-	unsigned vx_xpen : 1 __attribute__((packed));
-	unsigned vx_xpbsy_fb0 : 1 __attribute__((packed));
-	unsigned vx_xpbsy_fb1 : 1 __attribute__((packed));
-	unsigned vx_overtime : 1 __attribute__((packed));
-	unsigned vx_unused : 3 __attribute__((packed));
-	unsigned vx_sbcount : 5 __attribute__((packed)); // AKA sbcmp
-	unsigned vx_unused2 : 2 __attribute__((packed));
-	unsigned vx_sbout : 1 __attribute__((packed));
+	u_int vx_xprst : 1 __attribute__((packed));
+	u_int vx_xpen : 1 __attribute__((packed));
+	u_int vx_xpbsy_fb0 : 1 __attribute__((packed));
+	u_int vx_xpbsy_fb1 : 1 __attribute__((packed));
+	u_int vx_overtime : 1 __attribute__((packed));
+	u_int vx_unused : 3 __attribute__((packed));
+	u_int vx_sbcount : 5 __attribute__((packed)); // AKA sbcmp
+	u_int vx_unused2 : 2 __attribute__((packed));
+	u_int vx_sbout : 1 __attribute__((packed));
 };
 
 struct vip_regs
