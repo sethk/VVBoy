@@ -22,6 +22,7 @@
 #endif // INTERFACE
 
 char *rom_name = NULL;
+bool rom_loaded = false;
 
 #define ROM_BASE_ADDR 0x07000000
 #define ROM_MIN_SIZE 1024lu
@@ -344,7 +345,7 @@ rom_load(const char *fn)
 			u_int32_t addr;
 			char name[33];
 			if (sscanf(line, "%x %32s", &addr, name) == 2)
-				debug_create_symbol(name, addr);
+				debug_create_symbol(name, addr, false);
 			else
 				warnx("%s:%u: Could not parse line", rom_symbol_fn, line_num);
 		}
@@ -358,8 +359,7 @@ rom_load(const char *fn)
 	const char *name = (sep) ? sep + 1 : fn;
 	size_t name_len = (ext) ? ext - name : strlen(name);
 	rom_name = strndup(name, name_len);
-
-	debug_add_syms();
+	rom_loaded = true;
 
 	return status;
 }
@@ -396,7 +396,12 @@ rom_unload(void)
 		free(rom_symbol_fn);
 
 	if (rom_name)
+	{
 		free(rom_name);
+		rom_name = NULL;
+	}
 
-	debug_clear_syms();
+	debug_clear_rom_syms();
+
+	rom_loaded = false;
 }

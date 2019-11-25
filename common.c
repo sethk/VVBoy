@@ -533,14 +533,10 @@ sram_fini(void)
 bool
 wram_init(void)
 {
-	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, PROT_READ | PROT_WRITE);
-}
+	debug_create_symbol("GLOBAL", 0x05000000, true);
+	debug_create_symbol("STACK", 0x0500dfff, true);
 
-void
-wram_add_syms(void)
-{
-	debug_create_symbol("GLOBAL", 0x05000000);
-	debug_create_symbol("STACK", 0x0500dfff);
+	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, PROT_READ | PROT_WRITE);
 }
 
 void
@@ -789,6 +785,15 @@ enum cpu_event
 bool
 cpu_init(void)
 {
+	debug_create_symbol("vect.fpe", 0xffffff60, true);
+	debug_create_symbol("vect.div0", 0xffffff80, true);
+	debug_create_symbol("vect.ill", 0xffffff90, true);
+	debug_create_symbol("vect.trapa", 0xffffffa0, true);
+	debug_create_symbol("vect.trapb", 0xffffffb0, true);
+	debug_create_symbol("vect.atrap", 0xffffffc0, true);
+	debug_create_symbol("vect.nmi", 0xffffffd0, true);
+	debug_create_symbol("vect.reset", 0xfffffff0, true);
+
 	events_set_desc(CPU_EVENT_INTR_ENTER, "Interrupt %u (%s)");
 	events_set_desc(CPU_EVENT_INTR_RETURN, "Return from interrupt");
 	events_set_desc(CPU_EVENT_INTR_ENABLE, "Enable interrupts");
@@ -798,19 +803,6 @@ cpu_init(void)
 	cpu_wait = 1;
 
 	return true;
-}
-
-void
-cpu_add_syms(void)
-{
-	debug_create_symbol("vect.fpe", 0xffffff60);
-	debug_create_symbol("vect.div0", 0xffffff80);
-	debug_create_symbol("vect.ill", 0xffffff90);
-	debug_create_symbol("vect.trapa", 0xffffffa0);
-	debug_create_symbol("vect.trapb", 0xffffffb0);
-	debug_create_symbol("vect.atrap", 0xffffffc0);
-	debug_create_symbol("vect.nmi", 0xffffffd0);
-	debug_create_symbol("vect.reset", 0xfffffff0);
 }
 
 void
@@ -2462,27 +2454,22 @@ static struct vsu_state
 bool
 vsu_init(void)
 {
-	// TODO
-	return true;
-}
-
-void
-vsu_add_syms(void)
-{
-	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80);
+	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80, true);
 	for (u_int i = 0; i < 6; ++i)
 	{
 		u_int32_t base = 0x01000400 + (i * 0x40);
 		u_int sound = i + 1;
-		debug_create_symbolf(base + 0x00, "S%uINT", sound);
-		debug_create_symbolf(base + 0x04, "S%uLRV", sound);
-		debug_create_symbolf(base + 0x08, "S%uFQL", sound);
-		debug_create_symbolf(base + 0x0c, "S%uFQH", sound);
-		debug_create_symbolf(base + 0x10, "S%uEV0", sound);
-		debug_create_symbolf(base + 0x14, "S%uEV1", sound);
-		debug_create_symbolf(base + 0x18, "S%uRAM", sound);
+		debug_create_symbolf(base + 0x00, true, "S%uINT", sound);
+		debug_create_symbolf(base + 0x04, true, "S%uLRV", sound);
+		debug_create_symbolf(base + 0x08, true, "S%uFQL", sound);
+		debug_create_symbolf(base + 0x0c, true, "S%uFQH", sound);
+		debug_create_symbolf(base + 0x10, true, "S%uEV0", sound);
+		debug_create_symbolf(base + 0x14, true, "S%uEV1", sound);
+		debug_create_symbolf(base + 0x18, true, "S%uRAM", sound);
 	}
-	debug_create_symbol("SSTOP", 0x01000580);
+	debug_create_symbol("SSTOP", 0x01000580, true);
+
+	return true;
 }
 
 void
@@ -2875,33 +2862,29 @@ enum nvc_event
 bool
 nvc_init(void)
 {
+	debug_create_symbol("SCR", 0x02000028, true);
+	debug_create_symbol("WCR", 0x02000024, true);
+	debug_create_symbol("TCR", 0x02000020, true);
+	debug_create_symbol("THR", 0x0200001c, true);
+	debug_create_symbol("TLR", 0x02000018, true);
+	debug_create_symbol("SDHR", 0x02000014, true);
+	debug_create_symbol("SDLR", 0x02000010, true);
+	debug_create_symbol("CDRR", 0x0200000c, true);
+	debug_create_symbol("CDTR", 0x02000008, true);
+	debug_create_symbol("CCSR", 0x02000004, true);
+	debug_create_symbol("CCR", 0x02000000, true);
+
+	debug_create_symbol("vect.key", 0xfffffe00, true);
+	debug_create_symbol("vect.tim", 0xfffffe10, true);
+	debug_create_symbol("vect.cro", 0xfffffe20, true);
+	debug_create_symbol("vect.com", 0xfffffe30, true);
+	debug_create_symbol("vect.vip", 0xfffffe40, true);
+
 	events_set_desc(NVC_EVENT_TIMER_SET, "Timer set");
 	events_set_desc(NVC_EVENT_TIMER_EXPIRED, "Timer expired");
 	events_set_desc(NVC_EVENT_KEY_DOWN, "Key 0x%x down");
 	events_set_desc(NVC_EVENT_KEY_UP, "Key 0x%x up");
 	return cpu_init();
-}
-
-void
-nvc_add_syms(void)
-{
-	debug_create_symbol("SCR", 0x02000028);
-	debug_create_symbol("WCR", 0x02000024);
-	debug_create_symbol("TCR", 0x02000020);
-	debug_create_symbol("THR", 0x0200001c);
-	debug_create_symbol("TLR", 0x02000018);
-	debug_create_symbol("SDHR", 0x02000014);
-	debug_create_symbol("SDLR", 0x02000010);
-	debug_create_symbol("CDRR", 0x0200000c);
-	debug_create_symbol("CDTR", 0x02000008);
-	debug_create_symbol("CCSR", 0x02000004);
-	debug_create_symbol("CCR", 0x02000000);
-
-	debug_create_symbol("vect.key", 0xfffffe00);
-	debug_create_symbol("vect.tim", 0xfffffe10);
-	debug_create_symbol("vect.cro", 0xfffffe20);
-	debug_create_symbol("vect.com", 0xfffffe30);
-	debug_create_symbol("vect.vip", 0xfffffe40);
 }
 
 void
@@ -3194,6 +3177,7 @@ nvc_mem_write(const struct mem_request *request, const void *src)
 		u_int32_t ds_addr;
 		struct debug_symbol *ds_next;
 		enum isx_symbol_type ds_type;
+		bool ds_is_system;
 	};
 # define DEBUG_ADDR_NONE (0xffffffff)
 
@@ -3296,16 +3280,6 @@ debug_prompt(EditLine *editline __unused)
 }
 #endif // DEBUG_TTY
 
-void
-debug_add_syms(void)
-{
-	wram_add_syms();
-	cpu_add_syms();
-	vip_add_syms();
-	vsu_add_syms();
-	nvc_add_syms();
-}
-
 bool
 debug_init(void)
 {
@@ -3352,16 +3326,20 @@ debug_symbol_cmpaddr(const struct debug_symbol *sym1, const struct debug_symbol 
 }
 
 void
-debug_clear_syms(void)
+debug_clear_rom_syms(void)
 {
-	while (debug_syms)
+	struct debug_symbol **prev_nextp = &debug_syms;
+	while (*prev_nextp)
 	{
-		struct debug_symbol *debug_sym = debug_syms;
-		debug_syms = debug_sym->ds_next;
-		debug_destroy_symbol(debug_sym);
+		struct debug_symbol *debug_sym = *prev_nextp;
+		if (!(*prev_nextp)->ds_is_system)
+		{
+			*prev_nextp = debug_sym->ds_next;
+			debug_destroy_symbol(debug_sym);
+		}
+		else
+			prev_nextp = &debug_sym->ds_next;
 	}
-	assert(!debug_syms);
-	assert(!debug_addrs);
 }
 
 void
@@ -3553,7 +3531,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 }
 
 struct debug_symbol *
-debug_create_symbol(const char *name, u_int32_t addr)
+debug_create_symbol(const char *name, u_int32_t addr, bool is_system)
 {
 	struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
 	if (!debug_sym)
@@ -3563,29 +3541,30 @@ debug_create_symbol(const char *name, u_int32_t addr)
 		err(1, "Could not copy symbol name");
 	debug_sym->ds_addr = addr;
 	debug_sym->ds_type = ISX_SYMBOL_POINTER;
+	debug_sym->ds_is_system = is_system;
 	debug_add_symbol(debug_sym);
 	return debug_sym;
 }
 
 struct debug_symbol *
-debug_create_symbolf(u_int32_t addr, const char *fmt, ...)
+debug_create_symbolf(u_int32_t addr, bool is_system, const char *fmt, ...)
 {
 	char name[64 + 1];
 	va_list ap;
 	va_start(ap, fmt);
 	vsnprintf(name, sizeof(name), fmt, ap);
 	va_end(ap);
-	return debug_create_symbol(name, addr);
+	return debug_create_symbol(name, addr, is_system);
 }
 
 void
-debug_create_symbol_array(const char *base_name, u_int32_t start, u_int count, u_int32_t size)
+debug_create_symbol_array(const char *base_name, u_int32_t start, u_int count, u_int32_t size, bool is_system)
 {
 	for (u_int i = 0; i < count; ++i)
 	{
 		debug_str_t name;
 		snprintf(name, sizeof(name), "%s:%u", base_name, i);
-		debug_create_symbol(name, start + size * i);
+		debug_create_symbol(name, start + size * i, is_system);
 	}
 }
 
@@ -4954,7 +4933,7 @@ debug_exec(const char *cmd)
 
 				if (debug_locate_symbol(argv[1]) == DEBUG_ADDR_NONE)
 				{
-					struct debug_symbol *sym = debug_create_symbol(argv[1], addr);
+					struct debug_symbol *sym = debug_create_symbol(argv[1], addr, false);
 					rom_add_symbol(sym);
 				}
 				else
@@ -5279,6 +5258,15 @@ debug_fatal_errorf(const char *fmt, ...)
 void
 debug_frame_begin(void)
 {
+	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F7, true))
+		debug_step_inst();
+	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
+		debug_toggle_stopped();
+	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F8, true))
+		debug_next_frame();
+
+	imgui_key_toggle(SDL_SCANCODE_GRAVE, &debug_show_console, true);
+
 	if (debug_clear_console)
 	{
 		debug_console_begin = debug_console_end;
@@ -5763,7 +5751,7 @@ gl_debug_blit(enum gl_texture texture)
 }
 
 /* IMGUI */
-bool imgui_shown = false;
+bool imgui_shown = true;
 static u_int imgui_emu_x, imgui_emu_y;
 static u_int imgui_emu_scale = 2;
 
@@ -5816,23 +5804,16 @@ imgui_key_toggle(int key_index, bool *togglep, bool show_on_active)
 void
 imgui_frame_begin(void)
 {
-	if (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(SDL_SCANCODE_SPACE, false)*/)
+	if (rom_loaded && (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(SDL_SCANCODE_SPACE, false)*/))
 		imgui_shown = !imgui_shown;
-
-	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F7, true))
-		debug_step_inst();
-	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
-		debug_toggle_stopped();
-	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F8, true))
-		debug_next_frame();
-
-	imgui_key_toggle(SDL_SCANCODE_GRAVE, &debug_show_console, true);
 
 	if (igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI))
 	{
-		if (igIsKeyPressed(SDL_SCANCODE_R, false))
+		if (rom_loaded && igIsKeyPressed(SDL_SCANCODE_R, false))
 			main_reset();
-		else if (igIsKeyPressed(SDL_SCANCODE_1, false))
+		else if (!rom_loaded && igIsKeyPressed(SDL_SCANCODE_O, false))
+			main_open_rom();
+		if (igIsKeyPressed(SDL_SCANCODE_1, false))
 			imgui_emu_scale = 1;
 		else if (igIsKeyPressed(SDL_SCANCODE_2, false))
 			imgui_emu_scale = 2;
@@ -5850,15 +5831,23 @@ imgui_frame_begin(void)
 	{
 		if (igBeginMenu("File", true))
 		{
-			if (igMenuItem("Quit", "Cmd+Q", NULL, true))
+			if (igMenuItem("Open ROM...", "Cmd+O", false, true))
+				main_open_rom();
+
+			if (igMenuItem("Close ROM", NULL, false, rom_loaded))
+				main_close_rom();
+
+			igSeparator();
+
+			if (igMenuItem("Quit", "Cmd+Q", false, true))
 				main_quit();
 
 			igEndMenu();
 		}
 
-		if (igBeginMenu("Emulation", true))
+		if (igBeginMenu("Emulation", rom_loaded))
 		{
-			if (igMenuItem("Reset", "Cmd+R", NULL, true))
+			if (igMenuItem("Reset", "Cmd+R", false, true))
 				main_reset();
 
 			igSeparator();
@@ -5887,7 +5876,7 @@ imgui_frame_begin(void)
 			igEndMenu();
 		}
 
-		if (igBeginMenu("View", true))
+		if (igBeginMenu("View", rom_loaded))
 		{
 			igMenuItemPtr("Debug console...", "`", &debug_show_console, true);
 			igMenuItemPtr("Events...", NULL, &events_shown, true);
@@ -5923,7 +5912,7 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
-			if (igMenuItem("Toggle GUI", "space/esc", false, true))
+			if (igMenuItem("Toggle GUI", "space/esc", true, rom_loaded))
 				imgui_shown = false;
 
 			igEndMenu();
@@ -6044,13 +6033,18 @@ main_fini(void)
 void
 main_update_caption(const char *stats)
 {
-	char caption[100];
-	size_t offset = 0;
-	offset+= snprintf(caption, sizeof(caption), (stats) ? "%s: %s [%s]" : "%s: %s", "VVBoy", rom_name, stats);
-	if (debug_is_stopped())
-		offset+= snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
-	else if (main_time_scale != 1.0)
-		offset += snprintf(caption + offset, sizeof(caption) - offset, " *Time Scale %gx*", main_time_scale);
+	char caption[100] = "VVBoy";
+	size_t offset = sizeof("VVBoy") - 1;
+	if (rom_loaded)
+	{
+		offset+= snprintf(caption + offset, sizeof(caption) - offset, ": %s", rom_name);
+		if (stats)
+			offset+= snprintf(caption + offset, sizeof(caption) - offset, " [%s]", stats);
+		if (debug_is_stopped())
+			offset+= snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
+		else if (main_time_scale != 1.0)
+			offset += snprintf(caption + offset, sizeof(caption) - offset, " *Time Scale %gx*", main_time_scale);
+	}
 	tk_update_caption(caption);
 }
 
@@ -6186,34 +6180,37 @@ main_frame(u_int delta_usecs)
 
 	imgui_frame_begin();
 
-	debug_frame_begin();
-	nvc_frame_begin();
-	vip_frame_begin();
+	if (rom_loaded)
+	{
+		debug_frame_begin();
+		nvc_frame_begin();
+		vip_frame_begin();
 
-	if (main_trace)
-		debug_tracef("main", "Begin frame, delta_usecs=%u", delta_usecs);
+		if (main_trace)
+			debug_tracef("main", "Begin frame, delta_usecs=%u", delta_usecs);
 
-	if (main_time_scale != 1.0)
-		delta_usecs = lround(delta_usecs * main_time_scale);
+		if (main_time_scale != 1.0)
+			delta_usecs = lround(delta_usecs * main_time_scale);
 
-	while (delta_usecs-- != 0 && main_step());
+		while (delta_usecs-- != 0 && main_step());
 
-	// Check SIGINT -> Debugger
-	sigset_t sigpend;
-	sigpending(&sigpend);
-	if (sigismember(&sigpend, SIGINT))
-		debug_stop();
+		// Check SIGINT -> Debugger
+		sigset_t sigpend;
+		sigpending(&sigpend);
+		if (sigismember(&sigpend, SIGINT))
+			debug_stop();
 
-	if (main_trace)
-		debug_tracef("main", "End frame");
+		if (main_trace)
+			debug_tracef("main", "End frame");
 
-	vip_frame_end();
-	vsu_frame_end();
+		vip_frame_end();
+		vsu_frame_end();
 
-	main_draw();
+		main_draw();
 
-	debug_frame_end();
-	events_frame_end();
+		debug_frame_end();
+		events_frame_end();
+	}
 
 	imgui_frame_end();
 

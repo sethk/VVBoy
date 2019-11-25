@@ -21,8 +21,9 @@ set(IMGUI_SOURCES ${IMGUI_DIR}/cimgui/cimgui.cpp ${IMGUI_DIR}/cimgui/fontAtlas.c
         ${IMGUI_DIR}/imgui/imgui.cpp ${IMGUI_DIR}/imgui/imgui_draw.cpp ${IMGUI_DIR}/imgui/imgui_demo.cpp
         vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.cpp)
 set(VVBOY_SOURCES vvboy.c)
-set(VVBDIS_SOURCES vvbdis.c tk_null.c)
-set(ALL_SOURCES ${COMMON_SOURCES} ${TK_SOURCES} ${VVBOY_SOURCES} ${VVBDIS_SOURCES})
+set(VVBDIS_SOURCES vvbdis.c tk_null.c os_null.c)
+set(OS_SOURCES os_macos.m)
+set(ALL_SOURCES ${COMMON_SOURCES} ${TK_SOURCES} ${VVBOY_SOURCES} ${VVBDIS_SOURCES} ${OS_SOURCES})
 set(GEN_HEADERS vvboy.h common.h rom.h vvbdis.h)
 add_executable(makeheaders vendor/makeheaders/makeheaders.c)
 target_compile_options(makeheaders PUBLIC -Wno-sign-compare -Wno-unused-parameter -Wno-unused-function
@@ -44,3 +45,7 @@ add_dependencies(vvboy GenHeaders)
 
 # TODO: macOS only
 add_compile_definitions(vvboy PRIVATE GL_SILENCE_DEPRECATION)
+# add_executable(VVBoy MACOSX_BUNDLE ...
+target_sources(vvboy PRIVATE ${OS_SOURCES})
+find_library(APPKIT AppKit)
+target_link_libraries(vvboy PRIVATE ${APPKIT})

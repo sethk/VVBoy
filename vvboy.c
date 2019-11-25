@@ -21,6 +21,37 @@ main_quit(void)
 	main_running = false;
 }
 
+static bool
+main_load_rom(const char *fn)
+{
+	if (rom_load(fn))
+	{
+		main_update_caption(NULL);
+		imgui_shown = false;
+		return true;
+	}
+
+	return false;
+}
+
+void
+main_close_rom()
+{
+	rom_unload();
+	main_update_caption(NULL);
+	imgui_shown = true;
+}
+
+void
+main_open_rom()
+{
+	if (rom_loaded)
+		rom_unload();
+
+	static const char * const exts[] = {"vb", "isx"};
+	os_choose_file(exts, sizeof(exts) / sizeof(exts[0]), main_load_rom);
+}
+
 static void
 main_loop(void)
 {
@@ -62,7 +93,7 @@ main(int ac, char * const *av)
 	bool debugging = false;
 	bool linebuf = false;
 	static const char *trace_path = NULL;
-	static const char *usage_fmt = "usage: %s [-d] [ -t <subsystem> ] [ -T <trace.log> ] { <file.vb> | <file.isx> }\n";
+	static const char *usage_fmt = "usage: %s [-d] [ -t <subsystem> ] [ -T <trace.log> ] [ <file.vb> | <file.isx> ]\n";
 	while ((ch = getopt(ac, av, "dt:T:")) != -1)
 		switch (ch)
 		{
@@ -85,7 +116,7 @@ main(int ac, char * const *av)
 	ac-= optind;
 	av+= optind;
 
-	if (ac != 1 || help)
+	if (ac > 1 || help)
 	{
 		fprintf(stderr, usage_fmt, getprogname());
 		return EX_USAGE;
@@ -100,8 +131,11 @@ main(int ac, char * const *av)
 			err(EX_OSERR, "Can't set trace line-buffered");
 	}
 
-	if (!rom_load(av[0]))
-		return EX_NOINPUT;
+	if (ac == 1)
+	{
+		if (!main_load_rom(av[0]))
+			return EX_NOINPUT;
+	}
 
 	if (!main_init())
 		return EX_OSERR;
@@ -124,7 +158,8 @@ main(int ac, char * const *av)
 
 	main_unblock_sigint();
 
-	rom_unload();
+	if (rom_loaded)
+		rom_unload();
 	main_fini();
 
 	if (debug_trace_file != NULL)

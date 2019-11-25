@@ -280,6 +280,42 @@ enum scan_event
 bool
 vip_init(void)
 {
+	debug_create_symbol("L:FB0", 0x00000, true);
+	debug_create_symbol("L:FB1", 0x08000, true);
+	debug_create_symbol("R:FB0", 0x10000, true);
+	debug_create_symbol("R:FB1", 0x18000, true);
+	debug_create_symbol("INTPND", 0x5f800, true);
+	debug_create_symbol("INTENB", 0x5f802, true);
+	debug_create_symbol("INTCLR", 0x5f804, true);
+	debug_create_symbol("DPSTTS", 0x5f820, true);
+	debug_create_symbol("DPCTRL", 0x5f822, true);
+	debug_create_symbol("BRTA", 0x5f824, true);
+	debug_create_symbol("BRTB", 0x5f826, true);
+	debug_create_symbol("BRTC", 0x5f828, true);
+	debug_create_symbol("REST", 0x5f82a, true);
+	debug_create_symbol("FRMCYC", 0x5f82e, true);
+	debug_create_symbol("CTA", 0x5f830, true);
+	debug_create_symbol("XPSTTS", 0x5f840, true);
+	debug_create_symbol("XPCTRL", 0x5f842, true);
+	debug_create_symbol("VER", 0x5f844, true);
+	debug_create_symbol("SPT0", 0x5f848, true);
+	debug_create_symbol("SPT1", 0x5f84a, true);
+	debug_create_symbol("SPT2", 0x5f84c, true);
+	debug_create_symbol("SPT3", 0x5f84e, true);
+	debug_create_symbol("GPLT0", 0x5f860, true);
+	debug_create_symbol("GPLT1", 0x5f862, true);
+	debug_create_symbol("GPLT2", 0x5f864, true);
+	debug_create_symbol("GPLT3", 0x5f866, true);
+	debug_create_symbol("JPLT0", 0x5f86a, true);
+	debug_create_symbol("JPLT2", 0x5f86c, true);
+	debug_create_symbol("JPLT3", 0x5f86e, true);
+	debug_create_symbol("BKCOL", 0x5f870, true);
+	debug_create_symbol_array("BGMAP", 0x20000, 13, 8192, true);
+	debug_create_symbol_array("WORLD_ATT", 0x3d800, 32, 32, true);
+	debug_create_symbol("CLM_TBL", 0x3dc00, true);
+	debug_create_symbol("OAM", 0x3e000, true);
+	debug_create_symbol("CHR", 0x78000, true);
+
 	events_set_desc(VIP_EVENT_FRAMESTART, "FRAMESTART FRMCYC=%i");
 	events_set_desc(VIP_EVENT_GAMESTART, "GAMESTART");
 	events_set_desc(VIP_EVENT_DRAW_ENABLE, "Draw enable");
@@ -288,6 +324,7 @@ vip_init(void)
 	events_set_desc(VIP_EVENT_CLEAR_START, "Clear FB%u");
 	events_set_desc(SCAN_EVENT_LDISP_START, "Display L:FB%u");
 	events_set_desc(SCAN_EVENT_RDISP_START, "Display R:FB%u");
+
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
 	bzero(&vip_regs, sizeof(vip_regs));
@@ -295,46 +332,6 @@ vip_init(void)
 	vip_disp_index = 0;
 
 	return true;
-}
-
-void
-vip_add_syms(void)
-{
-	debug_create_symbol("L:FB0", 0x00000);
-	debug_create_symbol("L:FB1", 0x08000);
-	debug_create_symbol("R:FB0", 0x10000);
-	debug_create_symbol("R:FB1", 0x18000);
-	debug_create_symbol("INTPND", 0x5f800);
-	debug_create_symbol("INTENB", 0x5f802);
-	debug_create_symbol("INTCLR", 0x5f804);
-	debug_create_symbol("DPSTTS", 0x5f820);
-	debug_create_symbol("DPCTRL", 0x5f822);
-	debug_create_symbol("BRTA", 0x5f824);
-	debug_create_symbol("BRTB", 0x5f826);
-	debug_create_symbol("BRTC", 0x5f828);
-	debug_create_symbol("REST", 0x5f82a);
-	debug_create_symbol("FRMCYC", 0x5f82e);
-	debug_create_symbol("CTA", 0x5f830);
-	debug_create_symbol("XPSTTS", 0x5f840);
-	debug_create_symbol("XPCTRL", 0x5f842);
-	debug_create_symbol("VER", 0x5f844);
-	debug_create_symbol("SPT0", 0x5f848);
-	debug_create_symbol("SPT1", 0x5f84a);
-	debug_create_symbol("SPT2", 0x5f84c);
-	debug_create_symbol("SPT3", 0x5f84e);
-	debug_create_symbol("GPLT0", 0x5f860);
-	debug_create_symbol("GPLT1", 0x5f862);
-	debug_create_symbol("GPLT2", 0x5f864);
-	debug_create_symbol("GPLT3", 0x5f866);
-	debug_create_symbol("JPLT0", 0x5f86a);
-	debug_create_symbol("JPLT2", 0x5f86c);
-	debug_create_symbol("JPLT3", 0x5f86e);
-	debug_create_symbol("BKCOL", 0x5f870);
-	debug_create_symbol_array("BGMAP", 0x20000, 13, 8192);
-	debug_create_symbol_array("WORLD_ATT", 0x3d800, 32, 32);
-	debug_create_symbol("CLM_TBL", 0x3dc00);
-	debug_create_symbol("OAM", 0x3e000);
-	debug_create_symbol("CHR", 0x78000);
 }
 
 void

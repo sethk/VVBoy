@@ -90,7 +90,7 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 				snprintf(func_name, sizeof(func_name), "%s%u", basename, *func_sym_indexp);
 				++(*func_sym_indexp);
 			} while (debug_locate_symbol(func_name) != DEBUG_ADDR_NONE);
-			sym = debug_create_symbol(func_name, func_addr);
+			sym = debug_create_symbol(func_name, func_addr, false);
 			rom_add_symbol(sym);
 		}
 
@@ -351,6 +351,18 @@ disasm_area(u_int32_t begin, u_int32_t end)
 // TODO: Remove
 void
 main_quit()
+{
+}
+
+// TODO: Remove
+void
+main_open_rom()
+{
+}
+
+// TODO: Remove
+void
+main_close_rom()
 {
 }
 

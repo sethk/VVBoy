@@ -6,6 +6,7 @@
 #include "tk_sdl.h"
 
 #include <SDL.h>
+#include <SDL_syswm.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
 #include "assert.h"
@@ -275,4 +276,17 @@ tk_runtime_error(const char *msg, bool allow_always_ignore)
 	int buttonid;
 	SDL_ShowMessageBox(&data, &buttonid);
 	return (enum debug_error_state)buttonid;
+}
+
+#if INTERFACE
+typedef struct _NSWindow NSWindow;
+#endif // INTERFACE
+
+NSWindow *
+tk_get_main_win()
+{
+	SDL_SysWMinfo info;
+	SDL_VERSION(&info.version);
+	SDL_assert_always(SDL_GetWindowWMInfo(sdl_window, &info));
+	return info.info.cocoa.window;
 }
