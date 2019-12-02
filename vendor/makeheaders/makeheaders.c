@@ -3044,7 +3044,7 @@ static InFile *CreateInFile(char *zArg, int *pnErr){
   /* Figure out if we are dealing with C or C++ code.  Assume any
   ** file with ".c" or ".h" is C code and all else is C++.
   */
-  if( nSrc>2 && zSrc[nSrc-2]=='.' && (zSrc[nSrc-1]=='c' || zSrc[nSrc-1]=='h')){
+  if( nSrc>2 && zSrc[nSrc-2]=='.' && (zSrc[nSrc-1]=='c' || zSrc[nSrc-1]=='h' || zSrc[nSrc-1]=='m' )){
     pFile->flags &= ~DP_Cplusplus;
   }else{
     pFile->flags |= DP_Cplusplus;
@@ -3090,7 +3090,7 @@ static InFile *CreateInFile(char *zArg, int *pnErr){
   */
   pFile->flags |= PS_Interface;
   for(i=nSrc-1; i>0 && zSrc[i]!='.'; i--){
-    if( zSrc[i]=='c' || zSrc[i]=='C' ){
+    if( zSrc[i]=='c' || zSrc[i]=='C' || zSrc[i]=='m' ){
       pFile->flags &= ~PS_Interface;
       break;
     }
