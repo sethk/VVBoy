@@ -12,6 +12,7 @@
 /vip_draw.h
 /vip_draw_slow.h
 /vvbdis.h
+/os_null.h
 .depend
 /vendor/makeheaders/makeheaders
 /.headers-stamp
