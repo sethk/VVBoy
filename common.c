@@ -27,7 +27,6 @@
 #include <OpenGL/gl3.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
-#include <SDL_scancode.h>
 
 /* MEM */
 #if INTERFACE
@@ -2810,27 +2809,27 @@ struct nvc_regs
 		NVC_INTVIP = 4,
 		NVC_NUM_INTLEVEL
 	};
-
-	enum nvc_key
-	{
-		KEY_PWR = (1 << 0),
-		KEY_SGN = (1 << 1),
-		KEY_A = (1 << 2),
-		KEY_B = (1 << 3),
-		KEY_RT = (1 << 4),
-		KEY_LT = (1 << 5),
-		KEY_RU = (1 << 6),
-		KEY_RR = (1 << 7),
-		KEY_LR = (1 << 8),
-		KEY_LL = (1 << 9),
-		KEY_LD = (1 << 10),
-		KEY_LU = (1 << 11),
-		KEY_STA = (1 << 12),
-		KEY_SEL = (1 << 13),
-		KEY_RL = (1 << 14),
-		KEY_RD = (1 << 15)
-	};
 #endif // INTERFACE
+
+enum nvc_key
+{
+	KEY_PWR = (1 << 0),
+	KEY_SGN = (1 << 1),
+	KEY_A = (1 << 2),
+	KEY_B = (1 << 3),
+	KEY_RT = (1 << 4),
+	KEY_LT = (1 << 5),
+	KEY_RU = (1 << 6),
+	KEY_RR = (1 << 7),
+	KEY_LR = (1 << 8),
+	KEY_LL = (1 << 9),
+	KEY_LD = (1 << 10),
+	KEY_LU = (1 << 11),
+	KEY_STA = (1 << 12),
+	KEY_SEL = (1 << 13),
+	KEY_RL = (1 << 14),
+	KEY_RD = (1 << 15)
+};
 
 static struct nvc_regs nvc_regs;
 static struct
@@ -3034,10 +3033,9 @@ nvc_step(void)
 	return true;
 }
 
-void
+static void
 nvc_input(enum nvc_key key, bool state)
 {
-	// TODO: handle multi-key mask
 	if (state)
 		nvc_keys|= key;
 	else
@@ -3061,6 +3059,100 @@ nvc_input(enum nvc_key key, bool state)
 
 		if (raise_intr)
 			cpu_intr(NVC_INTKEY);
+	}
+}
+
+bool
+nvc_input_key(enum tk_scancode scancode, bool state)
+{
+	switch (scancode)
+	{
+		case TK_SCANCODE_LSHIFT: nvc_input(KEY_LT, state); return true;
+		case TK_SCANCODE_W: nvc_input(KEY_LU, state); return true;
+		case TK_SCANCODE_A: nvc_input(KEY_LL, state); return true;
+		case TK_SCANCODE_S: nvc_input(KEY_LD, state); return true;
+		case TK_SCANCODE_D: nvc_input(KEY_LR, state); return true;
+		case TK_SCANCODE_APOSTROPHE: nvc_input(KEY_SEL, state); return true;
+		case TK_SCANCODE_RETURN: nvc_input(KEY_STA, state); return true;
+		case TK_SCANCODE_RSHIFT: nvc_input(KEY_RT, state); return true;
+		case TK_SCANCODE_UP: nvc_input(KEY_RU, state); return true;
+		case TK_SCANCODE_LEFT: nvc_input(KEY_RL, state); return true;
+		case TK_SCANCODE_DOWN: nvc_input(KEY_RD, state); return true;
+		case TK_SCANCODE_RIGHT: nvc_input(KEY_RR, state); return true;
+		case TK_SCANCODE_RALT: nvc_input(KEY_A, state); return true;
+		case TK_SCANCODE_RGUI: nvc_input(KEY_B, state); return true;
+		default: return false;
+	}
+}
+
+void
+nvc_input_button(enum tk_button button, bool state)
+{
+	switch (button)
+	{
+		case TK_BUTTON_LSHOULDER: nvc_input(KEY_LT, state); break;
+		case TK_BUTTON_DPAD_UP: nvc_input(KEY_LU, state); break;
+		case TK_BUTTON_DPAD_LEFT: nvc_input(KEY_LL, state); break;
+		case TK_BUTTON_DPAD_DOWN: nvc_input(KEY_LD, state); break;
+		case TK_BUTTON_DPAD_RIGHT: nvc_input(KEY_LR, state); break;
+		case TK_BUTTON_BACK: nvc_input(KEY_SEL, state); break;
+		case TK_BUTTON_START: nvc_input(KEY_STA, state); break;
+		case TK_BUTTON_RSHOULDER: nvc_input(KEY_RT, state); break;
+		case TK_BUTTON_A: nvc_input(KEY_A, state); break;
+		case TK_BUTTON_B: nvc_input(KEY_B, state); break;
+	}
+}
+
+void
+nvc_input_axis(enum tk_axis axis, float value)
+{
+	static const float dead_zone = 0.25f;
+	switch (axis)
+	{
+		case TK_AXIS_LEFTX:
+			if (value > dead_zone)
+				nvc_input(KEY_LR, true);
+			else if (value < -dead_zone)
+				nvc_input(KEY_LL, true);
+			else
+			{
+				nvc_input(KEY_LR, false);
+				nvc_input(KEY_LL, false);
+			}
+			break;
+		case TK_AXIS_LEFTY:
+			if (value > dead_zone)
+				nvc_input(KEY_LD, true);
+			else if (value < -dead_zone)
+				nvc_input(KEY_LU, true);
+			else
+			{
+				nvc_input(KEY_LD, false);
+				nvc_input(KEY_LU, false);
+			}
+			break;
+		case TK_AXIS_RIGHTX:
+			if (value > dead_zone)
+				nvc_input(KEY_RR, true);
+			else if (value < -dead_zone)
+				nvc_input(KEY_RL, true);
+			else
+			{
+				nvc_input(KEY_RR, false);
+				nvc_input(KEY_RL, false);
+			}
+			break;
+		case TK_AXIS_RIGHTY:
+			if (value > dead_zone)
+				nvc_input(KEY_RD, true);
+			else if (value < -dead_zone)
+				nvc_input(KEY_RU, true);
+			else
+			{
+				nvc_input(KEY_RD, false);
+				nvc_input(KEY_RU, false);
+			}
+			break;
 	}
 }
 
@@ -5222,7 +5314,7 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	if (debug_mode == DEBUG_STOP)
 		return true;
 
-	switch (tk_runtime_error(msg, (ignore_flagp != NULL)))
+	switch (os_runtime_error(msg, (ignore_flagp != NULL)))
 	{
 		case ERROR_IGNORE:
 			return true;
@@ -5258,14 +5350,14 @@ debug_fatal_errorf(const char *fmt, ...)
 void
 debug_frame_begin(void)
 {
-	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F7, true))
+	if (debug_is_stopped() && igIsKeyPressed((enum tk_scancode)TK_SCANCODE_F7, true))
 		debug_step_inst();
-	if (igIsKeyPressed(SDL_SCANCODE_F9, false))
+	if (igIsKeyPressed(TK_SCANCODE_F9, false))
 		debug_toggle_stopped();
-	if (debug_is_stopped() && igIsKeyPressed(SDL_SCANCODE_F8, true))
+	if (debug_is_stopped() && igIsKeyPressed(TK_SCANCODE_F8, true))
 		debug_next_frame();
 
-	imgui_key_toggle(SDL_SCANCODE_GRAVE, &debug_show_console, true);
+	imgui_key_toggle(TK_SCANCODE_GRAVE, &debug_show_console, true);
 
 	if (debug_clear_console)
 	{
@@ -5351,7 +5443,7 @@ debug_frame_end(void)
 	static bool clear_each_frame = false;
 	static bool scroll_to_end = true;
 
-	if ((igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI)) && igIsKeyPressed(SDL_SCANCODE_K, false))
+	if ((igIsKeyDown(TK_SCANCODE_LGUI) || igIsKeyDown(TK_SCANCODE_RGUI)) && igIsKeyPressed(TK_SCANCODE_K, false))
 		debug_clear_console = true;
 
 	if (debug_show_console)
@@ -5619,21 +5711,6 @@ gl_init(void)
 	if (!gl_check_errors("set attribute pointer"))
 		return false;
 
-	const GLfloat g_vertex_buffer_data[] = {
-			// x, y, u, v
-			-1, -1, 1.0, 0.0,
-			1, -1, 1.0, 1.0,
-			1, 1, 0.0, 1.0,
-
-			-1, -1, 1.0, 0.0,
-			1, 1, 0.0, 1.0,
-			-1, 1, 0.0, 0.0
-	};
-
-	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
-	if (!gl_check_errors("update buffer data"))
-		return false;
-
 	glGenTextures(NUM_TEXTURES, gl_textures);
 	for (u_int i = 0; i < NUM_TEXTURES; ++i)
 	{
@@ -5697,13 +5774,90 @@ gl_restore_state(void)
 }
 
 void
-gl_draw(u_int x, u_int y, u_int width, u_int height)
+gl_draw(int x, int y, u_int width, u_int height)
 {
-	glViewport(x, y, width, height);
+	GLuint view_x, view_y;
+	GLsizei view_width, view_height;
+
+	GLfloat tex_left, tex_right;
+	if (x >= 0)
+	{
+		view_x = x;
+		view_width = width;
+		tex_left = 0.f;
+	}
+	else
+	{
+		view_x = 0;
+		int left_inset = -x;
+		view_width = width - left_inset;
+		tex_left = (GLfloat)left_inset / width;
+	}
+
+	int right_x = view_x + view_width;
+	if (right_x <= tk_draw_width)
+		tex_right = 1.f;
+	else
+	{
+		int right_inset = right_x - tk_draw_width;
+		view_width -= right_inset;
+		tex_right = 1.f - (GLfloat)right_inset / width;
+	}
+
+	GLfloat tex_bottom, tex_top;
+	if (y >= 0)
+	{
+		view_y = y;
+		view_height = height;
+		tex_bottom = 1.f;
+	}
+	else
+	{
+		int bottom_inset = -y;
+		tex_bottom = 1.f - ((GLfloat)bottom_inset / height);
+		view_height = height - bottom_inset;
+		view_y = 0;
+	}
+
+	int top_x = view_y + view_height;
+	if (top_x <= tk_draw_height)
+		tex_top = 0.f;
+	else
+	{
+		int top_inset = top_x - tk_draw_height;
+		view_height -= top_inset;
+		tex_top = (GLfloat)top_inset / height;
+	}
+
+	glViewport(view_x, view_y, view_width, view_height);
 	gl_check_errors("set viewport");
 
 	glUseProgram(gl_program);
 	glBindVertexArray(gl_vao);
+	glBindBuffer(GL_ARRAY_BUFFER, gl_vao);
+	gl_check_errors("Bind program and buffers");
+
+	struct gl_vertex
+	{
+		GLfloat x, y;
+		GLfloat u, v;
+	} vertices[2][3];
+
+	// u and v flipped because Virtual Boy framebuffer is column-major
+	vertices[0][0].x = vertices[1][0].x = vertices[1][2].x = -1.f;
+	vertices[0][0].v = vertices[1][0].v = vertices[1][2].v = tex_left;
+	vertices[0][1].x = vertices[0][2].x = vertices[1][1].x = 1.f;
+	vertices[0][1].v = vertices[0][2].v = vertices[1][1].v = tex_right;
+
+	vertices[0][0].y = vertices[0][1].y = vertices[1][0].y = -1.f;
+	vertices[0][0].u = vertices[0][1].u = vertices[1][0].u = tex_bottom;
+	vertices[0][2].y = vertices[1][1].y = vertices[1][2].y = 1.f;
+	vertices[0][2].u = vertices[1][1].u = vertices[1][2].u = tex_top;
+
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
+	if (!gl_check_errors("update buffer data"))
+		return;
+
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_ONE, GL_ONE);
 	glBlendEquation(GL_FUNC_ADD);
@@ -5752,7 +5906,7 @@ gl_debug_blit(enum gl_texture texture)
 
 /* IMGUI */
 bool imgui_shown = true;
-static u_int imgui_emu_x, imgui_emu_y;
+static int imgui_emu_x, imgui_emu_y;
 static u_int imgui_emu_scale = 2;
 
 struct ImGuiContext *imgui_context;
@@ -5804,18 +5958,18 @@ imgui_key_toggle(int key_index, bool *togglep, bool show_on_active)
 void
 imgui_frame_begin(void)
 {
-	if (rom_loaded && (igIsKeyPressed(SDL_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(SDL_SCANCODE_SPACE, false)*/))
+	if (rom_loaded && (igIsKeyPressed(TK_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(TK_SCANCODE_SPACE, false)*/))
 		imgui_shown = !imgui_shown;
 
-	if (igIsKeyDown(SDL_SCANCODE_LGUI) || igIsKeyDown(SDL_SCANCODE_RGUI))
+	if (igIsKeyDown(TK_SCANCODE_LGUI) || igIsKeyDown(TK_SCANCODE_RGUI))
 	{
-		if (rom_loaded && igIsKeyPressed(SDL_SCANCODE_R, false))
+		if (rom_loaded && igIsKeyPressed(TK_SCANCODE_R, false))
 			main_reset();
-		else if (!rom_loaded && igIsKeyPressed(SDL_SCANCODE_O, false))
+		else if (!rom_loaded && igIsKeyPressed(TK_SCANCODE_O, false))
 			main_open_rom();
-		if (igIsKeyPressed(SDL_SCANCODE_1, false))
+		if (igIsKeyPressed(TK_SCANCODE_1, false))
 			imgui_emu_scale = 1;
-		else if (igIsKeyPressed(SDL_SCANCODE_2, false))
+		else if (igIsKeyPressed(TK_SCANCODE_2, false))
 			imgui_emu_scale = 2;
 	}
 
@@ -5831,7 +5985,7 @@ imgui_frame_begin(void)
 	{
 		if (igBeginMenu("File", true))
 		{
-			if (igMenuItem("Open ROM...", "Cmd+O", false, true))
+			if (igMenuItem("Open ROM...", "Cmd+O", false, !rom_loaded))
 				main_open_rom();
 
 			if (igMenuItem("Close ROM", NULL, false, rom_loaded))
@@ -5912,7 +6066,7 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
-			if (igMenuItem("Toggle GUI", "space/esc", true, rom_loaded))
+			if (igMenuItem("Toggle GUI", /*"space/" */ "esc", true, rom_loaded))
 				imgui_shown = false;
 
 			igEndMenu();
@@ -5955,7 +6109,10 @@ static void
 imgui_draw_emu(const struct ImDrawList *parent_list __unused, const struct ImDrawCmd *draw_cmd __unused)
 {
 	gl_save_state();
-	gl_draw(imgui_emu_x, imgui_emu_y, 384 * imgui_emu_scale, 224 * imgui_emu_scale);
+	gl_draw(imgui_emu_x * tk_draw_scale,
+			imgui_emu_y * tk_draw_scale,
+			384 * imgui_emu_scale * tk_draw_scale,
+			224 * imgui_emu_scale * tk_draw_scale);
 	gl_restore_state();
 }
 
@@ -6148,7 +6305,7 @@ main_draw(void)
 						width + style->WindowBorderSize * 2,
 						height + style->WindowBorderSize
 				};
-		igSetNextWindowPos((struct ImVec2){tk_width / 2.0, tk_height / 2.0},
+		igSetNextWindowPos((struct ImVec2){tk_win_width / 2.0, tk_win_height / 2.0},
 		                   ImGuiCond_FirstUseEver,
 		                   (struct ImVec2){0.5, 0.5});
 		igSetNextWindowContentSize(content_size);
@@ -6161,14 +6318,14 @@ main_draw(void)
 			igGetWindowPos(&view_pos);
 			igGetWindowContentRegionMin(&content_min);
 			imgui_emu_x = view_pos.x + content_min.x + style->WindowBorderSize;
-			imgui_emu_y = tk_height - (view_pos.y + content_min.y + height);
+			imgui_emu_y = tk_win_height - (view_pos.y + content_min.y + height);
 			ImDrawList_AddCallback(igGetWindowDrawList(), imgui_draw_emu, NULL);
 		}
 		igEnd();
 		igPopStyleVar(2);
 	}
 	else
-		gl_draw(0, 0, tk_width, tk_height);
+		gl_draw(0, 0, tk_draw_width, tk_draw_height);
 }
 
 void

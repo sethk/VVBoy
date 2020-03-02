@@ -1,3 +1,5 @@
+#include "os_macos.h"
+
 #import <AppKit/AppKit.h>
 
 void
@@ -19,4 +21,37 @@ os_choose_file(const char * const exts[], u_int num_exts, bool (*selected_fp)(co
 	}
 
 	[pool release];
+}
+
+enum debug_error_state
+os_runtime_error(const char *msg, bool allow_always_ignore)
+{
+	NSAutoreleasePool *pool = [NSAutoreleasePool new];
+	@try
+	{
+		NSAlert *alert = [NSAlert new];
+		[alert setAlertStyle:NSAlertStyleWarning];
+		[alert setMessageText:@"Emulation error"];
+		[alert setInformativeText:[NSString stringWithUTF8String:msg]];
+
+		[alert addButtonWithTitle:@"Debug"];
+		[alert addButtonWithTitle:@"Abort"];
+		[alert addButtonWithTitle:@"Ignore"];
+		if (allow_always_ignore)
+			[alert addButtonWithTitle:@"Always Ignore"];
+		NSModalResponse response = [alert runModal];
+
+		switch (response)
+		{
+			case NSAlertFirstButtonReturn: return ERROR_DEBUG;
+			case NSAlertSecondButtonReturn: return ERROR_ABORT;
+			case NSAlertThirdButtonReturn: return ERROR_IGNORE;
+			case NSAlertThirdButtonReturn + 1: return ERROR_ALWAYS_IGNORE;
+			default: [NSException raise:NSGenericException format:@"Unknown alert response"];
+		}
+	}
+	@finally
+	{
+		[pool release];
+	}
 }

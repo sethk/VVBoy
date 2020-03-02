@@ -7,7 +7,7 @@
 #include <assert.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
-#include <SDL_scancode.h>
+#include <math.h>
 
 #if INTERFACE
 	struct vip_chr
@@ -1780,11 +1780,11 @@ vip_settings_menu()
 void
 vip_frame_begin(void)
 {
-	imgui_key_toggle(SDL_SCANCODE_F1, &vip_worlds_open, true);
-	imgui_key_toggle(SDL_SCANCODE_F2, &vip_bgseg_open, true);
-	imgui_key_toggle(SDL_SCANCODE_F3, &vip_chr_open, true);
-	imgui_key_toggle(SDL_SCANCODE_F4, &vip_oam_open, true);
-	imgui_key_toggle(SDL_SCANCODE_F5, &vip_fb_open, true);
+	imgui_key_toggle((enum tk_scancode)TK_SCANCODE_F1, &vip_worlds_open, true);
+	imgui_key_toggle(TK_SCANCODE_F2, &vip_bgseg_open, true);
+	imgui_key_toggle(TK_SCANCODE_F3, &vip_chr_open, true);
+	imgui_key_toggle(TK_SCANCODE_F4, &vip_oam_open, true);
+	imgui_key_toggle(TK_SCANCODE_F5, &vip_fb_open, true);
 
 	if (vip_worlds_open)
 	{

@@ -3,7 +3,10 @@
 #include <stdio.h>
 #include "tk_null.h"
 
-u_int tk_width, tk_height;
+u_int tk_win_width, tk_win_height;
+int tk_draw_width, tk_draw_height;
+float tk_draw_scale;
+
 struct timeval start_time;
 
 bool
@@ -49,11 +52,4 @@ tk_main(void)
 
 void tk_fini(void)
 {
-}
-
-enum debug_error_state
-tk_runtime_error(const char *msg, bool allow_always_ignore __unused)
-{
-	fprintf(stderr, "\n*** %s\n", msg);
-	return ERROR_ABORT;
 }

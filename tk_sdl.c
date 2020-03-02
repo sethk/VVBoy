@@ -1,6 +1,63 @@
 #if INTERFACE
 # include <sys/types.h>
 # include <stdbool.h>
+# include <SDL_scancode.h>
+# include <SDL_gamecontroller.h>
+
+	enum tk_scancode
+	{
+		TK_SCANCODE_F1 = SDL_SCANCODE_F1,
+		TK_SCANCODE_F2 = SDL_SCANCODE_F2,
+		TK_SCANCODE_F3 = SDL_SCANCODE_F3,
+		TK_SCANCODE_F4 = SDL_SCANCODE_F4,
+		TK_SCANCODE_F5 = SDL_SCANCODE_F5,
+		TK_SCANCODE_F6 = SDL_SCANCODE_F6,
+		TK_SCANCODE_F7 = SDL_SCANCODE_F7,
+		TK_SCANCODE_F8 = SDL_SCANCODE_F8,
+		TK_SCANCODE_F9 = SDL_SCANCODE_F9,
+		TK_SCANCODE_GRAVE = SDL_SCANCODE_GRAVE,
+		TK_SCANCODE_LGUI = SDL_SCANCODE_LGUI,
+		TK_SCANCODE_RGUI = SDL_SCANCODE_RGUI,
+		TK_SCANCODE_LSHIFT = SDL_SCANCODE_LSHIFT,
+		TK_SCANCODE_W = SDL_SCANCODE_W,
+		TK_SCANCODE_A = SDL_SCANCODE_A,
+		TK_SCANCODE_S = SDL_SCANCODE_S,
+		TK_SCANCODE_D = SDL_SCANCODE_D,
+		TK_SCANCODE_K = SDL_SCANCODE_K,
+		TK_SCANCODE_APOSTROPHE = SDL_SCANCODE_APOSTROPHE,
+		TK_SCANCODE_RETURN = SDL_SCANCODE_RETURN,
+		TK_SCANCODE_ESCAPE = SDL_SCANCODE_ESCAPE,
+		TK_SCANCODE_R = SDL_SCANCODE_R,
+		TK_SCANCODE_O = SDL_SCANCODE_O,
+		TK_SCANCODE_1 = SDL_SCANCODE_1,
+		TK_SCANCODE_2 = SDL_SCANCODE_2,
+		TK_SCANCODE_RSHIFT = SDL_SCANCODE_RSHIFT,
+		TK_SCANCODE_RALT = SDL_SCANCODE_RALT,
+		TK_SCANCODE_UP = SDL_SCANCODE_UP,
+		TK_SCANCODE_LEFT = SDL_SCANCODE_LEFT,
+		TK_SCANCODE_DOWN = SDL_SCANCODE_DOWN,
+		TK_SCANCODE_RIGHT = SDL_SCANCODE_RIGHT
+	};
+
+	enum tk_button
+	{
+		TK_BUTTON_LSHOULDER = SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+		TK_BUTTON_DPAD_UP = SDL_CONTROLLER_BUTTON_DPAD_UP,
+		TK_BUTTON_DPAD_LEFT = SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+		TK_BUTTON_DPAD_DOWN = SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+		TK_BUTTON_DPAD_RIGHT = SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+		TK_BUTTON_BACK = SDL_CONTROLLER_BUTTON_BACK,
+		TK_BUTTON_START = SDL_CONTROLLER_BUTTON_START,
+		TK_BUTTON_RSHOULDER = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+		TK_BUTTON_A = SDL_CONTROLLER_BUTTON_A,
+		TK_BUTTON_B = SDL_CONTROLLER_BUTTON_B
+	};
+
+	enum tk_axis
+	{
+		TK_AXIS_RIGHTX = SDL_CONTROLLER_AXIS_RIGHTX,
+		TK_AXIS_RIGHTY = SDL_CONTROLLER_AXIS_RIGHTY
+	};
 #endif // INTERFACE
 
 #include "tk_sdl.h"
@@ -17,7 +74,9 @@
 
 #define VSYNC (true)
 
-u_int tk_width, tk_height;
+u_int tk_win_width, tk_win_height;
+int tk_draw_width, tk_draw_height;
+float tk_draw_scale;
 
 static SDL_Window *sdl_window;
 static SDL_GameController *sdl_controller;
@@ -28,7 +87,7 @@ tk_init(void)
 {
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) < 0)
 	{
-		fprintf(stderr, "SDL: Failed to initialize: %s", SDL_GetError());
+		fprintf(stderr, "SDL: Failed to initialize: %s\n", SDL_GetError());
 		return false;
 	}
 
@@ -40,20 +99,23 @@ tk_init(void)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 
-	tk_width = 384 * 3;
-	tk_height = 224 * 3;
-
+	tk_win_width = 384 * 3;
+	tk_win_height = 224 * 3;
 	if (!(sdl_window = SDL_CreateWindow("VVBoy",
 					SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-					tk_width, tk_height,
-					SDL_WINDOW_OPENGL)))
+					tk_win_width, tk_win_height,
+					SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI)))
 	{
 		fprintf(stderr, "SDL: Couldn't create window: %s", SDL_GetError());
 		return false;
 	}
+	sdl_gl_context = SDL_GL_CreateContext(sdl_window);
+
 	SDL_GL_SetSwapInterval(VSYNC);
 
-	sdl_gl_context = SDL_GL_CreateContext(sdl_window);
+	SDL_GL_GetDrawableSize(sdl_window, &tk_draw_width, &tk_draw_height);
+	tk_draw_scale = tk_draw_width / tk_win_width;
+	SDL_assert_always(fdimf(tk_draw_height / tk_win_height, tk_draw_scale) < 1e-6);
 
 	ImGui_ImplSdlGL3_Init(sdl_window, NULL);
 
@@ -142,72 +204,16 @@ tk_poll_input()
 
 				if (event.key.repeat)
 					break;
-				switch (event.key.keysym.scancode)
-				{
-					default: break;
-					case SDL_SCANCODE_LSHIFT: nvc_input(KEY_LT, event.key.state); break;
-					case SDL_SCANCODE_W: nvc_input(KEY_LU, event.key.state); break;
-					case SDL_SCANCODE_A: nvc_input(KEY_LL, event.key.state); break;
-					case SDL_SCANCODE_S: nvc_input(KEY_LD, event.key.state); break;
-					case SDL_SCANCODE_D: nvc_input(KEY_LR, event.key.state); break;
-					case SDL_SCANCODE_APOSTROPHE: nvc_input(KEY_SEL, event.key.state); break;
-					case SDL_SCANCODE_RETURN: nvc_input(KEY_STA, event.key.state); break;
-					case SDL_SCANCODE_RSHIFT: nvc_input(KEY_RT, event.key.state); break;
-					case SDL_SCANCODE_UP: nvc_input(KEY_RU, event.key.state); break;
-					case SDL_SCANCODE_LEFT: nvc_input(KEY_RL, event.key.state); break;
-					case SDL_SCANCODE_DOWN: nvc_input(KEY_RD, event.key.state); break;
-					case SDL_SCANCODE_RIGHT: nvc_input(KEY_RR, event.key.state); break;
-					case SDL_SCANCODE_RALT: nvc_input(KEY_A, event.key.state); break;
-					case SDL_SCANCODE_RGUI: nvc_input(KEY_B, event.key.state); break;
-				}
+				nvc_input_key((enum tk_scancode)event.key.keysym.scancode, event.key.state);
 				break;
 			}
 			case SDL_CONTROLLERBUTTONDOWN:
 			case SDL_CONTROLLERBUTTONUP:
-				switch (event.cbutton.button)
-				{
-					case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: nvc_input(KEY_LT, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_DPAD_UP: nvc_input(KEY_LU, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_DPAD_LEFT: nvc_input(KEY_LL, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_DPAD_DOWN: nvc_input(KEY_LD, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: nvc_input(KEY_LR, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_BACK: nvc_input(KEY_SEL, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_START: nvc_input(KEY_STA, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: nvc_input(KEY_RT, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_A: nvc_input(KEY_A, event.cbutton.state); break;
-					case SDL_CONTROLLER_BUTTON_B: nvc_input(KEY_B, event.cbutton.state); break;
-				}
+				nvc_input_button(event.cbutton.button, event.cbutton.state);
 				break;
 			case SDL_CONTROLLERAXISMOTION:
-			{
-				static const u_int16_t dead_zone = 8192;
-				switch (event.caxis.axis)
-				{
-					case SDL_CONTROLLER_AXIS_RIGHTX:
-						if (event.caxis.value > dead_zone)
-							nvc_input(KEY_RR, true);
-						else if (event.caxis.value < -dead_zone)
-							nvc_input(KEY_RL, true);
-						else
-						{
-							nvc_input(KEY_RR, false);
-							nvc_input(KEY_RL, false);
-						}
-						break;
-					case SDL_CONTROLLER_AXIS_RIGHTY:
-						if (event.caxis.value > dead_zone)
-							nvc_input(KEY_RD, true);
-						else if (event.caxis.value < -dead_zone)
-							nvc_input(KEY_RU, true);
-						else
-						{
-							nvc_input(KEY_RD, false);
-							nvc_input(KEY_RU, false);
-						}
-						break;
-				}
+				nvc_input_axis((enum tk_axis)event.caxis.axis, event.caxis.value / 32767.f);
 				break;
-			}
 			default:
 				break;
 		}
