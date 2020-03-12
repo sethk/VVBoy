@@ -3069,7 +3069,7 @@ static InFile *CreateInFile(char *zArg, int *pnErr){
     int foundC = 0;
     pFile->zHdr = StrDup(zSrc,nSrc);
     for(i = nSrc-1; i>0 && pFile->zHdr[i]!='.'; i--){
-      if( pFile->zHdr[i]=='c' ){
+      if( pFile->zHdr[i]=='c' || pFile->zHdr[i]=='m'){
         foundC = 1;
         pFile->zHdr[i] = 'h';
       }else if( pFile->zHdr[i]=='C' ){
