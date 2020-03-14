@@ -223,6 +223,12 @@ tk_poll_input()
 }
 
 void
+tk_pump_input()
+{
+	SDL_PumpEvents();
+}
+
+void
 tk_fini(void)
 {
 	ImGui_ImplSdlGL3_Shutdown();
@@ -285,7 +291,7 @@ tk_runtime_error(const char *msg, bool allow_always_ignore)
 }
 
 #if INTERFACE
-typedef struct _NSWindow NSWindow;
+# include <SDL_syswm.h>
 #endif // INTERFACE
 
 NSWindow *

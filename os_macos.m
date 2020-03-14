@@ -39,7 +39,21 @@ os_runtime_error(const char *msg, bool allow_always_ignore)
 		[alert addButtonWithTitle:@"Ignore"];
 		if (allow_always_ignore)
 			[alert addButtonWithTitle:@"Always Ignore"];
-		NSModalResponse response = [alert runModal];
+
+		__block NSModalResponse response;
+		__block BOOL done = NO;
+		[alert beginSheetModalForWindow:tk_get_main_win() completionHandler:^(
+				NSModalResponse returnCode)
+		{
+			response = returnCode;
+			done = YES;
+		}];
+
+		while (!done)
+		{
+			tk_pump_input();
+			usleep(100 * 1000);
+		}
 
 		switch (response)
 		{
