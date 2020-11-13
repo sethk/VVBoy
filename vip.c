@@ -819,7 +819,7 @@ vip_draw_bgmap_hbias(const struct vip_bgsc *bgmap_base,
 		{
 			struct vip_bgmap_cursor cursor;
 			vip_draw_bgmap_start(&cursor, bgmap_base, vwa, right_hspan.vhs_win_x, win_y);
-			vip_draw_bgmap_row(cursor, bgmap_base, vwa, left_hspan.vhs_scr_x, right_hspan.vhs_width, right_rows[clip_y]);
+			vip_draw_bgmap_row(cursor, bgmap_base, vwa, right_hspan.vhs_scr_x, right_hspan.vhs_width, right_rows[clip_y]);
 		}
 
 		++hbias;
