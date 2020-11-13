@@ -13,8 +13,8 @@ add_executable(vvbdis)
 add_executable(vvboy)
 
 ### Switches
-set(TOOLKIT GLFW)
-#set(TOOLKIT SDL)
+#set(TOOLKIT GLFW)
+set(TOOLKIT SDL)
 
 ### OpenGL
 find_package(OpenGL REQUIRED)

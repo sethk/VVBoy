@@ -55,6 +55,8 @@
 
 	enum tk_axis
 	{
+		TK_AXIS_LEFTX = SDL_CONTROLLER_AXIS_LEFTX,
+		TK_AXIS_LEFTY = SDL_CONTROLLER_AXIS_LEFTY,
 		TK_AXIS_RIGHTX = SDL_CONTROLLER_AXIS_RIGHTX,
 		TK_AXIS_RIGHTY = SDL_CONTROLLER_AXIS_RIGHTY
 	};
@@ -120,7 +122,7 @@ tk_init(void)
 	ImGui_ImplSdlGL3_Init(sdl_window, NULL);
 
 	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", SDL_GetError(), sdl_window);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", "Could not load gamepad assignments database from gamecontrollerdb.txt", sdl_window);
 
 	int num_joysticks = SDL_NumJoysticks(), joy_index;
 	for (joy_index = 0; joy_index < num_joysticks; ++joy_index)
@@ -240,54 +242,6 @@ tk_fini(void)
     SDL_DestroyWindow(sdl_window);
 
     SDL_Quit();
-}
-
-enum debug_error_state
-tk_runtime_error(const char *msg, bool allow_always_ignore)
-{
-	static const SDL_MessageBoxButtonData all_buttons[] =
-	{
-			{
-					.flags = 0,
-					.buttonid = ERROR_ALWAYS_IGNORE,
-					.text = "Always Ignore"
-			},
-			{
-					.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT,
-					.buttonid = ERROR_IGNORE,
-					.text = "Ignore"
-			},
-			{
-					.flags = 0,
-					.buttonid = ERROR_ABORT,
-					.text = "Abort"
-			},
-			{
-					.flags = SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
-					.buttonid = ERROR_DEBUG,
-					.text = "Debug"
-			},
-	};
-	const SDL_MessageBoxButtonData *buttons = all_buttons;
-	u_int num_buttons = sizeof(all_buttons) / sizeof(all_buttons[0]);
-	if (!allow_always_ignore)
-	{
-		++buttons;
-		--num_buttons;
-	}
-	SDL_MessageBoxData data =
-			{
-					.flags = SDL_MESSAGEBOX_WARNING,
-					.window = sdl_window,
-					.title = "Emulation error",
-					.message = msg,
-					.numbuttons = num_buttons,
-					.buttons = buttons,
-					.colorScheme = NULL
-			};
-	int buttonid;
-	SDL_ShowMessageBox(&data, &buttonid);
-	return (enum debug_error_state)buttonid;
 }
 
 #if INTERFACE
