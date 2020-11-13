@@ -5,6 +5,8 @@
 /vvboy.h
 /rom.h
 /vip.h
+/os_macos.h
+/vsu.h
 /common.h
 /events.h
 /tk_sdl.h
@@ -19,3 +21,5 @@
 /.headers-stamp
 /trace.out
 /cmake-build-*/
+/.idea
+/.idea.*/

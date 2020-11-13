@@ -8,9 +8,6 @@ set(CMAKE_C_FLAGS_RELEASE "-O3")
 #set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -fno-inline -O0")
 #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
 
-### Generated Headers
-set(GEN_HEADERS vvboy.h common.h rom.h vvbdis.h)
-
 ### Main Targets
 add_executable(vvbdis)
 add_executable(vvboy)
@@ -34,7 +31,6 @@ target_link_libraries(vvbdis PRIVATE ${EDIT_LIB})
 add_compile_definitions(GL_SILENCE_DEPRECATION)
 # add_executable(VVBoy MACOSX_BUNDLE ...
 set(OS_SOURCES os_macos.m)
-set(GEN_HEADERS ${GEN_HEADERS} os_macos.h)
 find_library(APPKIT AppKit)
 target_link_libraries(vvboy PRIVATE ${APPKIT})
 
@@ -80,6 +76,8 @@ add_executable(makeheaders vendor/makeheaders/makeheaders.c)
 target_compile_options(makeheaders PUBLIC -Wno-sign-compare -Wno-unused-parameter -Wno-unused-function
         -Wno-unused-const-variable)
 target_compile_definitions(makeheaders PUBLIC DEBUG)
+string(REGEX REPLACE "/\\.c$/" GEN_HEADERS ${ALL_SOURCES})
+#set(GEN_HEADERS ${ALL_SOURCES})
 add_custom_target(GenHeaders
         COMMAND makeheaders -v ${ALL_SOURCES}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
