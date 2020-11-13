@@ -1126,6 +1126,86 @@ cpu_shift_arith_right(u_int32_t start, u_int32_t shift)
 }
 
 static bool
+cpu_orbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
+		  u_int32_t *bit_lengthp,
+		  u_int32_t *dest_word_addrp, u_int32_t *dest_bit_offp)
+{
+	if ((*bit_lengthp % 8) != 0)
+	{
+		debug_runtime_errorf(NULL, "ORBSU only multiple of 8 bit lengths supported");
+		return false;
+	}
+
+	cpu_wait = 48; // Just an average; actually dependent on size/alignment
+
+	u_int read_byte_size = (*bit_lengthp > 32) ? 4 : *bit_lengthp >> 3;
+	u_int32_t src_word;
+	u_int mem_wait;
+	if (!mem_read(*src_word_addrp, &src_word, read_byte_size, false, &mem_wait))
+		return false;
+	cpu_wait+= mem_wait;
+
+	if (*src_bit_offp & 31)
+	{
+		debug_runtime_errorf(NULL, "ORBSU with src bit offset not supported");
+		return false;
+	}
+	if (*dest_bit_offp & 31)
+	{
+		debug_runtime_errorf(NULL, "ORBSU with dest bit offset not supported");
+		return false;
+	}
+
+	u_int32_t dest_word;
+	if (!mem_read(*dest_word_addrp, &dest_word, read_byte_size, false, &mem_wait))
+		return false;
+
+	dest_word|= src_word;
+
+	if (!mem_write(*dest_word_addrp, &dest_word, read_byte_size, &mem_wait))
+		return false;
+	cpu_wait+= mem_wait;
+	(*src_word_addrp)+= read_byte_size;
+	(*dest_word_addrp)+= read_byte_size;
+	(*bit_lengthp)-= read_byte_size << 3;
+
+	/*
+	u_int dest_bit_off = *dest_bit_offp & 31;
+	if (dest_bit_off)
+	{
+		u_int32_t src_mask = 0xffffffff >> dest_bit_off;
+		u_int32_t dest_read_bits = 31 - dest_bit_off;
+		if (*bit_lengthp < dest_read_bits)
+			src_mask&= ~(src_mask >> *bit_lengthp);
+		u_int32_t dest_word;
+		mem_read(*dest_word_addrp, &dest_word, 4, false);
+		word&= read_mask;
+	}
+	 */
+	/*
+	u_int write_bits = 32 - dest_read_bits;
+	u_int src_read_bits = (*bit_lengthp > write_bits) ? write_bits : *bit_lengthp;
+	 */
+	/*
+	{
+	u_int32_t src_word;
+	if (!mem_read(*src_word_addr, &src_word, sizeof(src_word), false))
+		return false;
+	if (*dest_bit_off)
+	{
+	}
+	if (!mem_write(*dest_word_addr, &word, sizeof(word)))
+		return false;
+	(*src_word_addr)+= 4;
+	(*dest_word_addr)+= 4;
+	(*length)-= 32;
+	return true;
+	}
+	 */
+	return true;
+}
+
+static bool
 cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
            u_int32_t *bit_lengthp,
            u_int32_t *dest_word_addrp, u_int32_t *dest_bit_offp)
@@ -1536,6 +1616,8 @@ cpu_exec(const union cpu_inst inst)
 
 			switch (inst.ci_ii.ii_imm5)
 			{
+				case BSTR_ORBSU:
+					return cpu_orbsu(src_word_addrp, src_bit_offp, bit_lengthp, dest_word_addrp, dest_bit_offp);
 				case BSTR_MOVBSU:
 					return cpu_movbsu(src_word_addrp, src_bit_offp, bit_lengthp, dest_word_addrp, dest_bit_offp);
 				default:
