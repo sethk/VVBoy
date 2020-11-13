@@ -83,11 +83,14 @@ float tk_draw_scale;
 static SDL_Window *sdl_window;
 static SDL_GameController *sdl_controller;
 static SDL_GLContext sdl_gl_context;
+static SDL_AudioSpec sdl_audio_spec;
+static SDL_AudioCVT sdl_audio_cvt;
+static void sdl_audio_callback(void *userdata, Uint8 *stream, int length);
 
 bool
 tk_init(void)
 {
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) < 0)
 	{
 		fprintf(stderr, "SDL: Failed to initialize: %s\n", SDL_GetError());
 		return false;
@@ -120,6 +123,30 @@ tk_init(void)
 	SDL_assert_always(fdimf(tk_draw_height / tk_win_height, tk_draw_scale) < 1e-6);
 
 	ImGui_ImplSdlGL3_Init(sdl_window, NULL);
+
+	SDL_AudioSpec desired_audio;
+	desired_audio.freq = 41700;
+	desired_audio.format = AUDIO_S16SYS;
+	desired_audio.samples = 834;
+	desired_audio.channels = 2;
+	desired_audio.callback = sdl_audio_callback;
+	desired_audio.userdata = NULL;
+	if (SDL_OpenAudio(&desired_audio, &sdl_audio_spec))
+	{
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error opening audio device", SDL_GetError(), sdl_window);
+	}
+
+	if (SDL_BuildAudioCVT(&sdl_audio_cvt,
+	                      desired_audio.format, desired_audio.channels, desired_audio.freq,
+	                      sdl_audio_spec.format, sdl_audio_spec.channels, sdl_audio_spec.freq) == -1)
+	{
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error initializing audio converter", SDL_GetError(), sdl_window);
+		SDL_CloseAudio();
+	}
+
+	if (sdl_audio_cvt.needed)
+	{
+	}
 
 	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", "Could not load gamepad assignments database from gamecontrollerdb.txt", sdl_window);
@@ -231,8 +258,43 @@ tk_pump_input()
 }
 
 void
+tk_audio_lock()
+{
+	SDL_LockAudio();
+}
+
+void
+tk_audio_unlock()
+{
+	SDL_UnlockAudio();
+}
+
+static void
+sdl_audio_callback(void *userdata, Uint8 *stream, int length)
+{
+	(void)userdata;
+
+	if (sdl_audio_cvt.needed)
+	{
+		vsu_read_samples((int16_t *)sdl_audio_cvt.buf, sdl_audio_cvt.len);
+		if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
+		{
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error converting audio samples", SDL_GetError(), sdl_window);
+			bzero(stream, length);
+		}
+	}
+	else
+	{
+		assert(length == 834 * 2 * 2);
+		vsu_read_samples((int16_t *)stream, 834);
+	}
+}
+
+void
 tk_fini(void)
 {
+	SDL_CloseAudio();
+
 	ImGui_ImplSdlGL3_Shutdown();
 
 	if (sdl_controller)

@@ -62,7 +62,7 @@ else()
 endif()
 
 ### Sources
-set(COMMON_SOURCES common.c rom.c vip.c events.c)
+set(COMMON_SOURCES common.c rom.c vip.c vsu.c events.c)
 #set(COMMON_SOURCES ${COMMON_SOURCES} vip_draw.c)
 #set(COMMON_SOURCES ${COMMON_SOURCES} vip_draw_slow.c)
 set(VVBOY_SOURCES vvboy.c)
