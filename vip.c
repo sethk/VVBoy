@@ -1,9 +1,5 @@
-#if INTERFACE
-# include <stdbool.h>
-#endif // INTERFACE
-#include "events.h"
+#include "types.h"
 #include "vip.h"
-#include <strings.h>
 #include <assert.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
@@ -17,38 +13,38 @@
 
 	struct vip_bgsc
 	{
-		u_int vb_chrno : 11 __attribute__((packed));
-		u_int vb_rfu1 : 1 __attribute__((packed));
-		u_int vb_bvflp : 1 __attribute__((packed));
-		u_int vb_bhflp : 1 __attribute__((packed));
-		u_int vb_gplts : 2 __attribute__((packed));
+		u_int16_t vb_chrno : 11 __attribute__((packed));
+		u_int16_t vb_rfu1 : 1 __attribute__((packed));
+		u_int16_t vb_bvflp : 1 __attribute__((packed));
+		u_int16_t vb_bhflp : 1 __attribute__((packed));
+		u_int16_t vb_gplts : 2 __attribute__((packed));
 	};
 
 	struct vip_oam
 	{
 		int16_t vo_jx;
-		u_int vo_jp : 14 __attribute__((packed));
-		u_int vo_jron : 1 __attribute__((packed));
-		u_int vo_jlon : 1 __attribute__((packed));
+		u_int16_t vo_jp : 14 __attribute__((packed));
+		u_int16_t vo_jron : 1 __attribute__((packed));
+		u_int16_t vo_jlon : 1 __attribute__((packed));
 		int16_t vo_jy;
-		u_int vo_jca : 11 __attribute__((packed));
-		u_int vo_rfu1 : 1 __attribute__((packed));
-		u_int vo_jvflp : 1 __attribute__((packed));
-		u_int vo_jhflp : 1 __attribute__((packed));
-		u_int vo_jplts : 2 __attribute__((packed));
+		u_int16_t vo_jca : 11 __attribute__((packed));
+		u_int16_t vo_rfu1 : 1 __attribute__((packed));
+		u_int16_t vo_jvflp : 1 __attribute__((packed));
+		u_int16_t vo_jhflp : 1 __attribute__((packed));
+		u_int16_t vo_jplts : 2 __attribute__((packed));
 	};
 
 	struct vip_world_att
 	{
-		u_int vwa_bgmap_base : 4 __attribute__((packed));
-		u_int vwa_rfu1 : 2 __attribute__((packed));
-		u_int vwa_end : 1 __attribute__((packed));
-		u_int vwa_over : 1 __attribute__((packed));
-		u_int vwa_scy : 2 __attribute__((packed));
-		u_int vwa_scx : 2 __attribute__((packed));
-		u_int vwa_bgm : 2 __attribute__((packed));
-		u_int vwa_ron : 1 __attribute__((packed));
-		u_int vwa_lon : 1 __attribute__((packed));
+		u_int16_t vwa_bgmap_base : 4 __attribute__((packed));
+		u_int16_t vwa_rfu1 : 2 __attribute__((packed));
+		u_int16_t vwa_end : 1 __attribute__((packed));
+		u_int16_t vwa_over : 1 __attribute__((packed));
+		u_int16_t vwa_scy : 2 __attribute__((packed));
+		u_int16_t vwa_scx : 2 __attribute__((packed));
+		u_int16_t vwa_bgm : 2 __attribute__((packed));
+		u_int16_t vwa_ron : 1 __attribute__((packed));
+		u_int16_t vwa_lon : 1 __attribute__((packed));
 		int16_t vwa_gx;
 		int16_t vwa_gp;
 		int16_t vwa_gy;
@@ -147,31 +143,31 @@ enum vip_intflag
 
 struct vip_dpctrl
 {
-	u_int vd_dprst: 1 __attribute__((packed));
-	u_int vd_disp : 1 __attribute__((packed));
-	u_int vd_dpbsy_l_fb0 : 1 __attribute__((packed));
-	u_int vd_dpbsy_r_fb0 : 1 __attribute__((packed));
-	u_int vd_dpbsy_l_fb1 : 1 __attribute__((packed));
-	u_int vd_dpbsy_r_fb1 : 1 __attribute__((packed));
-	u_int vd_scanrdy : 1 __attribute__((packed));
-	u_int vd_fclk : 1 __attribute__((packed));
-	u_int vd_re : 1 __attribute__((packed));
-	u_int vd_synce : 1 __attribute__((packed));
-	u_int vd_lock : 1 __attribute__((packed));
-	u_int vd_unused : 5 __attribute__((packed));
+	u_int16_t vd_dprst: 1 __attribute__((packed));
+	u_int16_t vd_disp : 1 __attribute__((packed));
+	u_int16_t vd_dpbsy_l_fb0 : 1 __attribute__((packed));
+	u_int16_t vd_dpbsy_r_fb0 : 1 __attribute__((packed));
+	u_int16_t vd_dpbsy_l_fb1 : 1 __attribute__((packed));
+	u_int16_t vd_dpbsy_r_fb1 : 1 __attribute__((packed));
+	u_int16_t vd_scanrdy : 1 __attribute__((packed));
+	u_int16_t vd_fclk : 1 __attribute__((packed));
+	u_int16_t vd_re : 1 __attribute__((packed));
+	u_int16_t vd_synce : 1 __attribute__((packed));
+	u_int16_t vd_lock : 1 __attribute__((packed));
+	u_int16_t vd_unused : 5 __attribute__((packed));
 };
 
 struct vip_xpctrl
 {
-	u_int vx_xprst : 1 __attribute__((packed));
-	u_int vx_xpen : 1 __attribute__((packed));
-	u_int vx_xpbsy_fb0 : 1 __attribute__((packed));
-	u_int vx_xpbsy_fb1 : 1 __attribute__((packed));
-	u_int vx_overtime : 1 __attribute__((packed));
-	u_int vx_unused : 3 __attribute__((packed));
-	u_int vx_sbcount : 5 __attribute__((packed)); // AKA sbcmp
-	u_int vx_unused2 : 2 __attribute__((packed));
-	u_int vx_sbout : 1 __attribute__((packed));
+	u_int16_t vx_xprst : 1 __attribute__((packed));
+	u_int16_t vx_xpen : 1 __attribute__((packed));
+	u_int16_t vx_xpbsy_fb0 : 1 __attribute__((packed));
+	u_int16_t vx_xpbsy_fb1 : 1 __attribute__((packed));
+	u_int16_t vx_overtime : 1 __attribute__((packed));
+	u_int16_t vx_unused : 3 __attribute__((packed));
+	u_int16_t vx_sbcount : 5 __attribute__((packed)); // AKA sbcmp
+	u_int16_t vx_unused2 : 2 __attribute__((packed));
+	u_int16_t vx_sbout : 1 __attribute__((packed));
 };
 
 struct vip_regs
@@ -257,6 +253,7 @@ static const char * const vip_bgm_strings[4] =
 static u_int vip_disp_index = 0;
 static u_int vip_frame_cycles = 0;
 
+static enum event_subsys dummy_event_subsys; // Hint for makeheaders
 enum vip_event
 {
 	VIP_EVENT_FRAMESTART = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(0),
@@ -327,7 +324,7 @@ vip_init(void)
 
 	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
 	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
-	bzero(&vip_regs, sizeof(vip_regs));
+	os_bzero(&vip_regs, sizeof(vip_regs));
 	vip_regs.vr_dpstts.vd_scanrdy = 1;
 	vip_disp_index = 0;
 
@@ -378,14 +375,14 @@ vip_clear_finish(u_int fb_index)
 
 	if (fb_index == 0)
 	{
-		bzero(vip_vrm.vv_left0, sizeof(vip_vrm.vv_left0));
-		bzero(vip_vrm.vv_right0, sizeof(vip_vrm.vv_right0));
+		os_bzero(vip_vrm.vv_left0, sizeof(vip_vrm.vv_left0));
+		os_bzero(vip_vrm.vv_right0, sizeof(vip_vrm.vv_right0));
 		vip_regs.vr_xpstts.vx_xpbsy_fb0 = 0;
 	}
 	else
 	{
-		bzero(vip_vrm.vv_left1, sizeof(vip_vrm.vv_left1));
-		bzero(vip_vrm.vv_right1, sizeof(vip_vrm.vv_right1));
+		os_bzero(vip_vrm.vv_left1, sizeof(vip_vrm.vv_left1));
+		os_bzero(vip_vrm.vv_right1, sizeof(vip_vrm.vv_right1));
 		vip_regs.vr_xpstts.vx_xpbsy_fb1 = 0;
 	}
 
@@ -1456,7 +1453,7 @@ vip_fini(void)
 bool
 vip_mem_prepare(struct mem_request *request)
 {
-	if (request->mr_ops & PROT_READ)
+	if (request->mr_ops & OS_PERM_READ)
 		request->mr_wait = 8;
 	else
 		request->mr_wait = 4;
@@ -1504,7 +1501,7 @@ vip_mem_prepare(struct mem_request *request)
 			case 0x10:
 			case 0x18:
 			case 0x20:
-				request->mr_perms = PROT_READ;
+				request->mr_perms = OS_PERM_READ;
 				break;
 			case 0x02:
 			case 0x11:
@@ -1515,15 +1512,15 @@ vip_mem_prepare(struct mem_request *request)
 			case 0x17:
 			case 0x21:
 			{
-				request->mr_perms = PROT_WRITE;
-				if (request->mr_ops & PROT_READ)
+				request->mr_perms = OS_PERM_WRITE;
+				if (request->mr_ops & OS_PERM_READ)
 				{
 					static bool ignore_read = false;
 					debug_str_t addr_s;
 					if (!debug_runtime_errorf(&ignore_read, "Trying to read write-only VIP register at %s",
 					                          debug_format_addr(request->mr_emu, addr_s)))
 						return false;
-					request->mr_perms|= PROT_READ;
+					request->mr_perms|= OS_PERM_READ;
 				}
 				break;
 			}
@@ -1582,12 +1579,12 @@ vip_test(void)
 {
 	debug_printf("Running VIP self-test\n");
 
-	static_assert(sizeof(vip_vrm) == 0x20000, "sizeof(vip_vrm) should be 0x20000");
-	assert(sizeof(struct vip_oam) == 8);
-	static_assert(sizeof(vip_dram) == 0x20000, "sizeof(vip_dram) should be 0x20000");
-	assert(sizeof(vip_dram.vd_shared.s_bgsegs[0]) == 8192);
-	assert(sizeof(vip_regs) == 0x72);
-	mem_test_size("vip_world_att", sizeof(struct vip_world_att), 32);
+	assert_sizeof(vip_vrm, 0x20000);
+	assert_sizeof(struct vip_oam, 8);
+	assert_sizeof(vip_dram, 0x20000);
+	assert_sizeof(vip_dram.vd_shared.s_bgsegs[0], 8192);
+	assert_sizeof(vip_regs, 0x72);
+	assert_sizeof(struct vip_world_att, 32);
 	mem_test_addr("world_att[1]", debug_locate_symbol("WORLD_ATT:1"), 4, &(vip_dram.vd_world_atts[1]));
 	mem_test_addr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
 	mem_test_addr("PARAM_TBL+0x8800", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
@@ -1695,34 +1692,34 @@ vip_format_world_att(char *buf, size_t buflen, const struct vip_world_att *vwa)
 		case WORLD_BGM_H_BIAS: bgm_s = "H_BIAS"; break;
 		case WORLD_BGM_OBJ: bgm_s = "OBJ"; break;
 	}
-	bufoff+= snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%s, SCX=%u, SCY=%u, BGMAP BASE=%u",
-	                  debug_format_flags(flags_s,
-	                                     "LON", vwa->vwa_lon,
-	                                     "RON", vwa->vwa_ron,
-	                                     "OVER", vwa->vwa_over,
-	                                     "END", vwa->vwa_end,
-	                                     NULL),
-	                  bgm_s,
-	                  vwa->vwa_scx,
-	                  vwa->vwa_scy,
-	                  vwa->vwa_bgmap_base);
+	bufoff+= os_snprintf(buf + bufoff, buflen - bufoff, "(%s) BGM=%s, SCX=%u, SCY=%u, BGMAP BASE=%u",
+						 debug_format_flags(flags_s,
+											"LON", vwa->vwa_lon,
+											"RON", vwa->vwa_ron,
+											"OVER", vwa->vwa_over,
+											"END", vwa->vwa_end,
+											NULL),
+						 bgm_s,
+						 vwa->vwa_scx,
+						 vwa->vwa_scy,
+						 vwa->vwa_bgmap_base);
 	if (!vwa->vwa_end && (vwa->vwa_lon || vwa->vwa_ron) && vwa->vwa_bgm != WORLD_BGM_OBJ)
 	{
-		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-		                  "\n\tGX=%hd, GP=%hd, GY=%hd, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
-		                  vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
-		bufoff+= snprintf(buf + bufoff, buflen - bufoff,
-		                  "\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu", vwa->vwa_param_base, vwa->vwa_over_chrno);
+		bufoff+= os_snprintf(buf + bufoff, buflen - bufoff,
+							 "\n\tGX=%hd, GP=%hd, GY=%hd, MX=%hd, MP=%hd, MY=%hu, W=%hu, H=%hu\n",
+							 vwa->vwa_gx, vwa->vwa_gp, vwa->vwa_gy, vwa->vwa_mx, vwa->vwa_mp, vwa->vwa_my, vwa->vwa_w, vwa->vwa_h);
+		bufoff+= os_snprintf(buf + bufoff, buflen - bufoff,
+							 "\tPARAM BASE=%hu, OVERPLANE CHARACTER=%hu", vwa->vwa_param_base, vwa->vwa_over_chrno);
 	}
 }
 
 void
 vip_format_oam(debug_str_t s, const struct vip_oam *vop)
 {
-	snprintf(s, debug_str_len, "JX=%hd, JP=%hd, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
-			", JVFLP=%u, JHFLP=%u, JPLTS=%u",
-	         vop->vo_jx, cpu_extend14to16(vop->vo_jp), vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
-	         vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
+	os_snprintf(s, debug_str_len, "JX=%hd, JP=%hd, JRON=%u, JLON=%u, JY=%hd, JCA=%u"
+				", JVFLP=%u, JHFLP=%u, JPLTS=%u",
+				vop->vo_jx, cpu_extend14to16(vop->vo_jp), vop->vo_jron, vop->vo_jlon, vop->vo_jy, vop->vo_jca,
+				vop->vo_jvflp, vop->vo_jhflp, vop->vo_jplts);
 }
 
 void
@@ -1846,7 +1843,7 @@ vip_frame_begin(void)
 				igNextColumn();
 
 				char label[32 + 1];
-				snprintf(label, sizeof(label), "##World%d", i + 1);
+				os_snprintf(label, sizeof(label), "##World%d", i + 1);
 				u_int32_t mask = 1 << i;
 				bool shown = ((vip_world_mask & mask) != 0);
 				if (igCheckbox(label, &shown))
@@ -1889,7 +1886,7 @@ vip_frame_begin(void)
 			for (u_int i = 0; i < 28; ++i)
 			{
 				char label[32 + 1];
-				snprintf(label, sizeof(label), "%u-%u", i * 8 + 1, i * 8 + 8);
+				os_snprintf(label, sizeof(label), "%u-%u", i * 8 + 1, i * 8 + 8);
 				u_int32_t mask = 1u << i;
 				bool shown = ((vip_row_mask & mask) != 0);
 				if (igCheckbox(label, &shown))
@@ -1970,7 +1967,7 @@ vip_frame_begin(void)
 			for (int obj_group = 3; obj_group >= 0; --obj_group)
 			{
 				char label[32];
-				snprintf(label, sizeof(label), "Group %u", obj_group);
+				os_snprintf(label, sizeof(label), "Group %u", obj_group);
 
 				bool open = igTreeNodeEx(label, ImGuiTreeNodeFlags_DefaultOpen);
 				igSameLine(0, -1);

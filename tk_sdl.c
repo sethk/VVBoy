@@ -1,6 +1,6 @@
+#include "types.h"
+#include "tk_sdl.h"
 #if INTERFACE
-# include <sys/types.h>
-# include <stdbool.h>
 # include <SDL_scancode.h>
 # include <SDL_gamecontroller.h>
 
@@ -62,8 +62,6 @@
 	};
 #endif // INTERFACE
 
-#include "tk_sdl.h"
-
 #include <SDL.h>
 #include <SDL_syswm.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
@@ -90,9 +88,9 @@ static void sdl_audio_callback(void *userdata, Uint8 *stream, int length);
 bool
 tk_init(void)
 {
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0)
 	{
-		fprintf(stderr, "SDL: Failed to initialize: %s\n", SDL_GetError());
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Failed to initialize: %s\n", SDL_GetError());
 		return false;
 	}
 
@@ -111,7 +109,7 @@ tk_init(void)
 					tk_win_width, tk_win_height,
 					SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI)))
 	{
-		fprintf(stderr, "SDL: Couldn't create window: %s", SDL_GetError());
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Couldn't create window: %s", SDL_GetError());
 		return false;
 	}
 	sdl_gl_context = SDL_GL_CreateContext(sdl_window);
@@ -167,15 +165,15 @@ tk_init(void)
 	{
 		char msg[1024];
 		size_t msg_offset = 0;
-		msg_offset+= snprintf(msg, sizeof(msg) - msg_offset, "No game controllers found\nJoysticks found:");
+		msg_offset+= os_snprintf(msg, sizeof(msg) - msg_offset, "No game controllers found\nJoysticks found:");
 		for (joy_index = 0; joy_index < num_joysticks; ++joy_index)
 		{
 			char guid_s[33];
 			SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(joy_index);
 			SDL_JoystickGetGUIDString(guid, guid_s, sizeof(guid_s));
-			msg_offset += snprintf(msg + msg_offset, sizeof(msg) - msg_offset, "\n\tName: %s, GUID: %s",
-			                       SDL_JoystickNameForIndex(joy_index),
-			                       guid_s);
+			msg_offset += os_snprintf(msg + msg_offset, sizeof(msg) - msg_offset, "\n\tName: %s, GUID: %s",
+									  SDL_JoystickNameForIndex(joy_index),
+									  guid_s);
 			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", msg, sdl_window);
 		}
 	}
@@ -187,12 +185,6 @@ void
 tk_update_caption(const char *caption)
 {
 	SDL_SetWindowTitle(sdl_window, caption);
-}
-
-u_int32_t
-tk_get_usec(void)
-{
-	return SDL_GetTicks() * 1000;
 }
 
 void
@@ -280,7 +272,7 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 		if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
 		{
 			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error converting audio samples", SDL_GetError(), sdl_window);
-			bzero(stream, length);
+			os_bzero(stream, length);
 		}
 	}
 	else
@@ -310,11 +302,21 @@ tk_fini(void)
 # include <SDL_syswm.h>
 #endif // INTERFACE
 
-NSWindow *
-tk_get_main_win()
+os_win_handle_t
+tk_get_main_win(void)
 {
+	if (!sdl_window)
+		return OS_WIN_HANDLE_INVALID;
+
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
 	SDL_assert_always(SDL_GetWindowWMInfo(sdl_window, &info));
-	return info.info.cocoa.window;
+
+	#ifdef SDL_VIDEO_DRIVER_COCOA
+		return info.info.cocoa.window;
+	#elif defined(SDL_VIDEO_DRIVER_WINDOWS)
+		return info.info.win.window;
+	#else
+		#error Unsupported SDL window driver
+	#endif
 }

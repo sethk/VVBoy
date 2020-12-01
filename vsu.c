@@ -1,12 +1,8 @@
-#if INTERFACE
-# include <stdint.h>
-#endif // INTERFACE
-
+#include "types.h"
 #include "vsu.h"
 #include <assert.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
-#include <strings.h>
 
 struct vsu_ram
 {
@@ -15,62 +11,65 @@ struct vsu_ram
 	u_int8_t vr_rfu[64];
 };
 
-struct vsu_regs
+#pragma warning(1:4820)
+__declspec(align(4)) struct vsu_regs
 {
 	struct vsu_sound_regs
 	{
 		struct
 		{
-			u_int vi_data : 5 __attribute__((packed));
-			u_int vi_mode : 1 __attribute__((packed));
-			u_int vi_rfu1 : 1 __attribute__((packed));
-			u_int vi_start : 1 __attribute__((packed));
+			u_int8_t vi_data : 5 __attribute__((packed));
+			u_int8_t vi_mode : 1 __attribute__((packed));
+			u_int8_t vi_rfu1 : 1 __attribute__((packed));
+			u_int8_t vi_start : 1 __attribute__((packed));
 		} vsr_int;
 		struct
 		{
-			u_int vl_rlevel : 4 __attribute__((packed));
-			u_int vl_llevel : 4 __attribute__((packed));
+			u_int8_t vl_rlevel : 4 __attribute__((packed));
+			u_int8_t vl_llevel : 4 __attribute__((packed));
 		} vsr_lrv;
 		u_int8_t vsr_fql;
 		struct
 		{
-			u_int vf_fqh : 3 __attribute__((packed));
-			u_int vf_rfu1 : 5 __attribute__((packed));
+			u_int8_t vf_fqh : 3 __attribute__((packed));
+			u_int8_t vf_rfu1 : 5 __attribute__((packed));
 		} vsr_fqh;
 		struct
 		{
-			u_int ve_step : 3 __attribute__((packed));
-			u_int ve_ud : 1 __attribute__((packed));
-			u_int ve_init : 4 __attribute__((packed));
+			u_int8_t ve_step : 3 __attribute__((packed));
+			u_int8_t ve_ud : 1 __attribute__((packed));
+			u_int8_t ve_init : 4 __attribute__((packed));
 		} vsr_ev0;
 		struct
 		{
-			u_int ve_on : 1 __attribute__((packed));
-			u_int ve_rs : 1 __attribute__((packed));
-			u_int ve_rfu1 : 2 __attribute__((packed));
-			u_int ve_modswp : 1 __attribute__((packed));
-			u_int ve_short : 1 __attribute__((packed));
-			u_int ve_ed : 1 __attribute__((packed));
-			u_int ve_rfu2 : 1 __attribute__((packed));
+			u_int8_t ve_on : 1 __attribute__((packed));
+			u_int8_t ve_rs : 1 __attribute__((packed));
+			u_int8_t ve_rfu1 : 2 __attribute__((packed));
+			u_int8_t ve_modswp : 1 __attribute__((packed));
+			u_int8_t ve_short : 1 __attribute__((packed));
+			u_int8_t ve_ed : 1 __attribute__((packed));
+			u_int8_t ve_rfu2 : 1 __attribute__((packed));
 		} vsr_ev1;
 		struct
 		{
-			u_int vr_addr : 3 __attribute__((packed));
-			u_int vr_rfu1 : 5 __attribute__((packed));
+			u_int8_t vr_addr : 3 __attribute__((packed));
+			u_int8_t vr_rfu1 : 5 __attribute__((packed));
 		} vsr_ram;
 		struct
 		{
-			u_int vs_shifts : 3 __attribute__((packed));
-			u_int vs_ud : 1 __attribute__((packed));
-			u_int vs_time : 3 __attribute__((packed));
-			u_int vs_clk : 1 __attribute__((packed));
+			u_int8_t vs_shifts : 3 __attribute__((packed));
+			u_int8_t vs_ud : 1 __attribute__((packed));
+			u_int8_t vs_time : 3 __attribute__((packed));
+			u_int8_t vs_clk : 1 __attribute__((packed));
 		} vsr_swp;
 		u_int32_t vsr_rfu[2];
 	} vr_sounds[6];
 	struct
 	{
-		u_int vs_stop : 1 __attribute__((packed));
-		u_int vs_unused : 7 __attribute__((packed));
+		u_int8_t vs_stop : 1 __attribute__((packed));
+		u_int8_t vs_unused : 7 __attribute__((packed));
+		u_int8_t vs_rfu1;
+		u_int16_t vs_rfu;
 	} vr_stop;
 	u_int32_t vs_rfu[7];
 };
@@ -118,13 +117,13 @@ vsu_init(void)
 void
 vsu_test(void)
 {
-	debug_printf("Running VSU self-test\n", stderr);
-	mem_test_size("vsu_ram", sizeof(vsu_ram), 0x100);
+	debug_printf("Running VSU self-test\n");
+	assert_sizeof(vsu_ram, 0x100);
 	mem_test_addr("S1INT", 0x01000400, 1, &(vsu_regs.vr_sounds[0].vsr_int));
 	mem_test_addr("S2INT", 0x01000440, 1, &(vsu_regs.vr_sounds[1].vsr_int));
 	mem_test_addr("S4FQH", 0x010004cc, 1, &(vsu_regs.vr_sounds[3].vsr_fqh));
 	mem_test_addr("SSTOP", 0x01000580, 1, &(vsu_regs.vr_stop));
-	mem_test_size("vsu_regs", sizeof(vsu_regs), 0x80);
+	assert_sizeof(vsu_regs, 0x80);
 }
 
 void
@@ -214,7 +213,7 @@ vsu_read_samples(int16_t *samples, u_int count)
 {
 	(void)count;
 	assert(count == 834);
-	bcopy(vsu_buffers, samples, sizeof(vsu_buffers));
+	os_bcopy(vsu_buffers, samples, sizeof(vsu_buffers));
 }
 
 static float
@@ -235,16 +234,16 @@ vsu_frame_end(void)
 			{
 				char id[32];
 				struct vsu_sound_regs *vsr = &(vsu_regs.vr_sounds[sound]);
-				snprintf(id, sizeof(id), "SOUND%u", sound);
+				os_snprintf(id, sizeof(id), "SOUND%u", sound);
 				char interval_s[16];
 				if (vsr->vsr_int.vi_mode)
 				{
 					u_int int_index = vsr->vsr_int.vi_data;
 					float interval = 1000.0 / (260.4 * (int_index + 1));
-					snprintf(interval_s, sizeof(interval_s), "Int.: %.2f ms (%u)", interval, int_index);
+					os_snprintf(interval_s, sizeof(interval_s), "Int.: %.2f ms (%u)", interval, int_index);
 				}
 				else
-					snprintf(interval_s, sizeof(interval_s), "Continuous");
+					os_snprintf(interval_s, sizeof(interval_s), "Continuous");
 
 				u_int16_t freq_index = vsr->vsr_fql;
 				freq_index|= vsr->vsr_fqh.vf_fqh << 8;
@@ -292,11 +291,11 @@ vsu_frame_end(void)
 							--step_time;
 					}
 					char overlay[32];
-					snprintf(overlay, sizeof(overlay), "Init %u, Step %u %s, %s",
-					         vsr->vsr_ev0.ve_init,
-					         vsr->vsr_ev0.ve_step + 1,
-					         (vsr->vsr_ev0.ve_ud) ? "Up" : "Dn",
-					         (vsr->vsr_ev1.ve_rs) ? "R/S" : "No R/S");
+					os_snprintf(overlay, sizeof(overlay), "Init %u, Step %u %s, %s",
+								vsr->vsr_ev0.ve_init,
+								vsr->vsr_ev0.ve_step + 1,
+								(vsr->vsr_ev0.ve_ud) ? "Up" : "Dn",
+								(vsr->vsr_ev1.ve_rs) ? "R/S" : "No R/S");
 					igPlotLines("Env.", envs, 120, 0, overlay, 0, 0xf, (struct ImVec2){240, 64}, sizeof(float));
 					igSameLine(0, -1);
 					igText("(%s)", (vsr->vsr_ev1.ve_on) ? "ON" : "OFF");
@@ -309,7 +308,7 @@ vsu_frame_end(void)
 						wave[i] = sample;
 					}
 					igSameLine(0, -1);
-					snprintf(overlay, sizeof(overlay), "Waveform RAM %u", wave_addr);
+					os_snprintf(overlay, sizeof(overlay), "Waveform RAM %u", wave_addr);
 					igPlotLines("Wave.",
 					            wave,
 					            32, 0,

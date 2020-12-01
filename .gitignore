@@ -6,6 +6,7 @@
 /rom.h
 /vip.h
 /os_macos.h
+/os_windows.h
 /vsu.h
 /common.h
 /events.h
@@ -16,6 +17,10 @@
 /vip_draw_slow.h
 /vvbdis.h
 /os_null.h
+/vendor/bsd-libc/getopt.h
+/vendor/bsd-libc/tdelete.h
+/vendor/bsd-libc/tsearch.h
+/vendor/bsd-libc/tfind.h
 .depend
 /vendor/makeheaders/makeheaders
 /.headers-stamp

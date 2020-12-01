@@ -1,30 +1,40 @@
+# define _SEARCH_PRIVATE
+#include "types.h"
+#include "common.h"
+
 #if INTERFACE
-# include <sys/types.h>
-# include <stdbool.h>
+# include <search.h>
 # include <stdio.h>
+#ifndef WIN32
+# error "Should be moved to os_unix etc."
 # include <sys/mman.h>
+#endif // !WIN32
 #endif // INTERFACE
 
-#include "common.h"
-#include "events.h"
+extern inline int min_int(int a, int b) { return (a < b) ? a : b; }
+extern inline int max_int(int a, int b) { return (a > b) ? a : b; }
+extern inline u_int min_uint(u_int a, u_int b) { return (a < b) ? a : b; }
+extern inline u_int max_uint(u_int a, u_int b) { return (a > b) ? a : b; }
+extern inline u_int64_t min_uint64(u_int64_t a, u_int64_t b) { return (a < b) ? a : b; }
+extern inline u_int64_t max_uint64(u_int64_t a, u_int64_t b) { return (a > b) ? a : b; }
+extern inline u_int64_t clamp_uint64(u_int x, u_int min, u_int max) { return min_uint64(max_uint64(x, min), max); }
 
 #include <sys/stat.h>
-#include <sys/fcntl.h>
-#include <sys/errno.h>
-#include <sys/param.h>
-#include <libkern/OSByteOrder.h>
-#include <unistd.h>
+#ifndef WIN32
+# error "Should be moved to os_unix etc."
+# include <sys/fcntl.h>
+# include <sys/errno.h>
+# include <sys/param.h>
+# include <unistd.h>
+#endif // !WIN32
 #include <math.h>
 #include <stdlib.h>
-#include <strings.h>
 #include <signal.h>
 #include <assert.h>
-#include <err.h>
-#include <histedit.h>
+#if HAVE_LIBEDIT
+# include <histedit.h>
+#endif // HAVE_LIBEDIT
 #include <float.h>
-#define _SEARCH_PRIVATE
-#include <search.h>
-#include <OpenGL/gl3.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
 
@@ -45,10 +55,11 @@
 	struct mem_seg_desc
 	{
 		u_int ms_size;
+		os_mmap_handle_t ms_handle;
 		u_int8_t *ms_ptr;
 		u_int32_t ms_addrmask;
-		bool ms_is_mmap;
 		int ms_perms; // PROT_* from <sys/mman.h>
+		bool ms_is_mmap;
 	};
 
 	struct mem_request
@@ -96,6 +107,8 @@ validate_seg_size(u_int size)
 }
 #endif // !NDEBUG
 
+static enum event_subsys dummy_event_subsys; // Hint for makeheaders
+
 enum mem_event
 {
 	MEM_EVENT_WATCH_READ = EVENT_SUBSYS_BITS(EVENT_SUBSYS_MEM) | EVENT_WHICH_BITS(0),
@@ -122,7 +135,7 @@ mem_seg_alloc(enum mem_segment seg, u_int size, int perms)
 	mem_segs[seg].ms_ptr = malloc(size);
 	if (!mem_segs[seg].ms_ptr)
 	{
-		warn("Could not allocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not allocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_size = size;
@@ -145,13 +158,17 @@ mem_seg_alloc(enum mem_segment seg, u_int size, int perms)
 }
 
 bool
-mem_seg_mmap(enum mem_segment seg, u_int size, int fd)
+mem_seg_mmap(enum mem_segment seg, u_int size, os_file_handle_t handle)
 {
 	mem_segs[seg].ms_size = size;
-	mem_segs[seg].ms_ptr = mmap(NULL, size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
+#ifndef WIN32
+#error Move to os_unix.c
+	//mem_segs[seg].ms_ptr = mmap(NULL, size, OS_MMAP_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
+#endif // !WIN32
+	mem_segs[seg].ms_handle = os_mmap_file(handle, size, OS_PERM_READ, &mem_segs[seg].ms_ptr);
 	if (!mem_segs[seg].ms_ptr)
 	{
-		warn("mmap() %s", mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_mmap() %s", mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_addrmask = size - 1;
@@ -167,7 +184,7 @@ mem_seg_realloc(enum mem_segment seg, u_int size)
 	mem_segs[seg].ms_ptr = realloc(mem_segs[seg].ms_ptr, size);
 	if (!mem_segs[seg].ms_ptr)
 	{
-		warn("Could not reallocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not reallocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_size = size;
@@ -182,8 +199,8 @@ mem_seg_free(enum mem_segment seg)
 		free(mem_segs[seg].ms_ptr);
 	else
 	{
-		if (munmap(mem_segs[seg].ms_ptr, mem_segs[seg].ms_size) == -1)
-			warn("munmap(mem_segs[%s], ...) failed", mem_seg_names[seg]);
+		if (os_munmap_file(mem_segs[seg].ms_handle, mem_segs[seg].ms_ptr, mem_segs[seg].ms_size) == -1)
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_munmap_file(mem_segs[%s], ...) failed", mem_seg_names[seg]);
 		mem_segs[seg].ms_is_mmap = false;
 	}
 	mem_segs[seg].ms_ptr = NULL;
@@ -309,9 +326,9 @@ mem_get_read_ptr(u_int32_t addr, u_int size, u_int *mem_waitp)
 
 			u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
 
-			if (mem_checks && !(mem_segs[seg].ms_perms & PROT_READ))
+			if (mem_checks && !(mem_segs[seg].ms_perms & OS_PERM_READ))
 			{
-				mem_perm_error(addr, PROT_READ, mem_segs[seg].ms_perms);
+				mem_perm_error(addr, OS_PERM_READ, mem_segs[seg].ms_perms);
 				return NULL;
 			}
 
@@ -329,13 +346,13 @@ mem_read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp)
 			{
 					.mr_emu = addr,
 					.mr_size = size,
-					.mr_perms = PROT_READ | PROT_WRITE,
+					.mr_perms = OS_PERM_READ | OS_PERM_WRITE,
 					.mr_mask = 0xffffffff,
 					.mr_wait = 2
 			};
-	request.mr_ops = PROT_READ;
+	request.mr_ops = OS_PERM_READ;
 	if (is_exec)
-		request.mr_ops|= PROT_EXEC;
+		request.mr_ops|= OS_PERM_EXEC;
 
 	if (!mem_prepare(&request))
 	{
@@ -374,7 +391,7 @@ mem_read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp)
 			*(u_int32_t *)dest = *(u_int32_t *)request.mr_host;
 			break;
 		default:
-			bcopy(request.mr_host, dest, size);
+			os_bcopy(request.mr_host, dest, size);
 	}
 
 	*mem_waitp = request.mr_wait;
@@ -389,8 +406,8 @@ mem_get_write_ptr(u_int32_t addr, u_int size, u_int32_t *maskp)
 	{
 			.mr_emu = addr,
 			.mr_size = size,
-			.mr_perms = PROT_READ | PROT_WRITE | PROT_EXEC,
-			.mr_ops = PROT_WRITE,
+			.mr_perms = OS_PERM_READ | OS_PERM_WRITE | OS_PERM_EXEC,
+			.mr_ops = OS_PERM_WRITE,
 			.mr_mask = 0xffffffff,
 			.mr_wait = 2
 	};
@@ -414,8 +431,8 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 	{
 			.mr_emu = addr,
 			.mr_size = size,
-			.mr_perms = PROT_READ | PROT_WRITE | PROT_EXEC,
-			.mr_ops = PROT_WRITE,
+			.mr_perms = OS_PERM_READ | OS_PERM_WRITE | OS_PERM_EXEC,
+			.mr_ops = OS_PERM_WRITE,
 			.mr_mask = 0xffffffff,
 			.mr_wait = 2
 	};
@@ -427,7 +444,7 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 		return false;
 	}
 
-	if ((request.mr_perms & PROT_WRITE) == 0)
+	if ((request.mr_perms & OS_PERM_WRITE) == 0)
 	{
 		debug_str_t addr_s, perms_s;
 		static bool ignore_writes = false;
@@ -467,21 +484,11 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 					(*(u_int32_t *)request.mr_host & ~request.mr_mask) | (*(u_int32_t *)src & request.mr_mask);
 			break;
 		default:
-			bcopy(src, request.mr_host, size);
+			os_bcopy(src, request.mr_host, size);
 	}
 
 	*mem_waitp = request.mr_wait;
 	return true;
-}
-
-void
-mem_test_size(const char *name, size_t size, size_t expected)
-{
-	if (expected != size)
-	{
-		debug_runtime_errorf(NULL, "sizeof(%s) is %lu but should be %lu", name, size, expected);
-		abort();
-	}
 }
 
 void
@@ -516,7 +523,7 @@ bool
 sram_init(void)
 {
 	// TODO: load save file
-	return mem_seg_alloc(MEM_SEG_SRAM, 8 << 10, PROT_READ | PROT_WRITE);
+	return mem_seg_alloc(MEM_SEG_SRAM, 8 << 10, OS_PERM_READ | OS_PERM_WRITE);
 }
 
 void
@@ -535,7 +542,7 @@ wram_init(void)
 	debug_create_symbol("GLOBAL", 0x05000000, true);
 	debug_create_symbol("STACK", 0x0500dfff, true);
 
-	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, PROT_READ | PROT_WRITE);
+	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, OS_PERM_READ | OS_PERM_WRITE);
 }
 
 void
@@ -997,14 +1004,14 @@ cpu_setfl_float(double double_result)
 			{
 				struct
 				{
-					u_int double_mantissa : 29 __attribute__((packed));
-					u_int single_mantissa : 23 __attribute__((packed));
-					u_int raw_exp : 11 __attribute__((packed));
-					u_int sign : 1 __attribute__((packed));
+					u_int64_t double_mantissa : 29 __attribute__((packed));
+					u_int64_t single_mantissa : 23 __attribute__((packed));
+					u_int64_t raw_exp : 11 __attribute__((packed));
+					u_int64_t sign : 1 __attribute__((packed));
 				} __attribute__((packed));
 				double d;
 			} result = {.d = double_result};
-			static_assert(sizeof(result) == 8, "double_result not packed correctly");
+			assert_sizeof(result, 8);
 			if (result.raw_exp == 0)
 			{
 				if (result.single_mantissa == 0)
@@ -2080,7 +2087,7 @@ cpu_assert_mem(u_int32_t addr, u_int32_t expected, u_int byte_size)
 	u_int mem_wait;
 	if (!mem_read(addr, &(actual), sizeof(actual), false, &mem_wait))
 		abort();
-	if (bcmp(&actual, &expected, byte_size))
+	if (os_bcmp(&actual, &expected, byte_size))
 	{
 		debug_str_t actual_bin_s, expected_bin_s;
 		debug_runtime_errorf(NULL, "*** Test failure: memory at 0x%08x is\n\t%s, should be\n\t%s",
@@ -2428,7 +2435,7 @@ cpu_intr(enum nvc_intlevel level)
 			cpu_state.cs_psw.psw_flags.f_ep = 1;
 			cpu_state.cs_psw.psw_flags.f_id = 1;
 			cpu_state.cs_psw.psw_flags.f_ae = 0;
-			cpu_state.cs_psw.psw_flags.f_i = MIN(level + 1, 15);
+			cpu_state.cs_psw.psw_flags.f_i = min_int(level + 1, 15);
 
 			if (debug_trace_cpu_jmp)
 			{
@@ -2461,23 +2468,23 @@ struct nvc_regs
 	u_int8_t nr_thr;
 	struct nvc_tcr
 	{
-		u_int t_enb : 1,
-		t_z_stat : 1,
-		t_z_stat_clr : 1,
-		t_z_int : 1,
-		t_clk_sel : 1;
+		u_int8_t t_enb : 1,
+				 t_z_stat : 1,
+				 t_z_stat_clr : 1,
+				 t_z_int : 1,
+				 t_clk_sel : 1;
 	} __attribute__((packed)) nr_tcr;
 	u_int8_t nr_wcr;
 	struct
 	{
-		u_int s_abt_dis : 1,
-			  s_si_stat : 1,
-			  s_hw_si : 1,
-			  s_rfu1 : 1,
-			  s_soft_ck : 1,
-			  s_para_si : 1,
-			  s_rfu2 : 1,
-			  s_k_int_inh : 1;
+		u_int8_t s_abt_dis : 1,
+				 s_si_stat : 1,
+				 s_hw_si : 1,
+				 s_rfu1 : 1,
+				 s_soft_ck : 1,
+				 s_para_si : 1,
+				 s_rfu2 : 1,
+				 s_k_int_inh : 1;
 	} __attribute__((packed)) nr_scr;
 };
 
@@ -2590,9 +2597,9 @@ nvc_reset(void)
 void
 nvc_test(void)
 {
-	debug_printf("Running NVC self-test\n", stderr);
+	debug_printf("Running NVC self-test\n");
 
-	mem_test_size("nvc_regs", sizeof(nvc_regs), 11);
+	assert_sizeof(nvc_regs, 11);
 	mem_test_addr("nvc_sdlr", 0x02000010, 1, &(nvc_regs.nr_sdlr));
 	mem_test_addr("nvc_sdhr", 0x02000014, 1, &(nvc_regs.nr_sdhr));
 	mem_test_addr("nvc_tcr", 0x02000020, 1, &(nvc_regs.nr_tcr));
@@ -2661,19 +2668,19 @@ static char *
 nvc_format_timer(debug_str_t s)
 {
 	debug_str_t tcr_s;
-	snprintf(s, debug_str_len,
-	         "TCR = %s, THR:TLR = %02hhx:%02hhx, preset = 0x%04x, next count = 0x%04x, next tick = %u",
-	         debug_format_flags(tcr_s,
-	                            "T-Enb", nvc_regs.nr_tcr.t_enb,
-	                            "Z-Stat", nvc_regs.nr_tcr.t_z_stat,
-	                            "Z-Stat-Clr", nvc_regs.nr_tcr.t_z_stat_clr,
-	                            "Tim-Z-Int", nvc_regs.nr_tcr.t_z_int,
-	                            "T-Clk-Sel", nvc_regs.nr_tcr.t_clk_sel,
-	                            NULL),
-	         nvc_regs.nr_thr, nvc_regs.nr_tlr,
-	         nvc_timer.nt_preset,
-	         nvc_timer.nt_next_count,
-	         nvc_timer.nt_next_tick);
+	os_snprintf(s, debug_str_len,
+				"TCR = %s, THR:TLR = %02hhx:%02hhx, preset = 0x%04x, next count = 0x%04x, next tick = %u",
+				debug_format_flags(tcr_s,
+								   "T-Enb", nvc_regs.nr_tcr.t_enb,
+								   "Z-Stat", nvc_regs.nr_tcr.t_z_stat,
+								   "Z-Stat-Clr", nvc_regs.nr_tcr.t_z_stat_clr,
+								   "Tim-Z-Int", nvc_regs.nr_tcr.t_z_int,
+								   "T-Clk-Sel", nvc_regs.nr_tcr.t_clk_sel,
+								   NULL),
+				nvc_regs.nr_thr, nvc_regs.nr_tlr,
+				nvc_timer.nt_preset,
+				nvc_timer.nt_next_count,
+				nvc_timer.nt_next_tick);
 	return s;
 }
 
@@ -2862,10 +2869,10 @@ nvc_mem_prepare(struct mem_request *request)
 			case 0x02000008:
 			case 0x02000004:
 			case 0x02000000:
-				request->mr_perms = PROT_READ | PROT_WRITE;
+				request->mr_perms = OS_PERM_READ | OS_PERM_WRITE;
 				break;
 			case 0x02000020:
-				request->mr_perms = PROT_READ | PROT_WRITE;
+				request->mr_perms = OS_PERM_READ | OS_PERM_WRITE;
 				break;
 			default:
 				request->mr_perms = 0;
@@ -3030,15 +3037,17 @@ struct debug_watch
 };
 struct debug_watch *debug_watches = NULL;
 
-#if DEBUG_TTY
-	static EditLine *s_editline;
-#endif // DEBUG_TTY
-static History *s_history;
-static Tokenizer *s_token;
+#if HAVE_LIBEDIT
+	#if DEBUG_TTY
+		static EditLine *s_editline;
+	#endif // DEBUG_TTY
+	static History *s_history;
+	static Tokenizer *s_token;
+#endif // HAVE_LIBEDIT
 
 // TODO: Use hcreate()
 static struct debug_symbol *debug_syms = NULL;
-static struct node *debug_addrs = NULL;
+static posix_tnode *debug_addrs = NULL;
 
 static bool debug_show_console = false;
 static char debug_console_buffer[16 * 1024];
@@ -3057,10 +3066,11 @@ debug_prompt(EditLine *editline __unused)
 bool
 debug_init(void)
 {
+#if HAVE_LIBEDIT
 	s_history = history_init();
 	if (!s_history)
 	{
-		warnx("Could not initialize history editing");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not initialize history editing");
 		return false;
 	}
 	HistEvent event;
@@ -3069,21 +3079,22 @@ debug_init(void)
 	s_token = tok_init(NULL);
 	if (!s_token)
 	{
-		warnx("Could not initialize tokenizer");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not initialize tokenizer");
 		return false;
 	}
 
-#if DEBUG_TTY
-	s_editline = el_init("vvboy", stdin, stdout, stderr);
-	if (!s_editline)
-	{
-		warnx("Could not initialize editline");
-		return false;
-	}
-	el_set(s_editline, EL_PROMPT, debug_prompt);
-	el_source(s_editline, NULL);
-	el_set(s_editline, EL_HIST, history, s_history);
-#endif // DEBUG_TTY
+	#if DEBUG_TTY
+		s_editline = el_init("vvboy", stdin, stdout, stderr);
+		if (!s_editline)
+		{
+			os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not initialize editline");
+			return false;
+		}
+		el_set(s_editline, EL_PROMPT, debug_prompt);
+		el_source(s_editline, NULL);
+		el_set(s_editline, EL_HIST, history, s_history);
+	#endif // DEBUG_TTY
+#endif // HAVE_LIBEDIT
 
 	return true;
 }
@@ -3119,10 +3130,12 @@ debug_clear_rom_syms(void)
 void
 debug_fini(void)
 {
-	history_end(s_history);
-#if DEBUG_TTY
-	el_end(s_editline);
-#endif // DEBUG_TTY
+#if HAVE_LIBEDIT
+		history_end(s_history);
+	#if DEBUG_TTY
+		el_end(s_editline);
+	#endif // DEBUG_TTY
+#endif // HAVE_LIBEDIT
 }
 
 char *
@@ -3160,7 +3173,7 @@ debug_format_hex(const u_int8_t *bytes, u_int byte_size, debug_str_t s)
 			assert(byte_size == 1 || byte_size == 2 || byte_size == 4);
 			value = 0;
 	}
-	snprintf(s, debug_str_len, "0x%0*x", byte_size << 1, value);
+	os_snprintf(s, debug_str_len, "0x%0*x", byte_size << 1, value);
 	return s;
 }
 
@@ -3194,7 +3207,7 @@ debug_resolve_addr_slow(u_int32_t addr, u_int32_t *match_offsetp)
 }
 
 static struct debug_symbol *
-debug_search_addr(struct node *root, u_int32_t addr, u_int32_t *match_offsetp, bool inexact)
+debug_search_addr(posix_tnode *root, u_int32_t addr, u_int32_t *match_offsetp, bool inexact)
 {
 	if (!root)
 		return NULL;
@@ -3247,14 +3260,14 @@ debug_format_addrsym(u_int32_t addr, struct debug_symbol *sym, debug_str_t s)
 	{
 		u_int32_t offset = addr - sym->ds_addr;
 		if (offset)
-			snprintf(human, sizeof(human), " <%s+%u>", sym->ds_name, offset);
+			os_snprintf(human, sizeof(human), " <%s+%u>", sym->ds_name, offset);
 		else
-			snprintf(human, sizeof(human), " <%s>", sym->ds_name);
+			os_snprintf(human, sizeof(human), " <%s>", sym->ds_name);
 	}
 	else
 		*human = '\0';
 
-	snprintf(s, debug_str_len, "0x%08x%s", addr, human);
+	os_snprintf(s, debug_str_len, "0x%08x%s", addr, human);
 
 	return s;
 }
@@ -3280,8 +3293,8 @@ const char *debug_rnames[32] =
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
-	struct node *existing;
-	existing = tfind(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+	posix_tnode *existing;
+	existing = tfind(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 	if (existing)
 	{
 		struct debug_symbol *existing_sym = (struct debug_symbol *)existing->key;
@@ -3301,7 +3314,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 
 	if (!existing && debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tsearch(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tsearch(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 }
 
 struct debug_symbol *
@@ -3309,10 +3322,10 @@ debug_create_symbol(const char *name, u_int32_t addr, bool is_system)
 {
 	struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
 	if (!debug_sym)
-		err(1, "Could not allocate debug symbol");
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not allocate debug symbol");
 	debug_sym->ds_name = strdup(name);
 	if (!debug_sym->ds_name)
-		err(1, "Could not copy symbol name");
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not copy symbol name");
 	debug_sym->ds_addr = addr;
 	debug_sym->ds_type = ISX_SYMBOL_POINTER;
 	debug_sym->ds_is_system = is_system;
@@ -3326,7 +3339,7 @@ debug_create_symbolf(u_int32_t addr, bool is_system, const char *fmt, ...)
 	char name[64 + 1];
 	va_list ap;
 	va_start(ap, fmt);
-	vsnprintf(name, sizeof(name), fmt, ap);
+	os_vsnprintf(name, sizeof(name), fmt, ap);
 	va_end(ap);
 	return debug_create_symbol(name, addr, is_system);
 }
@@ -3337,7 +3350,7 @@ debug_create_symbol_array(const char *base_name, u_int32_t start, u_int count, u
 	for (u_int i = 0; i < count; ++i)
 	{
 		debug_str_t name;
-		snprintf(name, sizeof(name), "%s:%u", base_name, i);
+		os_snprintf(name, sizeof(name), "%s:%u", base_name, i);
 		debug_create_symbol(name, start + size * i, is_system);
 	}
 }
@@ -3346,7 +3359,7 @@ void
 debug_destroy_symbol(struct debug_symbol *debug_sym)
 {
 	if (debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tdelete(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tdelete(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 
 	if (debug_sym->ds_name)
 		free(debug_sym->ds_name);
@@ -3357,7 +3370,7 @@ struct debug_disasm_context *
 debug_current_context(void)
 {
 	static struct debug_disasm_context context;
-	bcopy(cpu_state.cs_r, context.ddc_regs, sizeof(cpu_state.cs_r));
+	os_bcopy(cpu_state.cs_r, context.ddc_regs, sizeof(cpu_state.cs_r));
 	context.ddc_regmask = DEBUG_REGMASK_ALL;
 	return &context;
 }
@@ -3383,9 +3396,9 @@ debug_disasm_fmtreg(debug_str_t reg_s, const char *fmt, struct debug_disasm_cont
 {
 	const union cpu_reg *reg = debug_get_reg(context, rnum);
 	if (reg)
-		snprintf(reg_s, debug_str_len, fmt, reg->u);
+		os_snprintf(reg_s, debug_str_len, fmt, reg->u);
 	else
-		snprintf(reg_s, debug_str_len, "%s", debug_rnames[rnum]);
+		os_snprintf(reg_s, debug_str_len, "%s", debug_rnames[rnum]);
 	return reg_s;
 }
 
@@ -3416,17 +3429,17 @@ debug_disasm_i(debug_str_t decode,
                const char *decomp_fmt,
                struct debug_disasm_context *context)
 {
-	snprintf(decode, debug_str_len, "%s %s, %s",
-	         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+	os_snprintf(decode, debug_str_len, "%s %s, %s",
+				mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 
 	debug_str_t reg1_s, reg2_s;
 	debug_disasm_fmtreg(reg1_s, reg1_fmt, context, inst->ci_i.i_reg1);
 	debug_disasm_fmtreg(reg2_s, reg2_fmt, context, inst->ci_i.i_reg2);
-	snprintf(decomp, debug_str_len, decomp_fmt,
-			 debug_rnames[inst->ci_i.i_reg1],
-			 reg1_s,
-			 debug_rnames[inst->ci_i.i_reg2],
-			 reg2_s);
+	os_snprintf(decomp, debug_str_len, decomp_fmt,
+				debug_rnames[inst->ci_i.i_reg1],
+				reg1_s,
+				debug_rnames[inst->ci_i.i_reg2],
+				reg2_s);
 	debug_clear_reg(context, inst->ci_i.i_reg2);
 }
 
@@ -3441,13 +3454,13 @@ debug_disasm_ii(debug_str_t decode,
                 struct debug_disasm_context *context)
 {
 	debug_str_t imm5_s;
-	snprintf(imm5_s, debug_str_len, imm5_fmt, inst->ci_ii.ii_imm5, cpu_extend5to32(inst->ci_ii.ii_imm5));
+	os_snprintf(imm5_s, debug_str_len, imm5_fmt, inst->ci_ii.ii_imm5, cpu_extend5to32(inst->ci_ii.ii_imm5));
 
-	snprintf(decode, debug_str_len, "%s %s, %s", mnemonic, imm5_s, debug_rnames[inst->ci_ii.ii_reg2]);
+	os_snprintf(decode, debug_str_len, "%s %s, %s", mnemonic, imm5_s, debug_rnames[inst->ci_ii.ii_reg2]);
 
 	debug_str_t reg2_s;
 	debug_disasm_fmtreg(reg2_s, reg2_fmt, context, inst->ci_ii.ii_reg2);
-	snprintf(decomp, debug_str_len, decomp_fmt, debug_rnames[inst->ci_ii.ii_reg2], reg2_s, imm5_s);
+	os_snprintf(decomp, debug_str_len, decomp_fmt, debug_rnames[inst->ci_ii.ii_reg2], reg2_s, imm5_s);
 }
 
 static void
@@ -3462,19 +3475,19 @@ debug_disasm_v(debug_str_t decode,
 {
 	debug_str_t imm16_s;
 	u_int32_t imm32 = cpu_extend16(inst->ci_v.v_imm16);
-	snprintf(imm16_s, debug_str_len, imm16_fmt, inst->ci_v.v_imm16, imm32);
+	os_snprintf(imm16_s, debug_str_len, imm16_fmt, inst->ci_v.v_imm16, imm32);
 
-	snprintf(decode, debug_str_len, "%s %s, %s, %s",
-	         mnemonic, imm16_s, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
+	os_snprintf(decode, debug_str_len, "%s %s, %s, %s",
+				mnemonic, imm16_s, debug_rnames[inst->ci_v.v_reg1], debug_rnames[inst->ci_v.v_reg2]);
 
 	debug_str_t reg1_s;
 	debug_disasm_fmtreg(reg1_s, reg1_fmt, context, inst->ci_v.v_reg1);
 
-	snprintf(decomp, debug_str_len, decomp_fmt,
-			debug_rnames[inst->ci_v.v_reg2],
-			reg1_s,
-			imm16_s,
-			imm32);
+	os_snprintf(decomp, debug_str_len, decomp_fmt,
+				debug_rnames[inst->ci_v.v_reg2],
+				reg1_s,
+				imm16_s,
+				imm32);
 
 	const union cpu_reg *reg1 = debug_get_reg(context, inst->ci_v.v_reg1);
 	if (reg1)
@@ -3510,8 +3523,8 @@ debug_disasm_vi(debug_str_t decode,
                 const char *mnemonic,
                 struct debug_disasm_context *context)
 {
-	snprintf(decode, debug_str_len, "%s %hd[%s], %s",
-	         mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
+	os_snprintf(decode, debug_str_len, "%s %hd[%s], %s",
+				mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 
 	debug_str_t addr_s;
 	{
@@ -3522,46 +3535,46 @@ debug_disasm_vi(debug_str_t decode,
 			debug_format_addr(addr, addr_s);
 		}
 		else
-			snprintf(addr_s, debug_str_len, "%s%+hd", debug_rnames[inst->ci_vi.vi_reg1], inst->ci_vi.vi_disp16);
+			os_snprintf(addr_s, debug_str_len, "%s%+hd", debug_rnames[inst->ci_vi.vi_reg1], inst->ci_vi.vi_disp16);
 	}
 
 	switch (inst->ci_vi.vi_opcode)
 	{
 		case OP_CAXI:
-			snprintf(decomp, debug_str_len,
-					 "[%s] <- r30 if oldval = %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
+			os_snprintf(decomp, debug_str_len,
+						"[%s] <- r30 if oldval = %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 			break;
 		case OP_LD_B:
 		case OP_LD_H:
 		case OP_LD_W:
-			snprintf(decomp, debug_str_len, "%s <- [%s]", debug_rnames[inst->ci_vi.vi_reg2], addr_s);
+			os_snprintf(decomp, debug_str_len, "%s <- [%s]", debug_rnames[inst->ci_vi.vi_reg2], addr_s);
 			debug_clear_reg(context, inst->ci_vi.vi_reg2);
 			break;
 		case OP_ST_B:
 		{
 			const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_vi.vi_reg2);
 			if (reg2)
-				snprintf(decomp, debug_str_len, "[%s] <- 0x%02hhx", addr_s, reg2->u8s[0]);
+				os_snprintf(decomp, debug_str_len, "[%s] <- 0x%02hhx", addr_s, reg2->u8s[0]);
 			else
-				snprintf(decomp, debug_str_len, "[%s] <- %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
+				os_snprintf(decomp, debug_str_len, "[%s] <- %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 			break;
 		}
 		case OP_ST_H:
 		{
 			const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_vi.vi_reg2);
 			if (reg2)
-				snprintf(decomp, debug_str_len, "[%s] <- 0x%04hx", addr_s, reg2->s16);
+				os_snprintf(decomp, debug_str_len, "[%s] <- 0x%04hx", addr_s, reg2->s16);
 			else
-				snprintf(decomp, debug_str_len, "[%s] <- %s & 0xffff", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
+				os_snprintf(decomp, debug_str_len, "[%s] <- %s & 0xffff", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 			break;
 		}
 		case OP_ST_W:
 		{
 			const union cpu_reg *reg2 = debug_get_reg(context, inst->ci_vi.vi_reg2);
 			if (reg2)
-				snprintf(decomp, debug_str_len, "[%s] <- 0x%08x", addr_s, reg2->u);
+				os_snprintf(decomp, debug_str_len, "[%s] <- 0x%08x", addr_s, reg2->u);
 			else
-				snprintf(decomp, debug_str_len, "[%s] <- %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
+				os_snprintf(decomp, debug_str_len, "[%s] <- %s", addr_s, debug_rnames[inst->ci_vi.vi_reg2]);
 			break;
 		}
 	}
@@ -3575,19 +3588,19 @@ debug_disasm_vi_fmt(debug_str_t decode,
                     const char *decomp_fmt,
                     struct debug_disasm_context *context)
 {
-	snprintf(decode, debug_str_len, "%s %hd[%s], %s",
-	         mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
+	os_snprintf(decode, debug_str_len, "%s %hd[%s], %s",
+				mnemonic, inst->ci_vi.vi_disp16, debug_rnames[inst->ci_vi.vi_reg1], debug_rnames[inst->ci_vi.vi_reg2]);
 	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
 	{
 		u_int32_t addr = context->ddc_regs[inst->ci_vi.vi_reg1].u + inst->ci_vi.vi_disp16;
 		debug_str_t addr_s;
 		debug_format_addr(addr, addr_s);
-		snprintf(decomp, debug_str_len, decomp_fmt,
-		         addr_s,
-		         debug_rnames[inst->ci_vi.vi_reg1],
-		         context->ddc_regs[inst->ci_vi.vi_reg1].u,
-		         debug_rnames[inst->ci_vi.vi_reg2],
-		         context->ddc_regs[inst->ci_vi.vi_reg2].u);
+		os_snprintf(decomp, debug_str_len, decomp_fmt,
+					addr_s,
+					debug_rnames[inst->ci_vi.vi_reg1],
+					context->ddc_regs[inst->ci_vi.vi_reg1].u,
+					debug_rnames[inst->ci_vi.vi_reg2],
+					context->ddc_regs[inst->ci_vi.vi_reg2].u);
 	}
 	// TODO: More specific clear
 	debug_clear_reg(context, inst->ci_vi.vi_reg2);
@@ -3613,13 +3626,13 @@ debug_disasm_vii(debug_str_t decode,
 			break;
 	}
 
-	snprintf(decode, debug_str_len, fmt, mnemonic, debug_rnames[inst->vii_reg1], debug_rnames[inst->vii_reg2]);
+	os_snprintf(decode, debug_str_len, fmt, mnemonic, debug_rnames[inst->vii_reg1], debug_rnames[inst->vii_reg2]);
 	if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-		snprintf(decomp, debug_str_len, decomp_fmt,
-		         debug_rnames[inst->vii_reg1],
-		         context->ddc_regs[inst->vii_reg1].f,
-		         debug_rnames[inst->vii_reg2],
-		         context->ddc_regs[inst->vii_reg2].f);
+		os_snprintf(decomp, debug_str_len, decomp_fmt,
+					debug_rnames[inst->vii_reg1],
+					context->ddc_regs[inst->vii_reg1].f,
+					debug_rnames[inst->vii_reg2],
+					context->ddc_regs[inst->vii_reg2].f);
 	debug_clear_reg(context, inst->vii_reg2);
 }
 
@@ -3694,28 +3707,28 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			}
 			static char unknown[32];
 			debug_str_t bin_s;
-			snprintf(unknown, sizeof(unknown), "??? (%s)", debug_format_binary(inst->ci_i.i_opcode, 6, bin_s));
+			os_snprintf(unknown, sizeof(unknown), "??? (%s)", debug_format_binary(inst->ci_i.i_opcode, 6, bin_s));
 			mnemonic = unknown;
 		}
 	}
 	switch (inst->ci_i.i_opcode)
 	{
 		case OP_MUL:
-			snprintf(decode, debug_str_len, "%s %s, %s",
-			         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+			os_snprintf(decode, debug_str_len, "%s %s, %s",
+						mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-				snprintf(decomp, debug_str_len, "%i × %i",
-				         context->ddc_regs[inst->ci_i.i_reg1].s, context->ddc_regs[inst->ci_i.i_reg2].s);
+				os_snprintf(decomp, debug_str_len, "%i × %i",
+							context->ddc_regs[inst->ci_i.i_reg1].s, context->ddc_regs[inst->ci_i.i_reg2].s);
 			debug_clear_reg(context, inst->ci_i.i_reg2);
 			break;
 		case OP_SUB:
-			snprintf(decode, debug_str_len, "%s %s, %s",
-			         mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
+			os_snprintf(decode, debug_str_len, "%s %s, %s",
+						mnemonic, debug_rnames[inst->ci_i.i_reg1], debug_rnames[inst->ci_i.i_reg2]);
 			if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
 				// TODO: use positional parameters
-				snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
-				         context->ddc_regs[inst->ci_i.i_reg2].s, context->ddc_regs[inst->ci_i.i_reg1].s,
-				         context->ddc_regs[inst->ci_i.i_reg2].u, context->ddc_regs[inst->ci_i.i_reg1].u);
+				os_snprintf(decomp, debug_str_len, "%i - %i | 0x%08x - 0x%08x",
+							context->ddc_regs[inst->ci_i.i_reg2].s, context->ddc_regs[inst->ci_i.i_reg1].s,
+							context->ddc_regs[inst->ci_i.i_reg2].u, context->ddc_regs[inst->ci_i.i_reg1].u);
 			debug_clear_reg(context, inst->ci_i.i_reg2);
 			break;
 		case OP_ADD:
@@ -3763,13 +3776,13 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			debug_disasm_i(decode, decomp, inst, "NOT", "%u<0x%08x>", "", "%3$s <- ~%2$s", context);
 			break;
 		case OP_JMP:
-			snprintf(decode, debug_str_len, "%s [%s]", mnemonic, debug_rnames[inst->ci_i.i_reg1]);
+			os_snprintf(decode, debug_str_len, "%s [%s]", mnemonic, debug_rnames[inst->ci_i.i_reg1]);
 			const union cpu_reg *reg1 = debug_get_reg(context, inst->ci_i.i_reg1);
 			if (reg1)
 			{
 				debug_str_t addr_s;
-				snprintf(decomp, debug_str_len, "pc <- %s",
-				         debug_format_addr(reg1->u, addr_s));
+				os_snprintf(decomp, debug_str_len, "pc <- %s",
+							debug_format_addr(reg1->u, addr_s));
 			}
 			break;
 		case OP_ADD2:
@@ -3812,28 +3825,28 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		case OP_CMP2:
 		{
 			u_int16_t imm = cpu_extend5to16(inst->ci_ii.ii_imm5);
-			snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
+			os_snprintf(decode, debug_str_len, "%s %hi, %s", mnemonic, imm, debug_rnames[inst->ci_ii.ii_reg2]);
 			if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-				snprintf(decomp, debug_str_len, "%d <=> %hi", context->ddc_regs[inst->ci_ii.ii_reg2].s, imm);
+				os_snprintf(decomp, debug_str_len, "%d <=> %hi", context->ddc_regs[inst->ci_ii.ii_reg2].s, imm);
 			break;
 		}
 		case OP_TRAP:
-			snprintf(decode, debug_str_len, "%s", "TRAP");
+			os_snprintf(decode, debug_str_len, "%s", "TRAP");
 			break;
 		case OP_RETI:
-			snprintf(decode, debug_str_len, "%s", "RETI");
+			os_snprintf(decode, debug_str_len, "%s", "RETI");
 			if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
-				snprintf(decomp, debug_str_len, "pc <- 0x%08x, psw <- 0x%08x",
-				         // TODO: Probably shouldn't decode these here
-				         (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc,
-				         (cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepsw.psw_word : cpu_state.cs_eipsw.psw_word);
+				os_snprintf(decomp, debug_str_len, "pc <- 0x%08x, psw <- 0x%08x",
+							// TODO: Probably shouldn't decode these here
+							(cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepc : cpu_state.cs_eipc,
+							(cpu_state.cs_psw.psw_flags.f_np) ? cpu_state.cs_fepsw.psw_word : cpu_state.cs_eipsw.psw_word);
 			break;
 		case OP_HALT:
-			snprintf(decode, debug_str_len, "%s", "HALT");
+			os_snprintf(decode, debug_str_len, "%s", "HALT");
 			break;
 		case OP_CLI:
 		case OP_SEI:
-			snprintf(decode, debug_str_len, "%s", mnemonic);
+			os_snprintf(decode, debug_str_len, "%s", mnemonic);
 			break;
 		case OP_BSTR:
 			switch (inst->ci_ii.ii_imm5)
@@ -3851,15 +3864,15 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 				case BSTR_XORNBSU: mnemonic = "XORNBSU"; break;
 				case BSTR_NOTBSU: mnemonic = "NOTBSU"; break;
 			}
-			snprintf(decode, debug_str_len, "%s", mnemonic);
+			os_snprintf(decode, debug_str_len, "%s", mnemonic);
 			if (context && context->ddc_regmask == DEBUG_REGMASK_ALL)
 			{
 				debug_str_t src_start_s, dest_start_s /*, src_end_s, dest_end_s*/;
 				debug_format_addr(context->ddc_regs[30].u, src_start_s);
 				debug_format_addr(context->ddc_regs[29].u, dest_start_s);
 				u_int src_bit_off = context->ddc_regs[27].u & 31, dest_bit_off = context->ddc_regs[26].u & 31;
-				snprintf(decomp, debug_str_len, "[%s.%u..] <- [%s.%u..] (%u bits)",
-				         src_start_s, src_bit_off, dest_start_s, dest_bit_off, context->ddc_regs[28].u);
+				os_snprintf(decomp, debug_str_len, "[%s.%u..] <- [%s.%u..] (%u bits)",
+							src_start_s, src_bit_off, dest_start_s, dest_bit_off, context->ddc_regs[28].u);
 			}
 			debug_clear_reg(context, 30);
 			debug_clear_reg(context, 29);
@@ -3882,24 +3895,24 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		case OP_LDSR:
 		{
 			char decomp_fmt[32];
-			snprintf(decomp_fmt, sizeof(decomp_fmt), "%s <- %%2$s", debug_regid_str(inst->ci_ii.ii_imm5));
+			os_snprintf(decomp_fmt, sizeof(decomp_fmt), "%s <- %%2$s", debug_regid_str(inst->ci_ii.ii_imm5));
 			debug_disasm_ii(decode, decomp, inst, "LDSR", "%hu", "0x%08x", decomp_fmt, context);
 			break;
 		}
 		case OP_STSR:
-			snprintf(decode, debug_str_len, "%s %i, %s",
-			         mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
+			os_snprintf(decode, debug_str_len, "%s %i, %s",
+						mnemonic, inst->ci_ii.ii_imm5, debug_rnames[inst->ci_ii.ii_reg2]);
 			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_JR:
 		case OP_JAL:
 		{
 			u_int32_t disp = cpu_inst_disp26(inst);
-			snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
+			os_snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
 			if (pc)
 			{
 				debug_str_t addr_s;
-				snprintf(decomp, debug_str_len, "%s", debug_format_addr(pc + disp, addr_s));
+				os_snprintf(decomp, debug_str_len, "%s", debug_format_addr(pc + disp, addr_s));
 			}
 			break;
 		}
@@ -4000,7 +4013,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 				default:
 				{
 					debug_str_t bin_s;
-					snprintf(decode, debug_str_len, "TODO: FLOAT %s", debug_format_binary(inst->vii_subop, 6, bin_s));
+					os_snprintf(decode, debug_str_len, "TODO: FLOAT %s", debug_format_binary(inst->vii_subop, 6, bin_s));
 				}
 			}
 			break;
@@ -4009,20 +4022,20 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			if (inst->ci_iii.iii_opcode == OP_BCOND)
 			{
 				u_int32_t disp = cpu_extend9(inst->ci_iii.iii_disp9);
-				snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
+				os_snprintf(decode, debug_str_len, "%s %i", mnemonic, disp);
 				if (pc)
 				{
 					debug_str_t addr_s;
-					snprintf(decomp, debug_str_len, "pc <- %s", debug_format_addr(pc + disp, addr_s));
+					os_snprintf(decomp, debug_str_len, "pc <- %s", debug_format_addr(pc + disp, addr_s));
 				}
 				break;
 			}
-			snprintf(decode, debug_str_len, "TODO: %s", mnemonic);
+			os_snprintf(decode, debug_str_len, "TODO: %s", mnemonic);
 	}
 	if (*decomp)
-		snprintf(dis, debug_str_len, "%-20s; %s", decode, decomp);
+		os_snprintf(dis, debug_str_len, "%-20s; %s", decode, decomp);
 	else
-		snprintf(dis, debug_str_len, "%s", decode);
+		os_snprintf(dis, debug_str_len, "%s", decode);
 	return dis;
 }
 
@@ -4187,7 +4200,7 @@ debug_stop(void)
 {
 	if (debug_mode == DEBUG_STOP)
 	{
-		fprintf(stderr, "debug_stop() called while debug_mode=STOPPED\n");
+		debug_printf("debug_stop() called while debug_mode=STOPPED\n");
 		return;
 	}
 
@@ -4203,7 +4216,7 @@ debug_continue(void)
 {
 	if (debug_mode != DEBUG_STOP)
 	{
-		fprintf(stderr, "debug_run() called while debug_mode=%u\n", debug_mode);
+		debug_printf("debug_run() called while debug_mode=%u\n", debug_mode);
 		return;
 	}
 
@@ -4268,11 +4281,11 @@ debug_format_flags(debug_str_t s, ...)
 	const char *name;
 	size_t len = 0;
 	s[0] = '\0';
-	while ((name = va_arg(ap, typeof(name))))
+	while ((name = va_arg(ap, char *)))
 	{
-		u_int flag = va_arg(ap, typeof(flag));
+		u_int flag = va_arg(ap, u_int);
 		if (flag)
-			len+= snprintf(s + len, debug_str_len - len, "%s%s", (len > 0) ? "|" : "", name);
+			len+= os_snprintf(s + len, debug_str_len - len, "%s%s", (len > 0) ? "|" : "", name);
 	}
 	va_end(ap);
 	return s;
@@ -4282,11 +4295,11 @@ const char *
 debug_format_perms(int perms, debug_str_t s)
 {
 	return debug_format_flags(s,
-	                          "NONE", (perms == 0),
-	                          "READ", (perms & PROT_READ),
-	                          "WRITE", (perms & PROT_WRITE),
-	                          "EXEC", (perms & PROT_EXEC),
-	                          NULL);
+							  "NONE", (perms == 0),
+							  "READ", (perms & OS_PERM_READ),
+							  "WRITE", (perms & OS_PERM_WRITE),
+							  "EXEC", (perms & OS_PERM_EXEC),
+							  NULL);
 }
 
 static void
@@ -4346,7 +4359,7 @@ debug_find_watch(u_int32_t addr, int mem_op)
 void
 debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 {
-	if (debug_find_watch(addr, PROT_READ))
+	if (debug_find_watch(addr, OS_PERM_READ))
 	{
 		debug_str_t addr_s, mem_addr_s, hex_s;
 		debug_tracef("watch", DEBUG_ADDR_FMT ": %s <- [" DEBUG_ADDR_FMT "]",
@@ -4361,7 +4374,7 @@ debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 void
 debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 {
-	if (debug_find_watch(addr, PROT_WRITE))
+	if (debug_find_watch(addr, OS_PERM_WRITE))
 	{
 		debug_str_t addr_s, mem_addr_s, hex_s;
 		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] <- %s",
@@ -4373,6 +4386,7 @@ debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size
 	}
 }
 
+#if HAVE_LIBEDIT
 static void __unused
 debug_exec(const char *cmd)
 {
@@ -4380,7 +4394,7 @@ debug_exec(const char *cmd)
 
 	HistEvent hist_event;
 	if (history(s_history, &hist_event, H_ENTER, cmd) == -1)
-		warn("Could not save editline history");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not save editline history");
 
 	int argc;
 	const char **argv;
@@ -4789,7 +4803,7 @@ debug_exec(const char *cmd)
 					{
 						watch = malloc(sizeof(*watch));
 						if (!watch)
-							err(1, "Allocate debug watch");
+							main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate debug watch");
 						watch->dw_addr = addr;
 						watch->dw_ops = ops;
 						watch->dw_next = debug_watches;
@@ -4846,6 +4860,7 @@ debug_exec(const char *cmd)
 			debug_printf("Unknown command “%s” -- type ‘?’ for help\n", argv[0]);
 	}
 }
+#endif // HAVE_LIBEDIT
 
 static void
 debug_print_inst(void)
@@ -4934,7 +4949,7 @@ debug_putchar(char ch)
 
 		if (next_begin == debug_console_end)
 		{
-			fprintf(stderr, "Console buffer overflow\n");
+			os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Console buffer overflow\n");
 			return;
 		}
 
@@ -4952,7 +4967,7 @@ debug_printf(const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	char msg[2048];
-	size_t length = vsnprintf(msg, sizeof(msg), fmt, ap);
+	size_t length = os_vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
 #if DEBUG_TTY
 	fputs(msg, stderr);
@@ -4967,8 +4982,8 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	char trace[2048];
-	size_t length = snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
-	length+= vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
+	size_t length = os_snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
+	length+= os_vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
 	va_end(ap);
 
 	if (!debug_trace_file)
@@ -4989,14 +5004,18 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	char msg[1024];
-	vsnprintf(msg, sizeof(msg), fmt, ap);
+	os_vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
 	debug_printf("%s\n", msg);
 
 	if (debug_mode == DEBUG_STOP)
 		return true;
 
-	switch (os_runtime_error(msg, (ignore_flagp != NULL)))
+	u_int resp_mask = BIT(OS_RUNERR_RESP_IGNORE) | BIT(OS_RUNERR_RESP_DEBUG) | BIT(OS_RUNERR_RESP_ABORT);
+	if (ignore_flagp)
+		resp_mask |= BIT(OS_RUNERR_RESP_ALWAYS_IGNORE);
+
+	switch (os_runtime_error(OS_RUNERR_TYPE_EMULATION, resp_mask, msg))
 	{
 		case ERROR_IGNORE:
 			return true;
@@ -5021,7 +5040,7 @@ debug_fatal_errorf(const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	char msg[1024];
-	vsnprintf(msg, sizeof(msg), fmt, ap);
+	os_vsnprintf(msg, sizeof(msg), fmt, ap);
 	debug_printf("%s\n", msg);
 	va_end(ap);
 
@@ -5207,6 +5226,7 @@ debug_frame_end(void)
 				debug_console_dirty = false;
 			}
 
+		#if HAVE_LIBEDIT
 			static bool reclaim_focus = true;
 			static char cmd[256];
 			igPushItemWidth(igGetContentRegionAvailWidth());
@@ -5224,6 +5244,7 @@ debug_frame_end(void)
 				igSetKeyboardFocusHere(-1);
 				reclaim_focus = false;
 			}
+		#endif // HAVE_LIBEDIT
 		}
 		igEnd();
 	}
@@ -5244,6 +5265,7 @@ debug_frame_end(void)
 		NUM_TEXTURES
 	};
 #endif // INTERFACE
+#include <GL/gl3w.h>
 
 bool gl_draw_left = true;
 bool gl_draw_right = true;
@@ -5280,7 +5302,7 @@ gl_check_errors(const char *desc)
 			default:
 			{
 				static char unknown_err_desc[10];
-				snprintf(unknown_err_desc, sizeof(unknown_err_desc), "%08x", error);
+				os_snprintf(unknown_err_desc, sizeof(unknown_err_desc), "%08x", error);
 				err_desc = unknown_err_desc;
 				break;
 			}
@@ -5299,9 +5321,9 @@ gl_check_errors(const char *desc)
 
 static bool
 gl_check_program(GLuint program, GLenum pname,
-                 const char *desc,
-                 void (*get_func)(GLuint, GLenum, GLint *),
-                 void (*log_func)(GLuint, GLsizei, GLsizei *, GLchar *))
+				 const char *desc,
+				 PFNGLGETSHADERIVPROC get_func,
+				 PFNGLGETSHADERINFOLOGPROC log_func)
 {
 	GLint status;
 	get_func(program, pname, &status);
@@ -5318,6 +5340,12 @@ gl_check_program(GLuint program, GLenum pname,
 bool
 gl_init(void)
 {
+	if (gl3wInit() == -1)
+	{
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "Could not load OpenGL");
+		return false;
+	}
+
 	enum
 	{
 		ATTRIB_POSITION,
@@ -5823,7 +5851,7 @@ imgui_debug_image(enum gl_texture texture, u_int width, u_int height)
 #if INTERFACE
 	struct main_stats_t
 	{
-		u_int32_t ms_start_usec;
+		u_int64_t ms_start_usec;
 		u_int ms_frames;
 		u_int ms_scans;
 		u_int ms_insts;
@@ -5840,7 +5868,8 @@ struct main_stats_t main_stats;
 bool
 main_init(void)
 {
-	return (events_init() &&
+	return (os_init() &&
+			events_init() &&
 			mem_init() &&
 			sram_init() &&
 			wram_init() &&
@@ -5867,6 +5896,17 @@ main_fini(void)
 	sram_fini();
 	mem_fini();
 	events_fini();
+	os_fini();
+}
+
+void
+main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	os_runtime_verror(type, BIT(OS_RUNERR_RESP_ABORT), fmt, ap);
+	va_end(ap);
+	abort();
 }
 
 void
@@ -5876,13 +5916,13 @@ main_update_caption(const char *stats)
 	size_t offset = sizeof("VVBoy") - 1;
 	if (rom_loaded)
 	{
-		offset+= snprintf(caption + offset, sizeof(caption) - offset, ": %s", rom_name);
+		offset+= os_snprintf(caption + offset, sizeof(caption) - offset, ": %s", rom_name);
 		if (stats)
-			offset+= snprintf(caption + offset, sizeof(caption) - offset, " [%s]", stats);
+			offset+= os_snprintf(caption + offset, sizeof(caption) - offset, " [%s]", stats);
 		if (debug_is_stopped())
-			offset+= snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
+			offset+= os_snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
 		else if (main_time_scale != 1.0)
-			offset += snprintf(caption + offset, sizeof(caption) - offset, " *Time Scale %gx*", main_time_scale);
+			offset += os_snprintf(caption + offset, sizeof(caption) - offset, " *Time Scale %gx*", main_time_scale);
 	}
 	tk_update_caption(caption);
 }
@@ -5890,11 +5930,11 @@ main_update_caption(const char *stats)
 static void
 main_restart_clock(void)
 {
-	u_int32_t usec = tk_get_usec();
+	u_int64_t usec = os_get_usec();
 	if (main_stats.ms_insts > 0)
 	{
 		char stats_s[100];
-		u_int32_t delta_usecs = usec - main_stats.ms_start_usec;
+		u_int64_t delta_usecs = usec - main_stats.ms_start_usec;
 		float delta_secs = delta_usecs * 1e-6f;
 		float fps = (float)main_stats.ms_frames / delta_secs;
 		float emu_fps = (float)main_stats.ms_scans / delta_secs;
@@ -5904,7 +5944,7 @@ main_restart_clock(void)
 						 main_stats.ms_scans, emu_fps,
 						 main_stats.ms_insts,
 						 main_stats.ms_intrs);
-		snprintf(stats_s, sizeof(stats_s), "%.3g FPS, %.3g EMU FPS", fps, emu_fps);
+		os_snprintf(stats_s, sizeof(stats_s), "%.3g FPS, %.3g EMU FPS", fps, emu_fps);
 		main_update_caption(stats_s);
 	}
 
@@ -5949,27 +5989,29 @@ main_noop(int sig __unused)
 {
 }
 
-void
-main_block_sigint(void)
-{
-	sigset_t sigset;
-	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGINT);
-	signal(SIGINT, main_noop);
+#if DEBUG_TTY
+	void
+	main_block_sigint(void)
+	{
+		sigset_t sigset;
+		sigemptyset(&sigset);
+		sigaddset(&sigset, SIGINT);
+		signal(SIGINT, main_noop);
 
-	sigprocmask(SIG_BLOCK, &sigset, NULL);
-}
+		sigprocmask(SIG_BLOCK, &sigset, NULL);
+	}
 
-void
-main_unblock_sigint(void)
-{
-	sigset_t sigset;
-	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGINT);
-	sigprocmask(SIG_UNBLOCK, &sigset, NULL);
+	void
+	main_unblock_sigint(void)
+	{
+		sigset_t sigset;
+		sigemptyset(&sigset);
+		sigaddset(&sigset, SIGINT);
+		sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
-	signal(SIGINT, SIG_DFL);
-}
+		signal(SIGINT, SIG_DFL);
+	}
+#endif // DEBUG_TTY
 
 void
 main_draw(void)
@@ -5977,7 +6019,7 @@ main_draw(void)
 	if (imgui_shown)
 	{
 		char id[64];
-		snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
+		os_snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
 		igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
 		igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
 		struct ImGuiStyle *style = igGetStyle();
@@ -6033,11 +6075,13 @@ main_frame(u_int delta_usecs)
 
 		while (delta_usecs-- != 0 && main_step());
 
+	#if DEBUG_TTY
 		// Check SIGINT -> Debugger
 		sigset_t sigpend;
 		sigpending(&sigpend);
 		if (sigismember(&sigpend, SIGINT))
 			debug_stop();
+	#endif // DEBUG_TTY
 
 		if (main_trace)
 			debug_tracef("main", "End frame");

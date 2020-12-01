@@ -1,16 +1,10 @@
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <strings.h>
-#include <fcntl.h>
-#include <err.h>
-#include <sys/stat.h>
-#include <sysexits.h>
-#include <sys/errno.h>
-#include <signal.h>
-#include <sys/param.h>
-
+#include "types.h"
 #include "rom.h"
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <signal.h>
 
 #if INTERFACE
 	enum isx_symbol_type
@@ -32,7 +26,7 @@ bool rom_loaded = false;
 
 struct rom_file
 {
-	int rf_fdesc;
+	os_file_handle_t rf_handle;
 	off_t rf_size;
 	char *rf_path;
 };
@@ -43,7 +37,7 @@ static char *rom_symbol_fn = NULL;
 static void
 rom_close(struct rom_file *file)
 {
-	close(file->rf_fdesc);
+	os_file_close(file->rf_handle);
 	if (file->rf_path)
 		free(file->rf_path);
 }
@@ -51,27 +45,25 @@ rom_close(struct rom_file *file)
 static bool
 rom_open(const char *fn, struct rom_file *file)
 {
-	bzero(file, sizeof(*file));
+	os_bzero(file, sizeof(*file));
 
-	file->rf_fdesc = open(fn, O_RDONLY);
-	if (file->rf_fdesc == -1)
+	file->rf_handle = os_file_open(fn, O_RDONLY);
+	if (file->rf_handle == OS_FILE_HANDLE_INVALID)
 	{
-		warn("Could not open ‘%s’", fn);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not open ‘%s’", fn);
 		return false;
 	}
 
-	struct stat st;
-	if (fstat(file->rf_fdesc, &st) == -1)
+	if (!os_file_getsize(file->rf_handle, &file->rf_size))
 	{
-		warn("stat() ‘%s’", fn);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_file_getsize() ‘%s’", fn);
 		rom_close(file);
 		return false;
 	}
-	file->rf_size = st.st_size;
 
 	file->rf_path = strdup(fn);
 	if (!file->rf_path)
-		err(EX_OSERR, "Alloc path");
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Alloc path");
 
 	return true;
 }
@@ -81,19 +73,19 @@ rom_read(struct rom_file *file)
 {
 	if (file->rf_size < (off_t)ROM_MIN_SIZE)
 	{
-		warnx("ROM file ‘%s’ is smaller than minimum size (0x%lx)", file->rf_path, ROM_MIN_SIZE);
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "ROM file ‘%s’ is smaller than minimum size (0x%lx)", file->rf_path, ROM_MIN_SIZE);
 		return false;
 	}
 
 	if (!IS_POWER_OF_2(file->rf_size))
 	{
-		warnx("Size of ROM file ‘%s’, 0x%llx, is not a power of 2", file->rf_path, file->rf_size);
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Size of ROM file ‘%s’, 0x%llx, is not a power of 2", file->rf_path, file->rf_size);
 		return false;
 	}
 
-	if (!mem_seg_mmap(MEM_SEG_ROM, file->rf_size, file->rf_fdesc))
+	if (!mem_seg_mmap(MEM_SEG_ROM, file->rf_size, file->rf_handle))
 		return false;
-	mem_segs[MEM_SEG_ROM].ms_perms = PROT_READ | PROT_EXEC;
+	mem_segs[MEM_SEG_ROM].ms_perms = OS_PERM_READ | OS_PERM_EXEC;
 
 	// TODO: check ROM info
 
@@ -103,12 +95,12 @@ rom_read(struct rom_file *file)
 static bool
 rom_read_buffer(struct rom_file *file, void *buf, size_t size, const char *desc)
 {
-	ssize_t nread = read(file->rf_fdesc, buf, size);
-	if (nread == (ssize_t)size)
+	size_t nread = os_file_read(file->rf_handle, buf, size);
+	if (nread == (int64_t)size)
 		return true;
 	else
 	{
-		warnx("Read %s from ‘%s’: %s", desc, file->rf_path, (nread == -1) ? strerror(errno) : "Unexpected EOF");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Read %s from ‘%s’: %s", desc, file->rf_path, (nread == -1) ? strerror(errno) : "Unexpected EOF");
 		return false;
 	}
 }
@@ -116,11 +108,11 @@ rom_read_buffer(struct rom_file *file, void *buf, size_t size, const char *desc)
 static bool
 rom_seek(struct rom_file *file, off_t off, int whence)
 {
-	if (lseek(file->rf_fdesc, off, whence) != -1)
+	if (os_file_seek(file->rf_handle, off, whence) != -1)
 		return true;
 	else
 	{
-		warn("Seek ‘%s’", file->rf_path);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Seek ‘%s’", file->rf_path);
 		return false;
 	}
 }
@@ -141,7 +133,7 @@ struct isx_chunk_header
 static bool
 isx_is_eof(struct rom_file *file)
 {
-	return (lseek(file->rf_fdesc, 0, SEEK_CUR) == file->rf_size);
+	return (os_file_seek(file->rf_handle, 0, OS_SEEK_CUR) == file->rf_size);
 }
 
 static bool
@@ -167,9 +159,9 @@ rom_read_isx(struct rom_file *file)
 	char magic[sizeof(ISX_MAGIC)];
 	if (!rom_read_buffer(file, magic, sizeof(ISX_MAGIC), "ISX magic"))
 		return false;
-	if (bcmp(magic, ISX_MAGIC, sizeof(ISX_MAGIC)))
+	if (os_bcmp(magic, ISX_MAGIC, sizeof(ISX_MAGIC)))
 	{
-		warnx("Invalid ISX magic in ‘%s’", file->rf_path);
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Invalid ISX magic in ‘%s’", file->rf_path);
 		return false;
 	}
 
@@ -191,11 +183,11 @@ rom_read_isx(struct rom_file *file)
 			else if (MEM_ADDR2SEG(header.ich_addr) == MEM_SEG_ROM)
 			{
 				size_t loaded_size = MEM_ADDR2OFF(header.ich_addr) + header.ich_size;
-				rom_size = MAX(rom_size, loaded_size);
+				rom_size = max_uint(rom_size, loaded_size);
 			}
 			else
 			{
-				warnx("Invalid chunk load addr 0x%08x in ISX file ‘%s’", (u_int32_t)header.ich_addr, file->rf_path);
+				os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Invalid chunk load addr 0x%08x in ISX file ‘%s’", (u_int32_t)header.ich_addr, file->rf_path);
 				return false;
 			}
 
@@ -207,8 +199,8 @@ rom_read_isx(struct rom_file *file)
 	}
 
 	rom_size = mem_size_ceil(rom_size);
-	rom_size = MAX(rom_size, ROM_MIN_SIZE);
-	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size, PROT_READ | PROT_EXEC))
+	rom_size = max_uint(rom_size, ROM_MIN_SIZE);
+	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size, OS_PERM_READ | OS_PERM_EXEC))
 		return false;
 
 	union cpu_inst halt_inst = {.ci_i = {.i_opcode = (enum cpu_opcode)OP_TRAP}};
@@ -252,13 +244,13 @@ rom_read_isx(struct rom_file *file)
 				struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
 				if (!debug_sym)
 				{
-					warn("Could not alloc ISX debug sym");
+					os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not alloc ISX debug sym");
 					return false;
 				}
 				debug_sym->ds_name = malloc(symlen + 1);
 				if (!debug_sym->ds_name)
 				{
-					warn("Could not alloc ISX debug sym name");
+					os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not alloc ISX debug sym name");
 					debug_destroy_symbol(debug_sym);
 					return false;
 				}
@@ -295,11 +287,11 @@ rom_read_isx(struct rom_file *file)
 		else
 		{
 			debug_runtime_errorf(NULL, "ISX chunk type 0x%hhx @ 0x%08llx\n",
-			                     header.ich_tag, lseek(file->rf_fdesc, 0, SEEK_CUR));
+								 header.ich_tag, os_file_seek(file->rf_handle, 0, OS_SEEK_CUR));
 			char *debug_info = malloc(2048);
 			if (!rom_read_buffer(file, debug_info, 2048, "ISX chunk data"))
 				return false;
-			raise(SIGTRAP);
+			os_debug_trap();
 			free(debug_info);
 		}
 	}
@@ -312,10 +304,10 @@ rom_load(const char *fn)
 {
 	char *ext = strrchr(fn, '.');
 	bool is_isx = false;
-	if (ext && !strcasecmp(ext, ".ISX"))
+	if (ext && !stricmp(ext, ".ISX"))
 		is_isx = true;
-	else if (!ext || strcasecmp(ext, ".VB"))
-		warnx("Can‘t determine file type from ‘%s’, assuming ROM file", fn);
+	else if (!ext || stricmp(ext, ".VB"))
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Can‘t determine file type from ‘%s’, assuming ROM file", fn);
 
 	struct rom_file file;
 	if (!rom_open(fn, &file))
@@ -332,8 +324,11 @@ rom_load(const char *fn)
 	size_t base_len = (ext) ? ext - fn : strlen(fn);
 	rom_symbol_fn = malloc(base_len + sizeof(".sym"));
 	if (!rom_symbol_fn)
-		err(EX_OSERR, "Alloc filename");
-	sprintf(rom_symbol_fn, "%.*s.sym", (int)base_len, fn);
+	{
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Alloc filename");
+		return false;
+	}
+	os_snprintf(rom_symbol_fn, base_len + sizeof(".sym"), "%.*s.sym", (int)base_len, fn);
 	rom_symbol_fp = fopen(rom_symbol_fn, "r+");
 	if (rom_symbol_fp)
 	{
@@ -347,18 +342,20 @@ rom_load(const char *fn)
 			if (sscanf(line, "%x %32s", &addr, name) == 2)
 				debug_create_symbol(name, addr, false);
 			else
-				warnx("%s:%u: Could not parse line", rom_symbol_fn, line_num);
+				os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "%s:%u: Could not parse line", rom_symbol_fn, line_num);
 		}
 		if (ferror(rom_symbol_fp))
-			warn("Read from symbol file %s", rom_symbol_fn);
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Read from symbol file %s", rom_symbol_fn);
 	}
 	else if (errno != ENOENT)
-		warn("Could not open symbol file %s", rom_symbol_fn);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not open symbol file %s", rom_symbol_fn);
 
 	const char *sep = strrchr(fn, '/');
 	const char *name = (sep) ? sep + 1 : fn;
 	size_t name_len = (ext) ? ext - name : strlen(name);
-	rom_name = strndup(name, name_len);
+	rom_name = malloc(name_len + 1);
+	os_bcopy(name, rom_name, name_len);
+	rom_name[name_len] = '\0';
 	rom_loaded = true;
 
 	return status;
@@ -372,7 +369,7 @@ rom_add_symbol(const struct debug_symbol *sym)
 		debug_tracef("rom", "Created symbol file %s\n", rom_symbol_fn);
 		rom_symbol_fp = fopen(rom_symbol_fn, "a");
 		if (!rom_symbol_fp)
-			warn("Could not open symbol file %s", rom_symbol_fn);
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not open symbol file %s", rom_symbol_fn);
 	}
 
 	if (rom_symbol_fp)

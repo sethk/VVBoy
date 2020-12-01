@@ -42,9 +42,10 @@
 #include "imgui_impl_sdl_gl3.h"
 
 // SDL,GL3W
+#include <GL/gl3w.h>
 #include <SDL.h>
 #include <SDL_syswm.h>
-#include <OpenGL/gl3.h>
+#include <SDL_opengl.h>
 #include <imgui/imgui.h>
 
 // SDL data

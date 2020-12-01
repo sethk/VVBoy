@@ -1,15 +1,9 @@
+#include "types.h"
 #include "vvboy.h"
 
-#include <unistd.h>
-#include <err.h>
-#include <sysexits.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <math.h>
-
-extern inline u_int maxu(u_int a, u_int b) { return a > b ? a : b; }
-extern inline u_int minu(u_int a, u_int b) { return a < b ? a : b; }
-extern inline u_int clampu(u_int x, u_int min, u_int max) { return minu(maxu(x, min), max); }
 
 static bool main_running = true;
 static const u_int main_min_fps = 25;
@@ -35,7 +29,7 @@ main_load_rom(const char *fn)
 }
 
 void
-main_close_rom()
+main_close_rom(void)
 {
 	rom_unload();
 	main_update_caption(NULL);
@@ -43,21 +37,21 @@ main_close_rom()
 }
 
 void
-main_open_rom()
+main_open_rom(void)
 {
 	if (rom_loaded)
 		rom_unload();
 
 	static const char * const exts[] = {"vb", "isx"};
-	os_choose_file(exts, sizeof(exts) / sizeof(exts[0]), main_load_rom);
+	os_choose_file("ROM Files", exts, sizeof(exts) / sizeof(exts[0]), main_load_rom);
 }
 
 static void
 main_loop(void)
 {
-	static u_int last_frame_usec = 0;
-	static const u_int max_frame_usecs = 1e6 / main_min_fps;
-	static const u_int min_frame_usecs = 1e6 / main_max_fps;
+	static u_int64_t last_frame_usec = 0;
+	/*static*/ const u_int max_frame_usecs = 1000000 / main_min_fps;
+	/*static*/ const u_int min_frame_usecs = 1000000 / main_max_fps;
 
 	while (main_running)
 	{
@@ -70,9 +64,9 @@ main_loop(void)
 			delta_usecs = 20000;
 		else
 		{
-			u_int frame_usec = tk_get_usec();
+			u_int64_t frame_usec = os_get_usec();
 			if (last_frame_usec)
-				delta_usecs = clampu(frame_usec - last_frame_usec, min_frame_usecs, max_frame_usecs);
+				delta_usecs = clamp_uint64(frame_usec - last_frame_usec, min_frame_usecs, max_frame_usecs);
 			else
 				delta_usecs = min_frame_usecs;
 			last_frame_usec = frame_usec;
@@ -118,27 +112,29 @@ main(int ac, char * const *av)
 
 	if (ac > 1 || help)
 	{
-		fprintf(stderr, usage_fmt, getprogname());
-		return EX_USAGE;
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), usage_fmt, os_getprogname());
+		return 64; // EX_USAGE
 	}
 
 	if (trace_path)
 	{
 		debug_trace_file = fopen(trace_path, "w");
 		if (!debug_trace_file)
-			err(EX_CANTCREAT, "Can't open trace file %s", trace_path);
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_ABORT), "Can't open trace file %s", trace_path);
+	#ifndef WIN32
 		if (linebuf && setlinebuf(debug_trace_file) != 0)
-			err(EX_OSERR, "Can't set trace line-buffered");
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_ABORT), "Can't set trace line-buffered");
+	#endif // !WIN32
 	}
 
 	if (ac == 1)
 	{
 		if (!main_load_rom(av[0]))
-			return EX_NOINPUT;
+			return 1;
 	}
 
 	if (!main_init())
-		return EX_OSERR;
+		return 1;
 
 	main_update_caption(NULL);
 
@@ -152,11 +148,15 @@ main(int ac, char * const *av)
 	if (debugging)
 		debug_stop();
 
+#if DEBUG_TTY
 	main_block_sigint();
+#endif // DEBUG_TTY
 
 	main_loop();
 
+#if DEBUG_TTY
 	main_unblock_sigint();
+#endif // DEBUG_TYY
 
 	if (rom_loaded)
 		rom_unload();

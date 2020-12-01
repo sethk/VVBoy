@@ -1,11 +1,8 @@
-#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-#include <cimgui/cimgui.h>
-#include <assert.h>
-#include <math.h>
+#include "types.h"
 #include "events.h"
 
 #if INTERFACE
-#   include <sys/types.h>
+
 	enum event_subsys
 	{
 		EVENT_SUBSYS_VIP,
@@ -27,6 +24,11 @@
 #   define EVENT_FINISH_BIT (1 << 15)
 #endif // INTERFACE
 
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include <cimgui/cimgui.h>
+#include <assert.h>
+#include <math.h>
+
 struct event
 {
 	u_int e_usecs;
@@ -41,6 +43,7 @@ static bool events_capturing = false;
 static bool events_overflowed = false;
 static struct event events[64 * 1024];
 static u_int events_count;
+static enum event_subsys dummy_event_subsys; // Trick makeheaders into understanding that the declarations below require EVENT_SUBSYS_*
 static struct event *events_first_by_subsys[EVENT_NUM_SUBSYS];
 static struct event *events_last_by_subsys[EVENT_NUM_SUBSYS];
 static bool events_dirty = false;
@@ -59,9 +62,17 @@ static struct ImVec4 events_subsys_colors[EVENT_NUM_SUBSYS] =
 		{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}, {1, 1, 0, 1}, {0, 1, 1, 1}, {1, 1, 1, 1}
 };
 
+static const float track_size_base = 25.f;
+static const float default_zoom = 100.f;
+static float zoom;
+static struct ImVec2 track_size;
+
 bool
 events_init(void)
 {
+	zoom = default_zoom;
+	track_size = (struct ImVec2){ track_size_base * default_zoom, 0 };
+
 	for (u_int subsys = 0; subsys < EVENT_NUM_SUBSYS; ++subsys)
 		for (u_int which = 0; which < EVENTS_MAX; ++which)
 			events_descs[subsys][which] = "???";
@@ -148,11 +159,6 @@ events_frame_end(void)
 			struct ImVec2 mouse_pos;
 			igGetMousePos(&mouse_pos);
 
-			static const float track_size_base = 25;
-			static const float default_zoom = 100.0;
-			static float zoom = default_zoom;
-			static struct ImVec2 track_size = {track_size_base * default_zoom, 0};
-
 			static float last_scroll_x = 0;
 			static float last_scroll_max_x = 0;
 			float min_time = last_scroll_x / track_size.x;
@@ -212,7 +218,7 @@ events_frame_end(void)
 								};
 
 						igPushIDInt(subsys);
-						static struct ImVec4 track_color = {0.131, 0.131, 0.131, 1.0};
+						static struct ImVec4 track_color = {0.131f, 0.131f, 0.131f, 1.0f};
 						if (igBeginPopupContextWindow("Track colors", 1, true))
 						{
 							igColorEdit3("Track color", (float *) &track_color, ImGuiColorEditFlags_Float);
@@ -279,9 +285,9 @@ events_frame_end(void)
 					u_int which = EVENT_GET_WHICH(event->e_code);
 					igText(events_subsys_names[subsys]);
 					igNextColumn();
-					float time_frac = (float)event->e_usecs / 1e6;
+					float time_frac = (float)event->e_usecs / 1e6f;
 					char time_str[25];
-					size_t time_str_len = snprintf(time_str, sizeof(time_str), "%.6f", time_frac);
+					size_t time_str_len = os_snprintf(time_str, sizeof(time_str), "%.6f", time_frac);
 
 					struct ImVec2 min_vec;
 					min_vec.y = min_track_vecs[subsys].y;
@@ -303,15 +309,15 @@ events_frame_end(void)
 						if (next_event)
 						{
 							int time_delta = next_event->e_usecs - event->e_usecs;
-							float end_time_frac = (float)next_event->e_usecs / 1e6;
-							time_str_len+= snprintf(time_str + time_str_len, sizeof(time_str) - time_str_len, "-%.6f",
+							float end_time_frac = (float)next_event->e_usecs / 1e6f;
+							time_str_len+= os_snprintf(time_str + time_str_len, sizeof(time_str) - time_str_len, "-%.6f",
 							                        end_time_frac);
-							snprintf(dur_str, sizeof(dur_str), "%.3f ms", (float)time_delta / 1000);
+							os_snprintf(dur_str, sizeof(dur_str), "%.3f ms", (float)time_delta / 1000);
 							max_vec.x = min_track_vecs[subsys].x + floorf(track_size.x * end_time_frac);
 						}
 						else
 						{
-							snprintf(dur_str, sizeof(dur_str), "???");
+							os_snprintf(dur_str, sizeof(dur_str), "???");
 							max_vec.x = min_track_vecs[subsys].x + track_size.x;
 						}
 
@@ -319,14 +325,14 @@ events_frame_end(void)
 					}
 					else if (event->e_code & EVENT_FINISH_BIT)
 					{
-						snprintf(time_str, sizeof(time_str), "??\?-%.6f", time_frac); // Haha, trigraphs
+						os_snprintf(time_str, sizeof(time_str), "??\?-%.6f", time_frac); // Haha, trigraphs
 						// TODO: Check end of event from last batch
 					}
 					else
 					{
 						min_vec.x = min_track_vecs[subsys].x + floorf(track_size.x * time_frac);
 						max_vec.x = min_vec.x;
-						snprintf(dur_str, sizeof(dur_str), "--");
+						os_snprintf(dur_str, sizeof(dur_str), "--");
 						draw_mode = DRAW_LINE;
 					}
 
@@ -378,16 +384,16 @@ events_frame_end(void)
 					igText(dur_str);
 					igNextColumn();
 					char desc[64];
-					size_t desc_len = snprintf(desc, sizeof(desc), events_descs[subsys][which],
-							event->e_index, event->e_user_data);
+					size_t desc_len = os_snprintf(desc, sizeof(desc), events_descs[subsys][which],
+												  event->e_index, event->e_user_data);
 
 					if (show_tooltip)
 						igSetTooltip("%s\n@%s s\n%s\n%s", events_subsys_names[subsys], time_str, dur_str, desc);
 
 					if (event->e_code & EVENT_START_BIT)
-						desc_len+= snprintf(desc + desc_len, sizeof(desc) - desc_len, " start");
+						desc_len+= os_snprintf(desc + desc_len, sizeof(desc) - desc_len, " start");
 					else if (event->e_code & EVENT_FINISH_BIT)
-						desc_len+= snprintf(desc + desc_len, sizeof(desc) - desc_len, " finish");
+						desc_len+= os_snprintf(desc + desc_len, sizeof(desc) - desc_len, " finish");
 					igTextUnformatted(desc, desc + desc_len);
 					igNextColumn();
 				}

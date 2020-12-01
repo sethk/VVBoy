@@ -1,10 +1,7 @@
-#include <sys/param.h> // MAX()
-#include <err.h>
-#include <stdlib.h>
-#include <strings.h>
-#include <unistd.h>
-#include <assert.h>
+#include "types.h"
 #include "vvbdis.h"
+#include <stdlib.h>
+#include <assert.h>
 
 static struct func
 {
@@ -21,7 +18,7 @@ static struct func
 static int verbose = 0;
 static const u_int32_t rom_addr = MEM_SEG2ADDR(MEM_SEG_ROM);
 static u_int32_t rom_end;
-static u_int32_t text_begin = rom_addr, text_end;
+static u_int32_t text_begin = MEM_SEG2ADDR(MEM_SEG_ROM), text_end;
 static const u_int32_t vect_begin = 0xfffffe00, vect_end = 0xfffffffe;
 
 
@@ -30,7 +27,7 @@ create_func(const struct debug_symbol *sym)
 {
 	struct func *func = malloc(sizeof(*func));
 	if (!func)
-		err(1, "Allocate function");
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate function");
 	func->f_callers = NULL;
 	func->f_call_count = 0;
 	func->f_debug_sym = sym;
@@ -104,7 +101,7 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 		;
 	struct func_caller *caller = malloc(sizeof(*caller));
 	if (!caller)
-		err(1, "Allocate function caller");
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate function caller");
 	caller->fc_addr = caller_addr;
 	caller->fc_next = NULL;
 	*prev_callerp = caller;
@@ -183,7 +180,7 @@ static void
 fetch_inst(union cpu_inst *inst, u_int32_t pc)
 {
 	if (!cpu_fetch(pc, inst))
-		errx(1, "Could not fetch instruction at 0x%08x", pc);
+		main_fatal_error(OS_RUNERR_TYPE_EMULATION, "Could not fetch instruction at 0x%08x", pc);
 }
 
 static bool
@@ -248,7 +245,7 @@ scan_area(u_int32_t begin, u_int32_t end)
 	static u_int func_sym_index = 0;
 	static u_int entry_sym_index = 0;
 	struct debug_disasm_context context;
-	bzero(&context, sizeof(context));
+	os_bzero(&context, sizeof(context));
 	while (pc < end)
 	{
 		union cpu_inst inst;
@@ -294,7 +291,7 @@ scan_area(u_int32_t begin, u_int32_t end)
 					if ((jmp_reg = debug_get_reg(&context, inst.ci_i.i_reg1)))
 					{
 						upsert_func("entry", jmp_reg->u, &entry_sym_index, /*caller_addr*/pc);
-						bzero(&context, sizeof(context));
+						os_bzero(&context, sizeof(context));
 					}
 					else if (verbose >= 1)
 						fprintf(stderr, "Can't read %s for JMP target, skipping\n", debug_rnames[inst.ci_i.i_reg1]);
@@ -312,7 +309,7 @@ disasm_area(u_int32_t begin, u_int32_t end)
 {
 	struct debug_symbol *sym = NULL;
 	struct debug_disasm_context context;
-	bzero(&context, sizeof(context));
+	os_bzero(&context, sizeof(context));
 	u_int32_t pc = begin;
 	while (pc < end)
 	{
@@ -338,7 +335,7 @@ disasm_area(u_int32_t begin, u_int32_t end)
 						break;
 				}
 				show_func(sym, func);
-				bzero(&context, sizeof(context));
+				os_bzero(&context, sizeof(context));
 			}
 		}
 		union cpu_inst inst;
@@ -350,26 +347,26 @@ disasm_area(u_int32_t begin, u_int32_t end)
 
 // TODO: Remove
 void
-main_quit()
+main_quit(void)
 {
 }
 
 // TODO: Remove
 void
-main_open_rom()
+main_open_rom(void)
 {
 }
 
 // TODO: Remove
 void
-main_close_rom()
+main_close_rom(void)
 {
 }
 
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-av] [-b <base-addr>] <file.vb> | <file.isx>\n", getprogname());
+	fprintf(stderr, "usage: %s [-av] [-b <base-addr>] <file.vb> | <file.isx>\n", os_getprogname());
 	fprintf(stderr, "\t-a\tDisassemble all sections, not just called functions\n");
 	fprintf(stderr, "\t-b <base-addr>\tSet the base load address\n");
 	fprintf(stderr, "\t-a\tIncrease verbosity level\n");
@@ -379,6 +376,7 @@ usage(void)
 int
 main(int ac, char * const *av)
 {
+	extern int optind;
 	bool show_graph = false;
 	bool funcs_only = true;
 	debug_trace_file = stderr;
@@ -423,13 +421,13 @@ main(int ac, char * const *av)
 	if (!rom_load(av[0]))
 		return 1;
 
-	rom_end = MIN(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+	rom_end = min_uint(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
 	assert(rom_end > rom_addr);
 
 	text_end = debug_locate_symbol("text");
 	if (text_end == DEBUG_ADDR_NONE)
 	{
-		text_end = MIN(text_begin + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+		text_end = min_uint(text_begin + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
 		if (verbose > 0)
 			fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
 	}
@@ -473,11 +471,11 @@ main(int ac, char * const *av)
 			show_func(func->f_debug_sym, func);
 
 			u_int32_t pc = func->f_debug_sym->ds_addr;
-			u_int32_t end = MIN(pc + (u_int64_t)16384, CPU_MAX_PC); // Maximum function length
+			u_int32_t end = min_uint(pc + (u_int64_t)16384, CPU_MAX_PC); // Maximum function length
 			assert(end >= pc);
 			u_int32_t last_branch = 0;
 			struct debug_disasm_context context;
-			bzero(&context, sizeof(context));
+			os_bzero(&context, sizeof(context));
 			while (pc < end)
 			{
 				union cpu_inst inst;

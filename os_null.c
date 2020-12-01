@@ -1,9 +1,7 @@
-#if INTERFACE
-# include <sys/types.h>
-# include <stdbool.h>
-#endif // INTERFACE
+#include "types.h"
 #include "os_null.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 void os_choose_file(const char * const exts[], u_int num_exts, bool (*selected_fp)(const char *path))
 {
@@ -13,10 +11,22 @@ void os_choose_file(const char * const exts[], u_int num_exts, bool (*selected_f
 	abort();
 }
 
-enum debug_error_state
-os_runtime_error(const char *msg, bool allow_always_ignore)
+enum os_runerr_resp
+os_runtime_error(enum os_runerr_type type, enum os_runerr_resp resp_mask, const char *fmt, ...)
 {
-	(void)allow_always_ignore;
-	fprintf(stderr, "\n*** %s\n", msg);
-	return ERROR_ABORT;
+	va_list ap;
+	va_start(ap, fmt);
+	enum os_runerr_resp resp = os_runtime_verror(type, resp_mask, fmt, ap);
+	va_end(ap);
+	return resp;
+}
+
+enum os_runerr_resp
+os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const char *fmt, va_list ap)
+{
+	(void)type;
+	(void)resp_mask;
+	fputs("\n*** ", stderr);
+	vfprintf(stderr, fmt, ap);
+	return OS_RUNERR_RESP_ABORT;
 }
