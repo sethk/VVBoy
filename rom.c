@@ -47,7 +47,7 @@ rom_open(const char *fn, struct rom_file *file)
 {
 	os_bzero(file, sizeof(*file));
 
-	file->rf_handle = os_file_open(fn, O_RDONLY);
+	file->rf_handle = os_file_open(fn, OS_PERM_READ);
 	if (file->rf_handle == OS_FILE_HANDLE_INVALID)
 	{
 		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not open ‘%s’", fn);
@@ -123,12 +123,14 @@ enum isx_tag
 	ISX_TAG_DEBUG = 0x14
 };
 
+#pragma pack(push, 1)
 struct isx_chunk_header
 {
 	u_char ich_tag;
 	int32_t ich_addr;
 	u_int32_t ich_size;
-} __attribute__((packed));
+};
+#pragma pack(pop)
 
 static bool
 isx_is_eof(struct rom_file *file)
@@ -187,7 +189,9 @@ rom_read_isx(struct rom_file *file)
 			}
 			else
 			{
-				os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Invalid chunk load addr 0x%08x in ISX file ‘%s’", (u_int32_t)header.ich_addr, file->rf_path);
+				os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY),
+								 "Invalid chunk load addr 0x%08x in ISX file ‘%s’",
+								 (u_int32_t)header.ich_addr, file->rf_path);
 				return false;
 			}
 
@@ -302,6 +306,8 @@ rom_read_isx(struct rom_file *file)
 bool
 rom_load(const char *fn)
 {
+	assert_sizeof(struct isx_chunk_header, 9);
+
 	char *ext = strrchr(fn, '.');
 	bool is_isx = false;
 	if (ext && !stricmp(ext, ".ISX"))

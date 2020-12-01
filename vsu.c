@@ -18,56 +18,56 @@ __declspec(align(4)) struct vsu_regs
 	{
 		struct
 		{
-			u_int8_t vi_data : 5 __attribute__((packed));
-			u_int8_t vi_mode : 1 __attribute__((packed));
-			u_int8_t vi_rfu1 : 1 __attribute__((packed));
-			u_int8_t vi_start : 1 __attribute__((packed));
+			u_int8_t vi_data : 5;
+			u_int8_t vi_mode : 1;
+			u_int8_t vi_rfu1 : 1;
+			u_int8_t vi_start : 1;
 		} vsr_int;
 		struct
 		{
-			u_int8_t vl_rlevel : 4 __attribute__((packed));
-			u_int8_t vl_llevel : 4 __attribute__((packed));
+			u_int8_t vl_rlevel : 4;
+			u_int8_t vl_llevel : 4;
 		} vsr_lrv;
 		u_int8_t vsr_fql;
 		struct
 		{
-			u_int8_t vf_fqh : 3 __attribute__((packed));
-			u_int8_t vf_rfu1 : 5 __attribute__((packed));
+			u_int8_t vf_fqh : 3;
+			u_int8_t vf_rfu1 : 5;
 		} vsr_fqh;
 		struct
 		{
-			u_int8_t ve_step : 3 __attribute__((packed));
-			u_int8_t ve_ud : 1 __attribute__((packed));
-			u_int8_t ve_init : 4 __attribute__((packed));
+			u_int8_t ve_step : 3;
+			u_int8_t ve_ud : 1;
+			u_int8_t ve_init : 4;
 		} vsr_ev0;
 		struct
 		{
-			u_int8_t ve_on : 1 __attribute__((packed));
-			u_int8_t ve_rs : 1 __attribute__((packed));
-			u_int8_t ve_rfu1 : 2 __attribute__((packed));
-			u_int8_t ve_modswp : 1 __attribute__((packed));
-			u_int8_t ve_short : 1 __attribute__((packed));
-			u_int8_t ve_ed : 1 __attribute__((packed));
-			u_int8_t ve_rfu2 : 1 __attribute__((packed));
+			u_int8_t ve_on : 1;
+			u_int8_t ve_rs : 1;
+			u_int8_t ve_rfu1 : 2;
+			u_int8_t ve_modswp : 1;
+			u_int8_t ve_short : 1;
+			u_int8_t ve_ed : 1;
+			u_int8_t ve_rfu2 : 1;
 		} vsr_ev1;
 		struct
 		{
-			u_int8_t vr_addr : 3 __attribute__((packed));
-			u_int8_t vr_rfu1 : 5 __attribute__((packed));
+			u_int8_t vr_addr : 3;
+			u_int8_t vr_rfu1 : 5;
 		} vsr_ram;
 		struct
 		{
-			u_int8_t vs_shifts : 3 __attribute__((packed));
-			u_int8_t vs_ud : 1 __attribute__((packed));
-			u_int8_t vs_time : 3 __attribute__((packed));
-			u_int8_t vs_clk : 1 __attribute__((packed));
+			u_int8_t vs_shifts : 3;
+			u_int8_t vs_ud : 1;
+			u_int8_t vs_time : 3;
+			u_int8_t vs_clk : 1;
 		} vsr_swp;
 		u_int32_t vsr_rfu[2];
 	} vr_sounds[6];
 	struct
 	{
-		u_int8_t vs_stop : 1 __attribute__((packed));
-		u_int8_t vs_unused : 7 __attribute__((packed));
+		u_int8_t vs_stop : 1;
+		u_int8_t vs_unused : 7;
 		u_int8_t vs_rfu1;
 		u_int16_t vs_rfu;
 	} vr_stop;

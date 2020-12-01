@@ -563,49 +563,49 @@ wram_fini(void)
 		u_int16_t ci_hwords[2];
 		struct
 		{
-			u_int i_reg1 : 5;
-			u_int i_reg2 : 5;
-			u_int i_opcode : 6;
+			u_int16_t i_reg1 : 5;
+			u_int16_t i_reg2 : 5;
+			u_int16_t i_opcode : 6;
 		} ci_i;
 		struct
 		{
-			u_int ii_imm5 : 5;
-			u_int ii_reg2 : 5;
-			u_int ii_opcode : 6;
+			u_int16_t ii_imm5 : 5;
+			u_int16_t ii_reg2 : 5;
+			u_int16_t ii_opcode : 6;
 		} ci_ii;
 		struct
 		{
-			u_int iii_disp9 : 9;
-			u_int iii_cond : 4;
-			u_int iii_opcode : 3;
+			u_int16_t iii_disp9 : 9;
+			u_int16_t iii_cond : 4;
+			u_int16_t iii_opcode : 3;
 		} ci_iii;
 		struct
 		{
-			u_int iv_disp10 : 10;
-			u_int iv_opcode : 6;
-			u_int iv_disp16 : 16;
+			u_int16_t iv_disp10 : 10;
+			u_int16_t iv_opcode : 6;
+			u_int16_t iv_disp16 : 16;
 		} ci_iv;
 		struct
 		{
-			u_int v_reg1 : 5;
-			u_int v_reg2 : 5;
-			u_int v_opcode : 6;
+			u_int16_t v_reg1 : 5;
+			u_int16_t v_reg2 : 5;
+			u_int16_t v_opcode : 6;
 			u_int16_t v_imm16;
 		} ci_v;
 		struct
 		{
-			u_int vi_reg1 : 5;
-			u_int vi_reg2 : 5;
-			u_int vi_opcode : 6;
+			u_int16_t vi_reg1 : 5;
+			u_int16_t vi_reg2 : 5;
+			u_int16_t vi_opcode : 6;
 			int16_t vi_disp16;
 		} ci_vi;
 		struct
 		{
-			u_int vii_reg1 : 5;
-			u_int vii_reg2 : 5;
-			u_int vii_opcode : 6;
-			u_int vii_rfu : 10;
-			u_int vii_subop : 6;
+			u_int16_t vii_reg1 : 5;
+			u_int16_t vii_reg2 : 5;
+			u_int16_t vii_opcode : 6;
+			u_int16_t vii_rfu : 10;
+			u_int16_t vii_subop : 6;
 		};
 	};
 
@@ -1004,11 +1004,11 @@ cpu_setfl_float(double double_result)
 			{
 				struct
 				{
-					u_int64_t double_mantissa : 29 __attribute__((packed));
-					u_int64_t single_mantissa : 23 __attribute__((packed));
-					u_int64_t raw_exp : 11 __attribute__((packed));
-					u_int64_t sign : 1 __attribute__((packed));
-				} __attribute__((packed));
+					u_int64_t double_mantissa : 29;
+					u_int64_t single_mantissa : 23;
+					u_int64_t raw_exp : 11;
+					u_int64_t sign : 1;
+				};
 				double d;
 			} result = {.d = double_result};
 			assert_sizeof(result, 8);
@@ -2100,6 +2100,8 @@ cpu_assert_mem(u_int32_t addr, u_int32_t expected, u_int byte_size)
 static void
 cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool carry, bool zero)
 {
+	assert_sizeof(union cpu_inst, 4);
+
 	union cpu_inst inst;
 	inst.ci_v.v_opcode = OP_ADD;
 	cpu_state.cs_r[7].s = left;
@@ -2473,7 +2475,7 @@ struct nvc_regs
 				 t_z_stat_clr : 1,
 				 t_z_int : 1,
 				 t_clk_sel : 1;
-	} __attribute__((packed)) nr_tcr;
+	} nr_tcr;
 	u_int8_t nr_wcr;
 	struct
 	{
@@ -2485,7 +2487,7 @@ struct nvc_regs
 				 s_para_si : 1,
 				 s_rfu2 : 1,
 				 s_k_int_inh : 1;
-	} __attribute__((packed)) nr_scr;
+	} nr_scr;
 };
 
 #if INTERFACE
@@ -5144,7 +5146,7 @@ debug_frame_end(void)
 	static bool clear_each_frame = false;
 	static bool scroll_to_end = true;
 
-	if ((igIsKeyDown(TK_SCANCODE_LGUI) || igIsKeyDown(TK_SCANCODE_RGUI)) && igIsKeyPressed(TK_SCANCODE_K, false))
+	if ((igIsKeyDown(OS_SHORTCUT_LKEY) || igIsKeyDown(OS_SHORTCUT_RKEY)) && igIsKeyPressed(TK_SCANCODE_K, false))
 		debug_clear_console = true;
 
 	if (debug_show_console)
@@ -5671,7 +5673,7 @@ imgui_frame_begin(void)
 	if (rom_loaded && (igIsKeyPressed(TK_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(TK_SCANCODE_SPACE, false)*/))
 		imgui_shown = !imgui_shown;
 
-	if (igIsKeyDown(TK_SCANCODE_LGUI) || igIsKeyDown(TK_SCANCODE_RGUI))
+	if (igIsKeyDown(OS_SHORTCUT_LKEY) || igIsKeyDown(OS_SHORTCUT_RKEY))
 	{
 		if (rom_loaded && igIsKeyPressed(TK_SCANCODE_R, false))
 			main_reset();
@@ -5695,7 +5697,7 @@ imgui_frame_begin(void)
 	{
 		if (igBeginMenu("File", true))
 		{
-			if (igMenuItem("Open ROM...", "Cmd+O", false, !rom_loaded))
+			if (igMenuItem("Open ROM...", OS_SHORTCUT_KEY_NAME "+O", false, !rom_loaded))
 				main_open_rom();
 
 			if (igMenuItem("Close ROM", NULL, false, rom_loaded))
@@ -5703,7 +5705,7 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
-			if (igMenuItem("Quit", "Cmd+Q", false, true))
+			if (igMenuItem("Quit", OS_SHORTCUT_KEY_NAME "+Q", false, true))
 				main_quit();
 
 			igEndMenu();
@@ -5711,7 +5713,7 @@ imgui_frame_begin(void)
 
 		if (igBeginMenu("Emulation", rom_loaded))
 		{
-			if (igMenuItem("Reset", "Cmd+R", false, true))
+			if (igMenuItem("Reset", OS_SHORTCUT_KEY_NAME "+R", false, true))
 				main_reset();
 
 			igSeparator();
@@ -5759,9 +5761,9 @@ imgui_frame_begin(void)
 
 		if (igBeginMenu("Settings", true))
 		{
-			if (igMenuItem("Window scale 100%", "Cmd+1", imgui_emu_scale == 1, true))
+			if (igMenuItem("Window scale 100%", OS_SHORTCUT_KEY_NAME "+1", imgui_emu_scale == 1, true))
 				imgui_emu_scale = 1;
-			if (igMenuItem("Window scale 200%", "Cmd+2", imgui_emu_scale == 2, true))
+			if (igMenuItem("Window scale 200%", OS_SHORTCUT_KEY_NAME "+2", imgui_emu_scale == 2, true))
 				imgui_emu_scale = 2;
 
 			igSeparator();

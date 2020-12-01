@@ -13,6 +13,9 @@
 #	else
 #		define os_bcmp(a, b, s) memcmp(a, b, s)
 #	endif
+#	define OS_SHORTCUT_LKEY TK_SCANCODE_LCTRL
+#	define OS_SHORTCUT_RKEY TK_SCANCODE_RCTRL
+#	define OS_SHORTCUT_KEY_NAME "Ctrl"
 
 	typedef HANDLE os_file_handle_t;
 #	define OS_FILE_HANDLE_INVALID INVALID_HANDLE_VALUE
@@ -49,7 +52,6 @@ os_init(void)
 	assert(result);
 	result = QueryPerformanceFrequency(&os_ticks_per_sec);
 	assert(result);
-	os_ticks_per_sec.QuadPart *= 1000000;
 	return true;
 }
 
@@ -84,7 +86,7 @@ os_get_usec(void)
 	LARGE_INTEGER count;
 	BOOL success = QueryPerformanceCounter(&count);
 	assert(success && "QueryPerformanceCounter() failed");
-	return count.QuadPart / os_ticks_per_sec.QuadPart;
+	return (count.QuadPart * 1000000) / os_ticks_per_sec.QuadPart;
 }
 
 os_file_handle_t
@@ -335,6 +337,7 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 			default:
 				assert(!"Dialog response not handled");
 		}
+		++num_buttons;
 	}
 
 	config.cButtons = num_buttons;

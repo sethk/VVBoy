@@ -13,38 +13,38 @@
 
 	struct vip_bgsc
 	{
-		u_int16_t vb_chrno : 11 __attribute__((packed));
-		u_int16_t vb_rfu1 : 1 __attribute__((packed));
-		u_int16_t vb_bvflp : 1 __attribute__((packed));
-		u_int16_t vb_bhflp : 1 __attribute__((packed));
-		u_int16_t vb_gplts : 2 __attribute__((packed));
+		u_int16_t vb_chrno : 11;
+		u_int16_t vb_rfu1 : 1;
+		u_int16_t vb_bvflp : 1;
+		u_int16_t vb_bhflp : 1;
+		u_int16_t vb_gplts : 2;
 	};
 
 	struct vip_oam
 	{
 		int16_t vo_jx;
-		u_int16_t vo_jp : 14 __attribute__((packed));
-		u_int16_t vo_jron : 1 __attribute__((packed));
-		u_int16_t vo_jlon : 1 __attribute__((packed));
+		u_int16_t vo_jp : 14;
+		u_int16_t vo_jron : 1;
+		u_int16_t vo_jlon : 1;
 		int16_t vo_jy;
-		u_int16_t vo_jca : 11 __attribute__((packed));
-		u_int16_t vo_rfu1 : 1 __attribute__((packed));
-		u_int16_t vo_jvflp : 1 __attribute__((packed));
-		u_int16_t vo_jhflp : 1 __attribute__((packed));
-		u_int16_t vo_jplts : 2 __attribute__((packed));
+		u_int16_t vo_jca : 11;
+		u_int16_t vo_rfu1 : 1;
+		u_int16_t vo_jvflp : 1;
+		u_int16_t vo_jhflp : 1;
+		u_int16_t vo_jplts : 2;
 	};
 
 	struct vip_world_att
 	{
-		u_int16_t vwa_bgmap_base : 4 __attribute__((packed));
-		u_int16_t vwa_rfu1 : 2 __attribute__((packed));
-		u_int16_t vwa_end : 1 __attribute__((packed));
-		u_int16_t vwa_over : 1 __attribute__((packed));
-		u_int16_t vwa_scy : 2 __attribute__((packed));
-		u_int16_t vwa_scx : 2 __attribute__((packed));
-		u_int16_t vwa_bgm : 2 __attribute__((packed));
-		u_int16_t vwa_ron : 1 __attribute__((packed));
-		u_int16_t vwa_lon : 1 __attribute__((packed));
+		u_int16_t vwa_bgmap_base : 4;
+		u_int16_t vwa_rfu1 : 2;
+		u_int16_t vwa_end : 1;
+		u_int16_t vwa_over : 1;
+		u_int16_t vwa_scy : 2;
+		u_int16_t vwa_scx : 2;
+		u_int16_t vwa_bgm : 2;
+		u_int16_t vwa_ron : 1;
+		u_int16_t vwa_lon : 1;
 		int16_t vwa_gx;
 		int16_t vwa_gp;
 		int16_t vwa_gy;
@@ -143,31 +143,31 @@ enum vip_intflag
 
 struct vip_dpctrl
 {
-	u_int16_t vd_dprst: 1 __attribute__((packed));
-	u_int16_t vd_disp : 1 __attribute__((packed));
-	u_int16_t vd_dpbsy_l_fb0 : 1 __attribute__((packed));
-	u_int16_t vd_dpbsy_r_fb0 : 1 __attribute__((packed));
-	u_int16_t vd_dpbsy_l_fb1 : 1 __attribute__((packed));
-	u_int16_t vd_dpbsy_r_fb1 : 1 __attribute__((packed));
-	u_int16_t vd_scanrdy : 1 __attribute__((packed));
-	u_int16_t vd_fclk : 1 __attribute__((packed));
-	u_int16_t vd_re : 1 __attribute__((packed));
-	u_int16_t vd_synce : 1 __attribute__((packed));
-	u_int16_t vd_lock : 1 __attribute__((packed));
-	u_int16_t vd_unused : 5 __attribute__((packed));
+	u_int16_t vd_dprst: 1;
+	u_int16_t vd_disp : 1;
+	u_int16_t vd_dpbsy_l_fb0 : 1;
+	u_int16_t vd_dpbsy_r_fb0 : 1;
+	u_int16_t vd_dpbsy_l_fb1 : 1;
+	u_int16_t vd_dpbsy_r_fb1 : 1;
+	u_int16_t vd_scanrdy : 1;
+	u_int16_t vd_fclk : 1;
+	u_int16_t vd_re : 1;
+	u_int16_t vd_synce : 1;
+	u_int16_t vd_lock : 1;
+	u_int16_t vd_unused : 5;
 };
 
 struct vip_xpctrl
 {
-	u_int16_t vx_xprst : 1 __attribute__((packed));
-	u_int16_t vx_xpen : 1 __attribute__((packed));
-	u_int16_t vx_xpbsy_fb0 : 1 __attribute__((packed));
-	u_int16_t vx_xpbsy_fb1 : 1 __attribute__((packed));
-	u_int16_t vx_overtime : 1 __attribute__((packed));
-	u_int16_t vx_unused : 3 __attribute__((packed));
-	u_int16_t vx_sbcount : 5 __attribute__((packed)); // AKA sbcmp
-	u_int16_t vx_unused2 : 2 __attribute__((packed));
-	u_int16_t vx_sbout : 1 __attribute__((packed));
+	u_int16_t vx_xprst : 1;
+	u_int16_t vx_xpen : 1;
+	u_int16_t vx_xpbsy_fb0 : 1;
+	u_int16_t vx_xpbsy_fb1 : 1;
+	u_int16_t vx_overtime : 1;
+	u_int16_t vx_unused : 3;
+	u_int16_t vx_sbcount : 5; // AKA sbcmp
+	u_int16_t vx_unused2 : 2;
+	u_int16_t vx_sbout : 1;
 };
 
 struct vip_regs
@@ -1580,9 +1580,12 @@ vip_test(void)
 	debug_printf("Running VIP self-test\n");
 
 	assert_sizeof(vip_vrm, 0x20000);
+	assert_sizeof(struct vip_bgsc, 2);
 	assert_sizeof(struct vip_oam, 8);
 	assert_sizeof(vip_dram, 0x20000);
 	assert_sizeof(vip_dram.vd_shared.s_bgsegs[0], 8192);
+	assert_sizeof(struct vip_dpctrl, 2);
+	assert_sizeof(struct vip_xpctrl, 2);
 	assert_sizeof(vip_regs, 0x72);
 	assert_sizeof(struct vip_world_att, 32);
 	mem_test_addr("world_att[1]", debug_locate_symbol("WORLD_ATT:1"), 4, &(vip_dram.vd_world_atts[1]));

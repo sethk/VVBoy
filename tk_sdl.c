@@ -19,6 +19,8 @@
 		TK_SCANCODE_LGUI = SDL_SCANCODE_LGUI,
 		TK_SCANCODE_RGUI = SDL_SCANCODE_RGUI,
 		TK_SCANCODE_LSHIFT = SDL_SCANCODE_LSHIFT,
+		TK_SCANCODE_LCTRL = SDL_SCANCODE_LCTRL,
+		TK_SCANCODE_RCTRL = SDL_SCANCODE_RCTRL,
 		TK_SCANCODE_W = SDL_SCANCODE_W,
 		TK_SCANCODE_A = SDL_SCANCODE_A,
 		TK_SCANCODE_S = SDL_SCANCODE_S,
@@ -77,6 +79,7 @@
 u_int tk_win_width, tk_win_height;
 int tk_draw_width, tk_draw_height;
 float tk_draw_scale;
+bool tk_audio_enabled;
 
 static SDL_Window *sdl_window;
 static SDL_GameController *sdl_controller;
@@ -84,6 +87,42 @@ static SDL_GLContext sdl_gl_context;
 static SDL_AudioSpec sdl_audio_spec;
 static SDL_AudioCVT sdl_audio_cvt;
 static void sdl_audio_callback(void *userdata, Uint8 *stream, int length);
+
+static bool
+tk_init_audio(void)
+{
+	tk_audio_enabled = false;
+
+	SDL_AudioSpec desired_audio;
+	desired_audio.freq = 41700;
+	desired_audio.format = AUDIO_S16SYS;
+	desired_audio.samples = 834;
+	desired_audio.channels = 2;
+	desired_audio.callback = sdl_audio_callback;
+	desired_audio.userdata = NULL;
+	if (SDL_OpenAudio(&desired_audio, &sdl_audio_spec))
+	{
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error opening audio device", SDL_GetError(), sdl_window);
+		return false;
+	}
+
+	if (SDL_BuildAudioCVT(&sdl_audio_cvt,
+						  desired_audio.format, desired_audio.channels, desired_audio.freq,
+						  sdl_audio_spec.format, sdl_audio_spec.channels, sdl_audio_spec.freq) == -1)
+	{
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error initializing audio converter", SDL_GetError(), sdl_window);
+		SDL_CloseAudio();
+		return false;
+	}
+
+	if (sdl_audio_cvt.needed)
+	{
+		assert(false);
+		return false;
+	}
+
+	return true;
+}
 
 bool
 tk_init(void)
@@ -122,29 +161,7 @@ tk_init(void)
 
 	ImGui_ImplSdlGL3_Init(sdl_window, NULL);
 
-	SDL_AudioSpec desired_audio;
-	desired_audio.freq = 41700;
-	desired_audio.format = AUDIO_S16SYS;
-	desired_audio.samples = 834;
-	desired_audio.channels = 2;
-	desired_audio.callback = sdl_audio_callback;
-	desired_audio.userdata = NULL;
-	if (SDL_OpenAudio(&desired_audio, &sdl_audio_spec))
-	{
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error opening audio device", SDL_GetError(), sdl_window);
-	}
-
-	if (SDL_BuildAudioCVT(&sdl_audio_cvt,
-	                      desired_audio.format, desired_audio.channels, desired_audio.freq,
-	                      sdl_audio_spec.format, sdl_audio_spec.channels, sdl_audio_spec.freq) == -1)
-	{
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error initializing audio converter", SDL_GetError(), sdl_window);
-		SDL_CloseAudio();
-	}
-
-	if (sdl_audio_cvt.needed)
-	{
-	}
+	tk_audio_enabled = tk_init_audio();
 
 	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", "Could not load gamepad assignments database from gamecontrollerdb.txt", sdl_window);
