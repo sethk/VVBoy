@@ -17,7 +17,6 @@ typedef uint64_t u_int64_t;
 
 #ifdef _MSC_VER
 # define __unused /**/ // TODO - Should just not declare parameters or use (void)param
-# define __attribute__(a) /**/ // TODO - need to port some of these
 # define __printflike(a, b) /**/
 #endif // _MSC_VER
 

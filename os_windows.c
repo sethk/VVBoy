@@ -42,15 +42,12 @@
 	#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #endif
 
-static LARGE_INTEGER os_start_ticks;
 static LARGE_INTEGER os_ticks_per_sec;
 
 bool
 os_init(void)
 {
-	BOOL result = QueryPerformanceCounter(&os_start_ticks);
-	assert(result);
-	result = QueryPerformanceFrequency(&os_ticks_per_sec);
+	BOOL result = QueryPerformanceFrequency(&os_ticks_per_sec);
 	assert(result);
 	return true;
 }
