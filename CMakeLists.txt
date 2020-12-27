@@ -149,3 +149,6 @@ add_dependencies(vvboy GenHeaders)
 ### Resource Files
 file(COPY ${IMGUI_DIR}/imgui/misc/fonts/Roboto-Medium.ttf DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY gamecontrollerdb.txt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+### CTags and CScope support
+include(vendor/tags.cmake)
