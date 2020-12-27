@@ -3,6 +3,7 @@
 /vvboy
 /doc/virtual_boy.pdf
 /vvboy.h
+/cpu.h
 /rom.h
 /vip.h
 /os_common.h
