@@ -11,8 +11,15 @@
 /os_macos.h
 /os_windows.h
 /vsu.h
-/common.h
 /events.h
+/debug.h
+/gl.h
+/imgui.h
+/main.h
+/mem.h
+/nvc.h
+/sram.h
+/wram.h
 /tk_sdl.h
 /tk_glfw.h
 /tk_null.h

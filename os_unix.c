@@ -26,6 +26,7 @@
 #include <sys/fcntl.h>
 #include <sys/errno.h>
 #include <sys/param.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <signal.h>
 

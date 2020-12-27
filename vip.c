@@ -1,8 +1,6 @@
 #include "types.h"
 #include "vip.h"
 #include <assert.h>
-#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-#include <cimgui/cimgui.h>
 #include <math.h>
 
 #if INTERFACE

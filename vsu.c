@@ -1,8 +1,6 @@
 #include "types.h"
 #include "vsu.h"
 #include <assert.h>
-#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-#include <cimgui/cimgui.h>
 
 struct vsu_ram
 {

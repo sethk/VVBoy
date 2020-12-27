@@ -10,7 +10,7 @@
 		EVENT_SUBSYS_VSU,
 		EVENT_SUBSYS_NVC,
 		EVENT_SUBSYS_CPU,
-		EVENT_SUBSYS_MEM,
+		EVENT_SUBSYS_DEBUG,
 		EVENT_NUM_SUBSYS
 	};
 
@@ -25,8 +25,6 @@
 #   define EVENT_FINISH_BIT (1 << 15) // TODO: BIT()
 #endif // INTERFACE
 
-#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-#include <cimgui/cimgui.h>
 #include <assert.h>
 #include <math.h>
 
@@ -55,7 +53,7 @@ static const char *events_subsys_names[EVENT_NUM_SUBSYS] =
 				[EVENT_SUBSYS_VSU] = "VSU",
 				[EVENT_SUBSYS_NVC] = "NVC",
 				[EVENT_SUBSYS_CPU] = "CPU",
-				[EVENT_SUBSYS_MEM] = "Mem",
+				[EVENT_SUBSYS_DEBUG] = "Debug",
 		};
 static const char *events_descs[EVENT_NUM_SUBSYS][EVENTS_MAX];
 static struct ImVec4 events_subsys_colors[EVENT_NUM_SUBSYS] =

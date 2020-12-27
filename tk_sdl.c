@@ -1,4 +1,6 @@
+#define NO_IMGUI_TYPES
 #include "types.h"
+#undef NO_IMGUI_TYPES
 #include "tk_sdl.h"
 #if INTERFACE
 # include <SDL_scancode.h>

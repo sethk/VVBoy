@@ -28,6 +28,19 @@ typedef uint64_t u_int64_t;
 
 #define BIT(n) (1 << (n))
 
+#ifndef NO_IMGUI_TYPES
+# define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+# include <cimgui/cimgui.h>
+#endif // !NO_IMGUI_TYPES
+
+inline static int min_int(int a, int b) { return (a < b) ? a : b; }
+inline static int max_int(int a, int b) { return (a > b) ? a : b; }
+inline static u_int min_uint(u_int a, u_int b) { return (a < b) ? a : b; }
+inline static u_int max_uint(u_int a, u_int b) { return (a > b) ? a : b; }
+inline static u_int64_t min_uint64(u_int64_t a, u_int64_t b) { return (a < b) ? a : b; }
+inline static u_int64_t max_uint64(u_int64_t a, u_int64_t b) { return (a > b) ? a : b; }
+inline static u_int64_t clamp_uint64(u_int x, u_int min, u_int max) { return min_uint64(max_uint64(x, min), max); }
+
 #ifdef __INTELLISENSE__
 	#define INTERFACE 1
 #endif // __INTELLISENSE__
