@@ -131,6 +131,7 @@ struct vip_dram
 
 enum vip_intflag
 {
+	// TODO: BIT()
 	VIP_SCANERR = (1 << 0),
 	VIP_LFBEND = (1 << 1),
 	VIP_RFBEND = (1 << 2),
@@ -239,7 +240,7 @@ static bool vip_chr_open = false;
 static bool vip_oam_open = false;
 static bool vip_fb_open = false;
 static bool vip_rows_open = false;
-static u_int32_t vip_row_mask = (1 << 28) - 1;
+static u_int32_t vip_row_mask = (1 << 28) - 1; // TODO: BIT()
 static u_int8_t vip_bgm_types = 0xf;
 static bool vip_use_bright = true;
 
@@ -1263,7 +1264,7 @@ vip_xp_step(u_int fb_index)
 		if (debug_trace_vip)
 			debug_tracef("vip", "Draw FB%u SBCOUNT=%u", fb_index, vip_regs.vr_xpstts.vx_sbcount);
 
-		if ((vip_row_mask & (1 << vip_regs.vr_xpstts.vx_sbcount)) != 0)
+		if ((vip_row_mask & (1 << vip_regs.vr_xpstts.vx_sbcount)) != 0) // TODO: BIT()
 		{
 			vip_unpacked_8rows_t left_rows, right_rows;
 			u_int8_t bg_pixel = vip_regs.vr_bkcol & 0b11;
@@ -1798,7 +1799,7 @@ vip_frame_begin(void)
 			{
 				igSameLine(0, -1);
 
-				u_int8_t mask = (1 << i);
+				u_int8_t mask = (1 << i); // TODO: BIT()
 				bool drawn = ((vip_bgm_types & mask) != 0);
 				if (igCheckbox(vip_bgm_strings[i], &drawn))
 				{
@@ -1906,7 +1907,7 @@ vip_frame_begin(void)
 			igColumns(1, NULL, false);
 			igSeparator();
 			if (igButton("Draw All", IMVEC2_ZERO))
-				vip_row_mask = (1 << 28) - 1;
+				vip_row_mask = (1 << 28) - 1; // TODO: BIT()
 			igSameLine(0.0, -1.0f);
 			if (igButton("Draw None", IMVEC2_ZERO))
 				vip_row_mask = 0;

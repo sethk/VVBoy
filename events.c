@@ -14,14 +14,15 @@
 		EVENT_NUM_SUBSYS
 	};
 
+	// TODO: Bitfield?
 #   define EVENT_WHICH_BITS(w) (w)
 #   define _EVENT_WHICH_MASK (0x3f)
 #   define EVENT_GET_WHICH(e) ((e) & _EVENT_WHICH_MASK)
 #   define EVENTS_MAX (_EVENT_WHICH_MASK + 1)
 #   define EVENT_SUBSYS_BITS(s) ((s) << 6)
 #   define EVENT_GET_SUBSYS(e) (((e) >> 6) & 0xf)
-#   define EVENT_START_BIT (1 << 14)
-#   define EVENT_FINISH_BIT (1 << 15)
+#   define EVENT_START_BIT (1 << 14) // TODO: BIT()
+#   define EVENT_FINISH_BIT (1 << 15) // TODO: BIT()
 #endif // INTERFACE
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS

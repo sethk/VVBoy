@@ -708,6 +708,7 @@ wram_fini(void)
 
 	enum cpu_chcw_flags
 	{
+		// TODO: BIT()
 		CPU_CHCW_ICC = (1 << 0),
 		CPU_CHCW_ICE = (1 << 1)
 	};
@@ -2497,6 +2498,7 @@ struct nvc_regs
 
 enum nvc_key
 {
+	// TODO: BIT()
 	KEY_PWR = (1 << 0),
 	KEY_SGN = (1 << 1),
 	KEY_A = (1 << 2),
@@ -3369,7 +3371,7 @@ debug_get_reg(const struct debug_disasm_context *context, u_int rnum)
 	static const union cpu_reg zero_reg = {.u = 0};
 	static const union cpu_reg global_reg = {.u = 0x05008000};
 
-	if (context && (context->ddc_regmask & (1 << rnum)))
+	if (context && (context->ddc_regmask & (1 << rnum))) // TODO: BIT()
 		return &(context->ddc_regs[rnum]);
 	else if (rnum == 0)
 		return &zero_reg;
@@ -3396,7 +3398,7 @@ debug_put_reg(struct debug_disasm_context *context, u_int rnum, union cpu_reg re
 	if (context && rnum != 0)
 	{
 		context->ddc_regs[rnum] = reg;
-		context->ddc_regmask |= (1 << rnum);
+		context->ddc_regmask |= (1 << rnum); // TODO: BIT()
 	}
 }
 
@@ -3404,7 +3406,7 @@ static void
 debug_clear_reg(struct debug_disasm_context *context, u_int rnum)
 {
 	if (context)
-		context->ddc_regmask &= ~(1 << rnum);
+		context->ddc_regmask &= ~(1 << rnum); // TODO: BIT()
 }
 
 static void
