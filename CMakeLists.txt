@@ -2,6 +2,9 @@
 cmake_minimum_required(VERSION 3.9)
 project(vvboy)
 
+### Options
+option(DEBUG_TTY "Enable debugger on the tty" OFF)
+
 ### Main Targets
 add_executable(vvbdis)
 add_executable(vvboy)
@@ -27,13 +30,16 @@ find_package(OpenGL REQUIRED)
 target_link_libraries(vvboy PRIVATE ${OPENGL_LIBRARIES})
 target_link_libraries(vvbdis PRIVATE ${OPENGL_LIBRARIES})
 
+set(OS_SOURCES os_common.c)
+
 if(UNIX)
 	### Platform: Unix
-	add_compile_definitions(vvboy PRIVATE DEBUG_TTY HAVE_LIBEDIT)
+	add_compile_definitions(vvboy PRIVATE DEBUG_TTY=${DEBUG_TTY} HAVE_LIBEDIT _SEARCH_PRIVATE)
 	find_library(EDIT_LIB edit)
 	target_link_libraries(vvboy PRIVATE ${EDIT_LIB})
 	target_link_libraries(vvbdis PRIVATE ${EDIT_LIB})
 	set(BSD_SOURCES "")
+	set(OS_SOURCES ${OS_SOURCES} os_unix.c)
 else()
 	add_compile_definitions(vvboy PRIVATE DEBUG_TTY=0 HAVE_LIBEDIT=0)
 	#add_subdirectory(vendor/libedit)
@@ -52,14 +58,14 @@ if(APPLE)
 	### Platform: macOS
 	add_compile_definitions(GL_SILENCE_DEPRECATION)
 	# add_executable(VVBoy MACOSX_BUNDLE ...
-	set(OS_SOURCES os_macos.m)
+	set(OS_SOURCES ${OS_SOURCES} os_macos.m)
 	find_library(APPKIT AppKit)
 	target_link_libraries(vvboy PRIVATE ${APPKIT})
 endif()
 
 if(WIN32)
 	### Platform: Windows
-	set(OS_SOURCES os_windows.c)
+	set(OS_SOURCES ${OS_SOURCES} os_windows.c)
 	target_sources(vvboy PRIVATE utf-8.exe.manifest)
 	#target_link_options(vvboy PRIVATE /SUBSYSTEM:WINDOWS)
 	set_target_properties(vvboy PROPERTIES LINK_FLAGS /SUBSYSTEM:WINDOWS)

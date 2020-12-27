@@ -11,9 +11,9 @@ struct vsu_ram
 	u_int8_t vr_rfu[64];
 };
 
-#pragma warning(1:4820)
-__declspec(align(4)) struct vsu_regs
+struct vsu_regs
 {
+	_Alignas(4)
 	struct vsu_sound_regs
 	{
 		struct
@@ -118,12 +118,12 @@ void
 vsu_test(void)
 {
 	debug_printf("Running VSU self-test\n");
-	assert_sizeof(vsu_ram, 0x100);
+	ASSERT_SIZEOF(vsu_ram, 0x100);
 	mem_test_addr("S1INT", 0x01000400, 1, &(vsu_regs.vr_sounds[0].vsr_int));
 	mem_test_addr("S2INT", 0x01000440, 1, &(vsu_regs.vr_sounds[1].vsr_int));
 	mem_test_addr("S4FQH", 0x010004cc, 1, &(vsu_regs.vr_sounds[3].vsr_fqh));
 	mem_test_addr("SSTOP", 0x01000580, 1, &(vsu_regs.vr_stop));
-	assert_sizeof(vsu_regs, 0x80);
+	ASSERT_SIZEOF(vsu_regs, 0x80);
 }
 
 void

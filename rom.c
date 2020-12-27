@@ -96,11 +96,13 @@ static bool
 rom_read_buffer(struct rom_file *file, void *buf, size_t size, const char *desc)
 {
 	size_t nread = os_file_read(file->rf_handle, buf, size);
-	if (nread == (int64_t)size)
+	if (nread == size)
 		return true;
 	else
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Read %s from ‘%s’: %s", desc, file->rf_path, (nread == -1) ? strerror(errno) : "Unexpected EOF");
+		bool is_eof = os_file_iseof(file->rf_handle);
+		os_runtime_error((is_eof) ? OS_RUNERR_TYPE_WARNING : OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY),
+				"Read %s from ‘%s’%s", desc, file->rf_path, (is_eof) ? ": Unexpected EOF" : "");
 		return false;
 	}
 }
@@ -131,12 +133,6 @@ struct isx_chunk_header
 	u_int32_t ich_size;
 };
 #pragma pack(pop)
-
-static bool
-isx_is_eof(struct rom_file *file)
-{
-	return (os_file_seek(file->rf_handle, 0, OS_SEEK_CUR) == file->rf_size);
-}
 
 static bool
 isx_read_chunk_header(struct rom_file *file, struct isx_chunk_header *header)
@@ -172,7 +168,7 @@ rom_read_isx(struct rom_file *file)
 		return false;
 
 	u_int32_t rom_size = 0;
-	while (!isx_is_eof(file))
+	while (!os_file_iseof(file->rf_handle))
 	{
 		struct isx_chunk_header header;
 		if (!isx_read_chunk_header(file, &header))
@@ -216,7 +212,7 @@ rom_read_isx(struct rom_file *file)
 	if (!rom_seek(file, 32, SEEK_SET))
 		return false;
 
-	while (!isx_is_eof(file))
+	while (!os_file_iseof(file->rf_handle))
 	{
 		struct isx_chunk_header header;
 		if (!isx_read_chunk_header(file, &header))
@@ -306,13 +302,13 @@ rom_read_isx(struct rom_file *file)
 bool
 rom_load(const char *fn)
 {
-	assert_sizeof(struct isx_chunk_header, 9);
+	ASSERT_SIZEOF(struct isx_chunk_header, 9);
 
 	char *ext = strrchr(fn, '.');
 	bool is_isx = false;
-	if (ext && !stricmp(ext, ".ISX"))
+	if (ext && !os_strcasecmp(ext, ".ISX"))
 		is_isx = true;
-	else if (!ext || stricmp(ext, ".VB"))
+	else if (!ext || os_strcasecmp(ext, ".VB"))
 		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Can‘t determine file type from ‘%s’, assuming ROM file", fn);
 
 	struct rom_file file;
@@ -353,7 +349,7 @@ rom_load(const char *fn)
 		if (ferror(rom_symbol_fp))
 			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Read from symbol file %s", rom_symbol_fn);
 	}
-	else if (errno != ENOENT)
+	else if (os_file_exists(rom_symbol_fn))
 		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not open symbol file %s", rom_symbol_fn);
 
 	const char *sep = strrchr(fn, '/');

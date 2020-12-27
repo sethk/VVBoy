@@ -110,7 +110,8 @@ os_file_close(os_file_handle_t handle)
 	CloseHandle(handle);
 }
 
-bool os_file_getsize(os_file_handle_t handle, off_t *psize)
+bool
+os_file_getsize(os_file_handle_t handle, off_t *psize)
 {
 	LARGE_INTEGER size;
 	if (!GetFileSizeEx(handle, &size))
@@ -147,7 +148,7 @@ os_file_seek(os_file_handle_t handle, off_t offset, enum os_seek_anchor anchor)
 }
 
 os_mmap_handle_t
-os_mmap_file(os_file_handle_t file_handle, size_t size, enum os_mmap_perm perms, void **pmap)
+os_mmap_file(os_file_handle_t file_handle, size_t size, enum os_perm perms, void **pmap)
 {
 	DWORD protect = 0;
 	DWORD access = 0;
@@ -248,16 +249,6 @@ os_choose_file(const char *desc, const char * const exts[], u_int num_exts, bool
 }
 
 enum os_runerr_resp
-os_runtime_error(enum os_runerr_type type, enum os_runerr_resp resp_mask, const char *fmt, ...)
-{
-	va_list ap;
-	va_start(ap, fmt);
-	enum os_runerr_resp resp = os_runtime_verror(type, resp_mask, fmt, ap);
-	va_end(ap);
-	return resp;
-}
-
-enum os_runerr_resp
 os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const char *fmt, va_list ap)
 {
 	DWORD os_err = GetLastError();
@@ -274,7 +265,7 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 	config.hInstance = NULL;
 	config.dwFlags = TDF_POSITION_RELATIVE_TO_WINDOW | TDF_SIZE_TO_CONTENT;
-	bool dismiss_allowed = ((resp_mask & (BIT(OS_RUNERR_RESP_OKAY) | BIT(OS_RUNERR_RESP_IGNORE))) == 0);
+	bool dismiss_allowed = ((resp_mask & (BIT(OS_RUNERR_RESP_OKAY) | BIT(OS_RUNERR_RESP_IGNORE))) != 0);
 	if (dismiss_allowed)
 		config.dwFlags |= TDF_ALLOW_DIALOG_CANCELLATION;
 	config.dwCommonButtons = 0;

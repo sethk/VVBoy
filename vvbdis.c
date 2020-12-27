@@ -1,6 +1,9 @@
 #include "types.h"
 #include "vvbdis.h"
 #include <stdlib.h>
+#ifdef __APPLE__
+# include <unistd.h> // getopt()
+#endif // __APPLE__
 #include <assert.h>
 
 static struct func

@@ -277,6 +277,8 @@ enum scan_event
 bool
 vip_init(void)
 {
+	(void)dummy_event_subsys;
+
 	debug_create_symbol("L:FB0", 0x00000, true);
 	debug_create_symbol("L:FB1", 0x08000, true);
 	debug_create_symbol("R:FB0", 0x10000, true);
@@ -1579,15 +1581,15 @@ vip_test(void)
 {
 	debug_printf("Running VIP self-test\n");
 
-	assert_sizeof(vip_vrm, 0x20000);
-	assert_sizeof(struct vip_bgsc, 2);
-	assert_sizeof(struct vip_oam, 8);
-	assert_sizeof(vip_dram, 0x20000);
-	assert_sizeof(vip_dram.vd_shared.s_bgsegs[0], 8192);
-	assert_sizeof(struct vip_dpctrl, 2);
-	assert_sizeof(struct vip_xpctrl, 2);
-	assert_sizeof(vip_regs, 0x72);
-	assert_sizeof(struct vip_world_att, 32);
+	ASSERT_SIZEOF(vip_vrm, 0x20000);
+	ASSERT_SIZEOF(struct vip_bgsc, 2);
+	ASSERT_SIZEOF(struct vip_oam, 8);
+	ASSERT_SIZEOF(vip_dram, 0x20000);
+	ASSERT_SIZEOF(vip_dram.vd_shared.s_bgsegs[0], 8192);
+	ASSERT_SIZEOF(struct vip_dpctrl, 2);
+	ASSERT_SIZEOF(struct vip_xpctrl, 2);
+	ASSERT_SIZEOF(vip_regs, 0x72);
+	ASSERT_SIZEOF(struct vip_world_att, 32);
 	mem_test_addr("world_att[1]", debug_locate_symbol("WORLD_ATT:1"), 4, &(vip_dram.vd_world_atts[1]));
 	mem_test_addr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
 	mem_test_addr("PARAM_TBL+0x8800", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));

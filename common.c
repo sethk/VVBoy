@@ -1,32 +1,24 @@
-# define _SEARCH_PRIVATE
 #include "types.h"
 #include "common.h"
 
 #if INTERFACE
-# include <search.h>
 # include <stdio.h>
 #ifndef WIN32
 # error "Should be moved to os_unix etc."
 # include <sys/mman.h>
 #endif // !WIN32
+
+	inline static int min_int(int a, int b) { return (a < b) ? a : b; }
+	inline static int max_int(int a, int b) { return (a > b) ? a : b; }
+	inline static u_int min_uint(u_int a, u_int b) { return (a < b) ? a : b; }
+	inline static u_int max_uint(u_int a, u_int b) { return (a > b) ? a : b; }
+	inline static u_int64_t min_uint64(u_int64_t a, u_int64_t b) { return (a < b) ? a : b; }
+	inline static u_int64_t max_uint64(u_int64_t a, u_int64_t b) { return (a > b) ? a : b; }
+	inline static u_int64_t clamp_uint64(u_int x, u_int min, u_int max) { return min_uint64(max_uint64(x, min), max); }
+
 #endif // INTERFACE
 
-extern inline int min_int(int a, int b) { return (a < b) ? a : b; }
-extern inline int max_int(int a, int b) { return (a > b) ? a : b; }
-extern inline u_int min_uint(u_int a, u_int b) { return (a < b) ? a : b; }
-extern inline u_int max_uint(u_int a, u_int b) { return (a > b) ? a : b; }
-extern inline u_int64_t min_uint64(u_int64_t a, u_int64_t b) { return (a < b) ? a : b; }
-extern inline u_int64_t max_uint64(u_int64_t a, u_int64_t b) { return (a > b) ? a : b; }
-extern inline u_int64_t clamp_uint64(u_int x, u_int min, u_int max) { return min_uint64(max_uint64(x, min), max); }
-
 #include <sys/stat.h>
-#ifndef WIN32
-# error "Should be moved to os_unix etc."
-# include <sys/fcntl.h>
-# include <sys/errno.h>
-# include <sys/param.h>
-# include <unistd.h>
-#endif // !WIN32
 #include <math.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -34,6 +26,7 @@ extern inline u_int64_t clamp_uint64(u_int x, u_int min, u_int max) { return min
 #if HAVE_LIBEDIT
 # include <histedit.h>
 #endif // HAVE_LIBEDIT
+#include <limits.h>
 #include <float.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui/cimgui.h>
@@ -58,7 +51,7 @@ extern inline u_int64_t clamp_uint64(u_int x, u_int min, u_int max) { return min
 		os_mmap_handle_t ms_handle;
 		u_int8_t *ms_ptr;
 		u_int32_t ms_addrmask;
-		int ms_perms; // PROT_* from <sys/mman.h>
+		enum os_perm ms_perms;
 		bool ms_is_mmap;
 	};
 
@@ -118,6 +111,8 @@ enum mem_event
 bool
 mem_init(void)
 {
+	(void)dummy_event_subsys;
+
 	events_set_desc(MEM_EVENT_WATCH_READ, "%1$08x <- [0x%2$08x]");
 	events_set_desc(MEM_EVENT_WATCH_WRITE, "[0x%08x] <- %08x");
 	return true;
@@ -161,11 +156,7 @@ bool
 mem_seg_mmap(enum mem_segment seg, u_int size, os_file_handle_t handle)
 {
 	mem_segs[seg].ms_size = size;
-#ifndef WIN32
-#error Move to os_unix.c
-	//mem_segs[seg].ms_ptr = mmap(NULL, size, OS_MMAP_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
-#endif // !WIN32
-	mem_segs[seg].ms_handle = os_mmap_file(handle, size, OS_PERM_READ, &mem_segs[seg].ms_ptr);
+	mem_segs[seg].ms_handle = os_mmap_file(handle, size, OS_PERM_READ, (void **)&mem_segs[seg].ms_ptr);
 	if (!mem_segs[seg].ms_ptr)
 	{
 		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_mmap() %s", mem_seg_names[seg]);
@@ -199,8 +190,10 @@ mem_seg_free(enum mem_segment seg)
 		free(mem_segs[seg].ms_ptr);
 	else
 	{
-		if (os_munmap_file(mem_segs[seg].ms_handle, mem_segs[seg].ms_ptr, mem_segs[seg].ms_size) == -1)
-			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_munmap_file(mem_segs[%s], ...) failed", mem_seg_names[seg]);
+		if (!os_munmap_file(mem_segs[seg].ms_handle, mem_segs[seg].ms_ptr, mem_segs[seg].ms_size))
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY),
+					"os_munmap_file(mem_segs[%s], ...) failed",
+					mem_seg_names[seg]);
 		mem_segs[seg].ms_is_mmap = false;
 	}
 	mem_segs[seg].ms_ptr = NULL;
@@ -1011,7 +1004,7 @@ cpu_setfl_float(double double_result)
 				};
 				double d;
 			} result = {.d = double_result};
-			assert_sizeof(result, 8);
+			ASSERT_SIZEOF(result, 8);
 			if (result.raw_exp == 0)
 			{
 				if (result.single_mantissa == 0)
@@ -2100,7 +2093,7 @@ cpu_assert_mem(u_int32_t addr, u_int32_t expected, u_int byte_size)
 static void
 cpu_test_add(int32_t left, int32_t right, int32_t result, bool overflow, bool carry, bool zero)
 {
-	assert_sizeof(union cpu_inst, 4);
+	ASSERT_SIZEOF(union cpu_inst, 4);
 
 	union cpu_inst inst;
 	inst.ci_v.v_opcode = OP_ADD;
@@ -2601,7 +2594,7 @@ nvc_test(void)
 {
 	debug_printf("Running NVC self-test\n");
 
-	assert_sizeof(nvc_regs, 11);
+	ASSERT_SIZEOF(nvc_regs, 11);
 	mem_test_addr("nvc_sdlr", 0x02000010, 1, &(nvc_regs.nr_sdlr));
 	mem_test_addr("nvc_sdhr", 0x02000014, 1, &(nvc_regs.nr_sdhr));
 	mem_test_addr("nvc_tcr", 0x02000020, 1, &(nvc_regs.nr_tcr));
@@ -2976,13 +2969,6 @@ nvc_mem_write(const struct mem_request *request, const void *src)
 
 # define DEBUG_ADDR_FMT "%-26s"
 
-	enum debug_error_state
-	{
-		ERROR_IGNORE,
-		ERROR_ALWAYS_IGNORE,
-		ERROR_DEBUG,
-		ERROR_ABORT
-	};
 #endif // INTERFACE
 
 bool debug_trace_cpu = false;
@@ -3049,7 +3035,7 @@ struct debug_watch *debug_watches = NULL;
 
 // TODO: Use hcreate()
 static struct debug_symbol *debug_syms = NULL;
-static posix_tnode *debug_addrs = NULL;
+static os_tnode_t *debug_addrs = NULL;
 
 static bool debug_show_console = false;
 static char debug_console_buffer[16 * 1024];
@@ -3209,7 +3195,7 @@ debug_resolve_addr_slow(u_int32_t addr, u_int32_t *match_offsetp)
 }
 
 static struct debug_symbol *
-debug_search_addr(posix_tnode *root, u_int32_t addr, u_int32_t *match_offsetp, bool inexact)
+debug_search_addr(os_tnode_t *root, u_int32_t addr, u_int32_t *match_offsetp, bool inexact)
 {
 	if (!root)
 		return NULL;
@@ -3295,8 +3281,8 @@ const char *debug_rnames[32] =
 void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
-	posix_tnode *existing;
-	existing = tfind(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+	os_tnode_t *existing;
+	existing = tfind(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 	if (existing)
 	{
 		struct debug_symbol *existing_sym = (struct debug_symbol *)existing->key;
@@ -3316,7 +3302,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 
 	if (!existing && debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tsearch(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tsearch(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 }
 
 struct debug_symbol *
@@ -3361,7 +3347,7 @@ void
 debug_destroy_symbol(struct debug_symbol *debug_sym)
 {
 	if (debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tdelete(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tdelete(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 
 	if (debug_sym->ds_name)
 		free(debug_sym->ds_name);
@@ -4913,8 +4899,7 @@ debug_step(void)
 #if DEBUG_TTY
 	main_unblock_sigint();
 
-	//bool running = true;
-	while (true)
+	while (debug_mode != DEBUG_RUN)
 	{
 		int length;
 		const char *line = el_gets(s_editline, &length);
@@ -5019,18 +5004,19 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 
 	switch (os_runtime_error(OS_RUNERR_TYPE_EMULATION, resp_mask, msg))
 	{
-		case ERROR_IGNORE:
+		case OS_RUNERR_RESP_OKAY:
+		case OS_RUNERR_RESP_IGNORE:
 			return true;
 
-		case ERROR_ALWAYS_IGNORE:
+		case OS_RUNERR_RESP_ALWAYS_IGNORE:
 			*ignore_flagp = true;
 			return true;
 
-		case ERROR_DEBUG:
+		case OS_RUNERR_RESP_DEBUG:
 			debug_stop();
 			return false;
 
-		case ERROR_ABORT:
+		case OS_RUNERR_RESP_ABORT:
 			abort();
 	}
 	return false;
@@ -5941,7 +5927,7 @@ main_restart_clock(void)
 		float fps = (float)main_stats.ms_frames / delta_secs;
 		float emu_fps = (float)main_stats.ms_scans / delta_secs;
 		if (main_trace)
-			debug_tracef("main", "%u frames in %u µs (%g FPS), %u scans (%g FPS), %u instructions, %u interrupts",
+			debug_tracef("main", "%u frames in %llu µs (%g FPS), %u scans (%g FPS), %u instructions, %u interrupts",
 						 main_stats.ms_frames, delta_usecs, fps,
 						 main_stats.ms_scans, emu_fps,
 						 main_stats.ms_insts,

@@ -5,6 +5,8 @@
 /vvboy.h
 /rom.h
 /vip.h
+/os_common.h
+/os_unix.h
 /os_macos.h
 /os_windows.h
 /vsu.h

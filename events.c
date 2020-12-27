@@ -70,6 +70,8 @@ static struct ImVec2 track_size;
 bool
 events_init(void)
 {
+	(void)dummy_event_subsys;
+
 	zoom = default_zoom;
 	track_size = (struct ImVec2){ track_size_base * default_zoom, 0 };
 

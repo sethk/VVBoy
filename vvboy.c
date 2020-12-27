@@ -3,6 +3,9 @@
 
 #include <stdlib.h>
 #include <signal.h>
+#ifdef __APPLE__
+# include <unistd.h> // getopt()
+#endif // __APPLE__
 #include <math.h>
 
 static bool main_running = true;
