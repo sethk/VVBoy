@@ -80,7 +80,7 @@ endif()
 
 if(CSCOPE)
 	add_custom_target(cscope
-		COMMAND cscope -Rb ${CSCOPE_INCLUDES} -k -L ${SOURCES_LIST}
+		COMMAND cscope -Rb ${CSCOPE_INCLUDES} -k -i ${SOURCES_LIST}
 		DEPENDS ${_all_source_files}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 		VERBATIM)
