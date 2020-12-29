@@ -1,44 +1,36 @@
-DEBUG = 1
+BUILD_TYPE?= debug
+CMAKE_DIR = cmake-build-${BUILD_TYPE}
 
-CFLAGS?= -pipe -Wall
-ifdef DEBUG
-    CFLAGS+= -O0 -g -fno-inline
-else
-    CFLAGS+= -O3
-endif
-TARGET = vvboy
-SRCS = main.c
-HEADERS = tk.h
-LDLIBS = -ledit
-CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
+ALL_TARGETS = all vvboy tags clean
+.PHONY: ${ALL_TARGETS}
+#.DEFAULT: vvboy
 
-USE_SDL = yes
+${ALL_TARGETS}: ${CMAKE_DIR}
+	cd ${CMAKE_DIR} && ${MAKE} $@
 
-ifeq ($(USE_SDL),yes)
-    SRCS+= tk_sdl.c
-    CFLAGS+= `sdl2-config --cflags`
-    LDLIBS+= `sdl2-config --libs`
-else
-    SRCS+= tk_null.c
-endif
+${CMAKE_DIR}:
+	mkdir -p ${CMAKE_DIR}
+	cd ${CMAKE_DIR} && cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ..
 
-OBJS := $(SRCS:%.c=%.o)
-GEN_HEADERS := $(SRCS:%.c=%.h)
+.PHONY: clean/cmake-cache
+clean/cmake-cache:
+	rm -f ${CMAKE_DIR}/CMakeCache.txt
 
-all: $(TARGET) tags
+.PHONY: distclean
+distclean:
+	rm -rf ${CMAKE_DIR}
 
-.headers-stamp: $(SRCS) $(HEADERS)
-	vendor/makeheaders/makeheaders $(SRCS) $(HEADERS)
-	touch .headers-stamp
+.PHONY: vvboy/run
+vvboy/run: vvboy
+	cd ${CMAKE_DIR} && ./$<
 
-$(TARGET): .headers-stamp $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LDLIBS)
+.PHONY: run
+run: vvboy/run
 
-clean::
-	rm -f $(TARGET) $(OBJS) $(GEN_HEADERS) .headers-stamp tags
-
-tags:: $(SRCS)
-	ctags --c-kinds=+p $^
-
-lint: $(SRCS)
-	$(CC_ANALYZER) $(CFLAGS) -fsyntax-only $(SRCS)
+#CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
+#
+#tags:: $(SRCS)
+#	ctags --c-kinds=+p $^
+#
+#lint: $(SRCS)
+#	$(CC_ANALYZER) $(CFLAGS) -fsyntax-only $(SRCS)
