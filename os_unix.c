@@ -118,11 +118,11 @@ os_mmap_handle_t
 os_mmap_file(os_file_handle_t file_handle, size_t size, enum os_perm perms, void **pmap)
 {
 	int prot = 0;
-	if (perms & BIT(OS_PERM_READ))
+	if (perms & OS_PERM_READ)
 		prot|= PROT_READ;
-	if (perms & BIT(OS_PERM_WRITE))
+	if (perms & OS_PERM_WRITE)
 		prot|= PROT_WRITE;
-	if (perms & BIT(OS_PERM_EXEC))
+	if (perms & OS_PERM_EXEC)
 		prot|= PROT_EXEC;
 
 	*pmap = mmap(NULL, size, prot, MAP_FILE | MAP_PRIVATE, fileno(file_handle), 0);
