@@ -211,7 +211,7 @@ nvc_timer_set(u_int16_t next_count)
 		++tick_usec;
 		nvc_timer.nt_tick_frac -= 1000000000;
 	}
-	nvc_timer.nt_next_tick = (main_usec + tick_usec) % 1000000;
+	nvc_timer.nt_next_tick = (emu_usec + tick_usec) % 1000000;
 	nvc_timer.nt_next_count = next_count;
 }
 
@@ -245,7 +245,7 @@ nvc_trace_timer(const char *desc)
 bool
 nvc_step(void)
 {
-	if (nvc_regs.nr_tcr.t_enb && main_usec == nvc_timer.nt_next_tick)
+	if (nvc_regs.nr_tcr.t_enb && emu_usec == nvc_timer.nt_next_tick)
 	{
 		nvc_regs.nr_tlr = nvc_timer.nt_next_count & 0xff;
 		nvc_regs.nr_thr = nvc_timer.nt_next_count >> 8;
@@ -283,7 +283,7 @@ nvc_input(enum nvc_key key, bool state)
 
 	events_fire((state) ? NVC_EVENT_KEY_DOWN : NVC_EVENT_KEY_UP, key, 0);
 
-	//if ((main_usec % 512) == 0) // takes about 512 µs to read the controller data
+	//if ((emu_usec % 512) == 0) // takes about 512 µs to read the controller data
 	if (nvc_regs.nr_scr.s_hw_si)
 	{
 		nvc_regs.nr_scr.s_si_stat = 1;

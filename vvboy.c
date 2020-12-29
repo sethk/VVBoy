@@ -9,13 +9,58 @@
 #include <math.h>
 
 static bool main_running = true;
+bool main_fixed_rate = false;
 static const u_int main_min_fps = 25;
 static const u_int main_max_fps = 100;
+
+void
+main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	os_runtime_verror(type, BIT(OS_RUNERR_RESP_ABORT), fmt, ap);
+	va_end(ap);
+	abort();
+}
+
+static bool
+main_init(void)
+{
+	return (os_init() && emu_init() && imgui_init() && tk_init() && gl_init());
+}
+
+static void
+main_fini(void)
+{
+	gl_fini();
+	tk_fini();
+	imgui_fini();
+	emu_fini();
+	os_fini();
+}
 
 void
 main_quit(void)
 {
 	main_running = false;
+}
+
+void
+main_update_caption(const char *stats)
+{
+	char caption[100] = "VVBoy";
+	size_t offset = sizeof("VVBoy") - 1;
+	if (rom_loaded)
+	{
+		offset+= os_snprintf(caption + offset, sizeof(caption) - offset, ": %s", rom_name);
+		if (stats)
+			offset+= os_snprintf(caption + offset, sizeof(caption) - offset, " [%s]", stats);
+		if (debug_is_stopped())
+			offset+= os_snprintf(caption + offset, sizeof(caption) - offset, " (Stopped)");
+		else if (emu_time_scale != 1.0)
+			offset += os_snprintf(caption + offset, sizeof(caption) - offset, " *Time Scale %gx*", emu_time_scale);
+	}
+	tk_update_caption(caption);
 }
 
 static bool
@@ -75,9 +120,18 @@ main_loop(void)
 			last_frame_usec = frame_usec;
 		}
 
-		main_frame(delta_usecs);
+		tk_frame_begin();
 
-		//usleep(10000);
+		gl_clear();
+
+		imgui_frame_begin();
+
+		if (rom_loaded)
+			emu_frame(delta_usecs);
+
+		imgui_frame_end();
+
+		tk_frame_end();
 	}
 }
 
@@ -141,7 +195,7 @@ main(int ac, char * const *av)
 
 	main_update_caption(NULL);
 
-	main_reset();
+	emu_reset();
 
 	nvc_test();
 	vsu_test();

@@ -1427,7 +1427,7 @@ vip_step(void)
 			events_fire(SCAN_EVENT_RDISP_FINISH, vip_disp_index, 0);
 
 			vip_disp_index = (vip_disp_index + 1) % 2;
-			++main_stats.ms_scans;
+			++emu_stats.ms_scans;
 		}
 	}
 

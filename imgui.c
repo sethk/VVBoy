@@ -63,7 +63,7 @@ imgui_frame_begin(void)
 	if (igIsKeyDown(OS_SHORTCUT_LKEY) || igIsKeyDown(OS_SHORTCUT_RKEY))
 	{
 		if (rom_loaded && igIsKeyPressed(TK_SCANCODE_R, false))
-			main_reset();
+			emu_reset();
 		else if (!rom_loaded && igIsKeyPressed(TK_SCANCODE_O, false))
 			main_open_rom();
 		if (igIsKeyPressed(TK_SCANCODE_1, false))
@@ -101,7 +101,7 @@ imgui_frame_begin(void)
 		if (igBeginMenu("Emulation", rom_loaded))
 		{
 			if (igMenuItem("Reset", OS_SHORTCUT_KEY_NAME "+R", false, true))
-				main_reset();
+				emu_reset();
 
 			igSeparator();
 
@@ -178,7 +178,7 @@ imgui_frame_begin(void)
 		{
 			igCheckbox("Fixed timestep", &main_fixed_rate);
 
-			igSliderFloat("Emulation speed", &main_time_scale, 0.05, 2.0, "%.2f", 1);
+			igSliderFloat("Emulation speed", &emu_time_scale, 0.05, 2.0, "%.2f", 1);
 
 			igSliderInt("CPU cycles per µsec", (int *)&nvc_cycles_per_usec, 1, 100, NULL);
 
@@ -206,7 +206,7 @@ imgui_draw_emu(const struct ImDrawList *parent_list __unused, const struct ImDra
 }
 
 void
-imgui_draw_main(void)
+imgui_draw_win(void)
 {
 	char id[64];
 	os_snprintf(id, sizeof(id), "%s##VVBoy", rom_name);

@@ -137,7 +137,7 @@ vsu_reset(void)
 void
 vsu_step(void)
 {
-	if ((main_usec % 10000) == 0)
+	if ((emu_usec % 10000) == 0)
 	{
 		tk_audio_lock(); // TODO -- Use atomic circular buffer
 

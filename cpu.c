@@ -1868,7 +1868,7 @@ cpu_step(void)
 	if (!cpu_exec(inst))
 		return false;
 
-	++main_stats.ms_insts;
+	++emu_stats.ms_insts;
 	return true;
 }
 
@@ -1907,7 +1907,7 @@ cpu_intr(enum nvc_intlevel level)
 
 			events_fire(CPU_EVENT_INTR_ENTER, level, nvc_intnames[level]);
 
-			++main_stats.ms_intrs;
+			++emu_stats.ms_intrs;
 		}
 	}
 }

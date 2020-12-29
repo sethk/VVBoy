@@ -67,7 +67,7 @@ struct debug_trace
 };
 static struct debug_trace debug_traces[] =
 		{
-				{"main", "Trace main loop", &main_trace},
+				{"emu", "Trace main emulation loop", &emu_trace},
 				{"cpu", "Trace CPU", &debug_trace_cpu},
 				{"cpu.jmp", "Trace CPU jumps", &debug_trace_cpu_jmp},
 				{"cpu.int", "Trace CPU interrupts", &debug_trace_cpu_int},
@@ -2064,7 +2064,7 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	char trace[2048];
-	size_t length = os_snprintf(trace, sizeof(trace), "@%07d [%s] ", main_usec, tag);
+	size_t length = os_snprintf(trace, sizeof(trace), "@%07d [%s] ", emu_usec, tag);
 	length+= os_vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
 	va_end(ap);
 

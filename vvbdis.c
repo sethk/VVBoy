@@ -24,6 +24,17 @@ static u_int32_t rom_end;
 static u_int32_t text_begin = MEM_SEG2ADDR(MEM_SEG_ROM), text_end;
 static const u_int32_t vect_begin = 0xfffffe00, vect_end = 0xfffffffe;
 
+void
+main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
+{
+	(void)type;
+	va_list ap;
+	va_start(ap, fmt);
+	fputs("\n*** ", stderr);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	abort();
+}
 
 static struct func *
 create_func(const struct debug_symbol *sym)
@@ -346,6 +357,14 @@ disasm_area(u_int32_t begin, u_int32_t end)
 		show_disasm(&inst, pc, &context);
 		incr_pc(&pc, &inst);
 	}
+}
+
+bool main_fixed_rate = false; // TODO: Remove
+
+void
+main_update_caption(const char *stats)
+{
+	(void)stats;
 }
 
 // TODO: Remove

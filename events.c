@@ -113,7 +113,7 @@ events_fire(u_int16_t code, u_int32_t index, const void *user_data)
 		else
 			event->e_prev_by_subsys = NULL;
 		events_last_by_subsys[subsys] = event;
-		event->e_usecs = main_usec;
+		event->e_usecs = emu_usec;
 		event->e_code = code;
 		event->e_index = index;
 		event->e_user_data = user_data;
@@ -206,7 +206,7 @@ events_frame_end(void)
 					draw_list = igGetWindowDrawList();
 
 					struct ImVec2 current_track_size;
-					current_track_size.x = (float)(main_usec / 1e6) * track_size.x;
+					current_track_size.x = (float)(emu_usec / 1e6) * track_size.x;
 					current_track_size.y = track_size.y;
 
 					for (enum event_subsys subsys = 0; subsys < EVENT_NUM_SUBSYS; ++subsys)

@@ -15,7 +15,7 @@
 /debug.h
 /gl.h
 /imgui.h
-/main.h
+/emu.h
 /mem.h
 /nvc.h
 /sram.h
