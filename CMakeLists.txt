@@ -1,5 +1,5 @@
 ### Project
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.10)
 project(vvboy)
 
 ### Options
@@ -14,7 +14,7 @@ if(MSVC)
 	set(COMMON_C_FLAGS /W1 /GR- /EHsc) # /WX
 else()
 	set(COMMON_C_FLAGS -Wall -Wextra -Wformat) # -Werror
-	set(CMAKE_C_FLAGS_RELEASE "-O3")
+	set(CMAKE_C_FLAGS_RELEASE -O3)
 	#set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -fno-inline -O0")
 	#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
 endif()
@@ -39,7 +39,7 @@ if(UNIX)
 	target_link_libraries(vvboy PRIVATE ${EDIT_LIB})
 	target_link_libraries(vvbdis PRIVATE ${EDIT_LIB})
 	set(BSD_SOURCES "")
-	set(OS_SOURCES ${OS_SOURCES} os_unix.c)
+	list(APPEND OS_SOURCES os_unix.c)
 else()
 	add_compile_definitions(vvboy PRIVATE DEBUG_TTY=0 HAVE_LIBEDIT=0)
 	#add_subdirectory(vendor/libedit)
@@ -51,21 +51,21 @@ else()
 endif()
 
 if(NOT APPLE)
-	set(BSD_SOURCES ${BSD_SOURCES} vendor/darwin-libplatform/memset_pattern.c)
+	list(APPEND BSD_SOURCES vendor/darwin-libplatform/memset_pattern.c)
 endif()
 
 if(APPLE)
 	### Platform: macOS
 	add_compile_definitions(GL_SILENCE_DEPRECATION)
 	# add_executable(VVBoy MACOSX_BUNDLE ...
-	set(OS_SOURCES ${OS_SOURCES} os_macos.m)
+	list(APPEND OS_SOURCES os_macos.m)
 	find_library(APPKIT AppKit)
 	target_link_libraries(vvboy PRIVATE ${APPKIT})
 endif()
 
 if(WIN32)
 	### Platform: Windows
-	set(OS_SOURCES ${OS_SOURCES} os_windows.c)
+	list(APPEND OS_SOURCES os_windows.c)
 	target_sources(vvboy PRIVATE utf-8.exe.manifest)
 	#target_link_options(vvboy PRIVATE /SUBSYSTEM:WINDOWS)
 	set_target_properties(vvboy PROPERTIES LINK_FLAGS /SUBSYSTEM:WINDOWS)
@@ -99,7 +99,7 @@ if(${TOOLKIT} STREQUAL GLFW)
     target_compile_definitions(vvboy PRIVATE GLFW_INCLUDE_NONE)
     target_compile_definitions(vvbdis PRIVATE GLFW_INCLUDE_NONE)
     set(TK_SOURCES tk_glfw.c)
-    set(IMGUI_SOURCES ${IMGUI_SOURCES} vendor/cimgui_glfw_opengl3/imgui_impl_glfw_gl3.cpp)
+	list(APPEND IMGUI_SOURCES vendor/cimgui_glfw_opengl3/imgui_impl_glfw_gl3.cpp)
 elseif(${TOOLKIT} STREQUAL SDL)
 	set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
 	set(SDL2_BUILD_DIR vendor/SDL2/build)
@@ -111,7 +111,7 @@ elseif(${TOOLKIT} STREQUAL SDL)
 	target_link_libraries(vvbdis PRIVATE SDL2-static)
 	# TODO: Only static-link Release target
 	set(TK_SOURCES tk_sdl.c)
-	set(IMGUI_SOURCES ${IMGUI_SOURCES} vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.cpp)
+	list(APPEND IMGUI_SOURCES vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.cpp)
 else()
     set(TK_SOURCES tk_null.c)
 endif()
@@ -147,8 +147,18 @@ add_dependencies(vvbdis GenHeaders)
 add_dependencies(vvboy GenHeaders)
 
 ### Resource Files
-file(COPY ${IMGUI_DIR}/imgui/misc/fonts/Roboto-Medium.ttf DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-file(COPY gamecontrollerdb.txt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+set(RESOURCE_FILES ${IMGUI_DIR}/imgui/misc/fonts/Roboto-Medium.ttf gamecontrollerdb.txt)
+add_custom_target(resources)
+foreach(_resource_file ${RESOURCE_FILES})
+	string(REGEX REPLACE "^.*[/]" "" _out_resource_file ${_resource_file})
+	add_custom_command(TARGET resources
+		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/${_resource_file} ${CMAKE_BINARY_DIR})
+	list(APPEND _out_resource_files ${_out_resource_file})
+endforeach()
+set_target_properties(resources PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${_out_resource_files}") # Deprecated name
+set_target_properties(resources PROPERTIES ADDITIONAL_CLEAN_FILES "${_out_resource_files}")
+add_dependencies(vvboy resources)
+add_dependencies(vvbdis resources)
 
 ### CTags and CScope support
 include(vendor/tags.cmake)
