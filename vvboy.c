@@ -91,7 +91,7 @@ main_open_rom(void)
 		rom_unload();
 
 	static const char * const exts[] = {"vb", "isx"};
-	os_choose_file("ROM Files", exts, sizeof(exts) / sizeof(exts[0]), main_load_rom);
+	os_choose_file("ROM Files", exts, COUNT_OF(exts), main_load_rom);
 }
 
 static void

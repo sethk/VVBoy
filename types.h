@@ -28,6 +28,8 @@ typedef uint64_t u_int64_t;
 
 #define BIT(n) (1 << (n))
 
+#define COUNT_OF(a) (sizeof(a) / sizeof(a[0]))
+
 #ifndef NO_IMGUI_TYPES
 # define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 # include <cimgui/cimgui.h>

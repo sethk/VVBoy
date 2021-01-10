@@ -1173,7 +1173,7 @@ static void
 debug_usage(char ch)
 {
 	u_int help_index;
-	for (help_index = 0; help_index < sizeof(debug_help) / sizeof(debug_help[0]); ++help_index)
+	for (help_index = 0; help_index < COUNT_OF(debug_help); ++help_index)
 	{
 		if (debug_help[help_index].dh_char == ch)
 		{
@@ -1420,7 +1420,7 @@ debug_show_trace(const struct debug_trace trace)
 bool
 debug_toggle_trace(const char *key)
 {
-	for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+	for (u_int i = 0; i < COUNT_OF(debug_traces); ++i)
 		if (!strcmp(key, debug_traces[i].dt_key))
 		{
 			*debug_traces[i].dt_tracep = !*debug_traces[i].dt_tracep;
@@ -1487,7 +1487,7 @@ debug_exec(const char *cmd)
 		if (!strcmp(argv[0], "?") || !strcmp(argv[0], "help"))
 		{
 			debug_printf("Debugger commands:\n");
-			for (u_int help_index = 0; help_index < sizeof(debug_help) / sizeof(debug_help[0]); ++help_index)
+			for (u_int help_index = 0; help_index < COUNT_OF(debug_help); ++help_index)
 				debug_print_help(&(debug_help[help_index]));
 		}
 		else if (!strcmp(argv[0], "q") || !strcmp(argv[0], "quit") || !strcmp(argv[0], "exit"))
@@ -1921,7 +1921,7 @@ debug_exec(const char *cmd)
 			}
 			else
 			{
-				for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+				for (u_int i = 0; i < COUNT_OF(debug_traces); ++i)
 					debug_show_trace(debug_traces[i]);
 			}
 		}
@@ -2360,7 +2360,7 @@ debug_emu_menu(void)
 
 	igSeparator();
 
-	for (u_int i = 0; i < sizeof(debug_traces) / sizeof(debug_traces[0]); ++i)
+	for (u_int i = 0; i < COUNT_OF(debug_traces); ++i)
 		igMenuItemPtr(debug_traces[i].dt_label, NULL, debug_traces[i].dt_tracep, true);
 
 	igEndMenu();

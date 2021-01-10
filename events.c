@@ -99,7 +99,7 @@ events_fire(u_int16_t code, u_int32_t index, const void *user_data)
 	if (!events_capturing)
 		return;
 
-	if (events_count < sizeof(events) / sizeof(events[0]))
+	if (events_count < COUNT_OF(events))
 	{
 		enum event_subsys subsys = EVENT_GET_SUBSYS(code);
 		struct event *event = &(events[events_count]);
