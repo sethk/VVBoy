@@ -27,6 +27,13 @@ vvboy/run: vvboy
 .PHONY: run
 run: vvboy/run
 
+.PHONY: vvboy/debug
+vvboy/debug: vvboy
+	cd ${CMAKE_DIR} && lldb $<
+
+.PHONY: debug
+debug: vvboy/debug
+
 #CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
 #
 #tags:: $(SRCS)
