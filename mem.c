@@ -91,7 +91,8 @@ mem_seg_alloc(enum mem_segment seg, u_int size, int perms)
 	mem_segs[seg].ms_ptr = malloc(size);
 	if (!mem_segs[seg].ms_ptr)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not allocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY),
+				"Could not allocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_size = size;
@@ -120,7 +121,7 @@ mem_seg_mmap(enum mem_segment seg, u_int size, os_file_handle_t handle)
 	mem_segs[seg].ms_handle = os_mmap_file(handle, size, OS_PERM_READ, (void **)&mem_segs[seg].ms_ptr);
 	if (!mem_segs[seg].ms_ptr)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_mmap() %s", mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_mmap_file() %s", mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_addrmask = size - 1;
@@ -213,20 +214,24 @@ mem_emu2host(u_int32_t addr, u_int size)
 }
 */
 
-static void
-mem_perm_error(u_int32_t addr, int ops, int perms)
+static bool
+mem_perm_error(const struct mem_request *request, bool *always_ignorep)
 {
 	debug_str_t addr_s, ops_s, perms_s;
-	debug_fatal_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s",
-					   debug_format_addr(addr, addr_s),
-					   debug_format_perms(ops, ops_s),
-					   debug_format_perms(perms, perms_s));
+	debug_str_t msg;
+	os_snprintf(msg, sizeof(msg), "Invalid memory operation at %s, mem ops = %s, perms = %s",
+			debug_format_addr(request->mr_emu, addr_s),
+			debug_format_perms(request->mr_ops, ops_s),
+			debug_format_perms(request->mr_perms, perms_s));
+
+	bool allow_ignore = ((request->mr_ops & OS_PERM_READ) == 0);
+	return debug_runtime_error(allow_ignore, always_ignorep, msg);
 }
 
-static void
+static bool
 mem_bus_error(u_int32_t addr)
 {
-	debug_fatal_errorf("Bus error at 0x%08x", addr);
+	return debug_fatal_errorf("Bus error at 0x%08x", addr);
 }
 
 const void *
@@ -282,7 +287,13 @@ mem_get_read_ptr(u_int32_t addr, u_int size, u_int *mem_waitp)
 
 			if (mem_checks && !(mem_segs[seg].ms_perms & OS_PERM_READ))
 			{
-				mem_perm_error(addr, OS_PERM_READ, mem_segs[seg].ms_perms);
+				struct mem_request request =
+				{
+					.mr_emu = addr,
+					.mr_ops = OS_PERM_READ,
+					.mr_perms = mem_segs[seg].ms_perms
+				};
+				mem_perm_error(&request, NULL);
 				return NULL;
 			}
 
@@ -309,20 +320,10 @@ mem_read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp)
 		request.mr_ops|= OS_PERM_EXEC;
 
 	if (!mem_prepare(&request))
-	{
-		debug_fatal_errorf("Bus error at 0x%08x", addr);
-		return false;
-	}
+		return mem_bus_error(addr);
 
 	if ((request.mr_perms & request.mr_ops) != request.mr_ops)
-	{
-		debug_str_t addr_s, ops_s, perms_s;
-		debug_fatal_errorf("Invalid memory operation at %s, mem ops = %s, prot = %s",
-		                   debug_format_addr(addr, addr_s),
-		                   debug_format_perms(request.mr_ops, ops_s),
-		                   debug_format_perms(request.mr_perms, perms_s));
-		return false;
-	}
+		return mem_perm_error(&request, NULL);
 
 	if (debug_trace_mem_read && !is_exec)
 	{
@@ -369,7 +370,7 @@ mem_get_write_ptr(u_int32_t addr, u_int size, u_int32_t *maskp)
 	if (!mem_prepare(&request))
 	{
 		// TODO: SEGV
-		debug_fatal_errorf("Bus error at 0x%08x", addr);
+		mem_bus_error(addr);
 		return NULL;
 	}
 
@@ -394,20 +395,13 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 	if (!mem_prepare(&request))
 	{
 		// TODO: SEGV
-		debug_fatal_errorf("Bus error at 0x%08x", addr);
-		return false;
+		return mem_bus_error(addr);
 	}
 
 	if ((request.mr_perms & OS_PERM_WRITE) == 0)
 	{
-		debug_str_t addr_s, perms_s;
 		static bool ignore_writes = false;
-		if (debug_runtime_errorf(&ignore_writes, "Invalid memory operation at %s, mem ops = PROT_WRITE, prot = %s\n",
-		                          debug_format_addr(addr, addr_s),
-		                          debug_format_perms(request.mr_perms, perms_s)))
-			return true;
-		debug_stop();
-		return false;
+		return mem_perm_error(&request, &ignore_writes);
 	}
 
 	if (debug_trace_mem_write)
@@ -463,8 +457,7 @@ mem_test_addr(const char *name, u_int32_t emu_addr, u_int size, void *expected)
 	void *addr = mem_get_write_ptr(emu_addr, size, &mask);
 	if (addr != expected)
 	{
-		debug_runtime_errorf(NULL, "mem_get_write_ptr(%s) is %p but should be %p (offset %ld)",
-		                     name, addr, expected, (intptr_t)expected - (intptr_t)addr);
-		abort();
+		debug_fatal_errorf("mem_get_write_ptr(%s) is %p but should be %p (offset %ld)",
+				name, addr, expected, (intptr_t)expected - (intptr_t)addr);
 	}
 }
