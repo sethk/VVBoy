@@ -198,6 +198,7 @@ struct vip_regs
 	u_int16_t vr_gplt[4];
 	u_int16_t vr_jplt[4];
 	u_int16_t vr_bkcol;
+	u_int16_t vr_padding[7];
 };
 
 #define VIP_MAX_BRIGHT (212)
@@ -1585,13 +1586,16 @@ vip_test(void)
 	ASSERT_SIZEOF(struct vip_oam, 8);
 	ASSERT_SIZEOF(vip_dram, 0x20000);
 	ASSERT_SIZEOF(vip_dram.vd_shared.s_bgsegs[0], 8192);
+	ASSERT_SIZEOF(vip_dram.vd_shared, 0x1d800);
+	ASSERT_SIZEOF(vip_dram.vd_shared.s_param_tbl[0], 2);
+	ASSERT_SIZEOF(vip_dram.vd_shared.s_param_tbl, 0x1d800);
 	ASSERT_SIZEOF(struct vip_dpctrl, 2);
 	ASSERT_SIZEOF(struct vip_xpctrl, 2);
-	ASSERT_SIZEOF(vip_regs, 0x72);
+	ASSERT_SIZEOF(vip_regs, 0x80);
 	ASSERT_SIZEOF(struct vip_world_att, 32);
 	mem_test_addr("world_att[1]", debug_locate_symbol("WORLD_ATT:1"), 4, &(vip_dram.vd_world_atts[1]));
 	mem_test_addr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
-	mem_test_addr("PARAM_TBL+0x8800", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
+	mem_test_addr("PARAM_TBL[0x8800]", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
 	mem_test_addr("WORLD_ATTS", 0x3d800, 4, &(vip_dram.vd_world_atts));
 	mem_test_addr("OAM", 0x3e000, 8, &(vip_dram.vd_oam));
 	mem_test_addr("INTPND", 0x5f800, 2, &(vip_regs.vr_intpnd));
