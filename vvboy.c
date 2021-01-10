@@ -197,10 +197,8 @@ main(int ac, char * const *av)
 
 	emu_reset();
 
-	nvc_test();
-	vsu_test();
-	vip_test();
-	cpu_test();
+	emu_test();
+	emu_reset();
 
 	if (debugging)
 		debug_stop();

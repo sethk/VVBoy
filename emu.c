@@ -85,6 +85,16 @@ emu_reset(void)
 	nvc_reset();
 }
 
+void
+emu_test(void)
+{
+	//mem_test();
+	nvc_test();
+	vsu_test();
+	vip_test();
+	cpu_test();
+}
+
 bool
 emu_step(void)
 {

@@ -1824,8 +1824,6 @@ cpu_test(void)
 	};
 	cpu_test_movbsu(src_bytes, sizeof(src_bytes), 0b10101010, 128, 0, 0, 0, 8, dest_bytes1, sizeof(dest_bytes1));
 	 */
-
-	cpu_reset();
 }
 
 bool
