@@ -2053,6 +2053,8 @@ debug_printf(const char *fmt, ...)
 	va_end(ap);
 #if DEBUG_TTY
 	fputs(msg, stderr);
+#else
+	os_debug_log(msg);
 #endif // DEBUG_TTY
 	for (size_t offset = 0; offset < length; ++offset)
 		debug_putchar(msg[offset]);

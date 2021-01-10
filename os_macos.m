@@ -27,6 +27,12 @@ os_fini(void)
 }
 
 void
+os_debug_log(const char *msg)
+{
+	NSLog(@"%s", msg);
+}
+
+void
 os_choose_file(const char *desc, const char * const exts[], u_int num_exts, bool (*selected_fp)(const char *path))
 {
 	NSAutoreleasePool *pool = [NSAutoreleasePool new];
