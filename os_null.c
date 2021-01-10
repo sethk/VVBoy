@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void os_choose_file(const char * const exts[], u_int num_exts, bool (*selected_fp)(const char *path))
+void
+os_choose_file(const char * const exts[], u_int num_exts, bool (*selected_fp)(const char *path))
 {
 	(void)exts;
 	(void)num_exts;
