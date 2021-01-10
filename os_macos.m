@@ -99,8 +99,7 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 		__block NSModalResponse response;
 		__block BOOL done = NO;
-		[alert beginSheetModalForWindow:tk_get_main_win() completionHandler:^(
-				NSModalResponse returnCode)
+		[alert beginSheetModalForWindow:tk_get_main_win() completionHandler:^(NSModalResponse returnCode)
 		{
 			response = returnCode;
 			done = YES;

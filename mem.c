@@ -451,11 +451,8 @@ mem_test_addr_ro(const char *name, u_int32_t emu_addr, u_int size, void *expecte
 	u_int mem_wait;
 	const void *addr = mem_get_read_ptr(emu_addr, size, &mem_wait);
 	if (addr != expected)
-	{
-		debug_runtime_errorf(NULL, "mem_get_read_ptr(%s) is %p but should be %p (offset %ld)",
-		                     name, addr, expected, (intptr_t)expected - (intptr_t)addr);
-		abort();
-	}
+		debug_fatal_errorf("mem_get_read_ptr(%s) is %p but should be %p (offset %ld)",
+				name, addr, expected, (intptr_t)expected - (intptr_t)addr);
 }
 
 void

@@ -20,7 +20,7 @@ main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
 	va_start(ap, fmt);
 	os_runtime_verror(type, BIT(OS_RUNERR_RESP_ABORT), fmt, ap);
 	va_end(ap);
-	abort();
+	exit(1);
 }
 
 static bool

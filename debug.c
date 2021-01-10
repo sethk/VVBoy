@@ -2077,25 +2077,26 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	}
 }
 
-bool __printflike(2, 3)
-debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
+bool
+debug_runtime_error(bool allow_ignore, bool *always_ignore_flagp, const char *msg)
 {
-	if (ignore_flagp && *ignore_flagp)
+	if (always_ignore_flagp && *always_ignore_flagp)
 		return true;
 
-	va_list ap;
-	va_start(ap, fmt);
-	char msg[1024];
-	os_vsnprintf(msg, sizeof(msg), fmt, ap);
-	va_end(ap);
 	debug_printf("%s\n", msg);
 
 	if (debug_mode == DEBUG_STOP)
 		return true;
 
-	u_int resp_mask = BIT(OS_RUNERR_RESP_IGNORE) | BIT(OS_RUNERR_RESP_DEBUG) | BIT(OS_RUNERR_RESP_ABORT);
-	if (ignore_flagp)
-		resp_mask |= BIT(OS_RUNERR_RESP_ALWAYS_IGNORE);
+	u_int resp_mask = BIT(OS_RUNERR_RESP_ABORT);
+	if (rom_loaded)
+		resp_mask |= BIT(OS_RUNERR_RESP_DEBUG);
+	if (allow_ignore)
+	{
+		resp_mask |= BIT(OS_RUNERR_RESP_IGNORE);
+		if (always_ignore_flagp)
+			resp_mask |= BIT(OS_RUNERR_RESP_ALWAYS_IGNORE);
+	}
 
 	switch (os_runtime_error(OS_RUNERR_TYPE_EMULATION, resp_mask, msg))
 	{
@@ -2104,7 +2105,7 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 			return true;
 
 		case OS_RUNERR_RESP_ALWAYS_IGNORE:
-			*ignore_flagp = true;
+			*always_ignore_flagp = true;
 			return true;
 
 		case OS_RUNERR_RESP_DEBUG:
@@ -2112,23 +2113,38 @@ debug_runtime_errorf(bool *ignore_flagp, const char *fmt, ...)
 			return false;
 
 		case OS_RUNERR_RESP_ABORT:
-			abort();
+			exit(1);
 	}
 	return false;
 }
 
-void __printflike(1, 2)
+// TODO: Rename emu_runtime_errorf()?
+bool __printflike(2, 3)
+debug_runtime_errorf(bool *always_ignore_flagp, const char *fmt, ...)
+{
+	if (always_ignore_flagp && *always_ignore_flagp)
+		return true;
+
+	va_list ap;
+	va_start(ap, fmt);
+	char msg[1024];
+	os_vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+
+	return debug_runtime_error(true, always_ignore_flagp, msg);
+}
+
+// TODO: Rename emu_fatal_errorf()?
+bool __printflike(1, 2)
 debug_fatal_errorf(const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
 	char msg[1024];
 	os_vsnprintf(msg, sizeof(msg), fmt, ap);
-	debug_printf("%s\n", msg);
 	va_end(ap);
 
-	if (debug_mode != DEBUG_STOP)
-		debug_stop();
+	return debug_runtime_error(false, NULL, msg);
 }
 
 void

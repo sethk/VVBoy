@@ -33,7 +33,7 @@ main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
 	fputs("\n*** ", stderr);
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	abort();
+	exit(1);
 }
 
 static struct func *

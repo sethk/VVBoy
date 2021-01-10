@@ -418,8 +418,7 @@ cpu_getfl(enum cpu_bcond cond)
 			return !((cpu_state.cs_psw.psw_flags.f_s ^ cpu_state.cs_psw.psw_flags.f_ov) |
 			         cpu_state.cs_psw.psw_flags.f_z);
 		default:
-			debug_fatal_errorf("Handle branch cond");
-			return false;
+			return debug_fatal_errorf("Handle branch cond");
 	}
 }
 
@@ -875,11 +874,10 @@ cpu_exec(const union cpu_inst inst)
 			// TODO: Divide by zero exception
 			u_int64_t left = cpu_state.cs_r[inst.ci_i.i_reg2].u,
 					right = cpu_state.cs_r[inst.ci_i.i_reg1].u;
+
 			if (right == 0)
-			{
-				debug_fatal_errorf("TODO: Divide by zero exception");
-				return false;
-			}
+				return debug_fatal_errorf("TODO: Divide by zero exception");
+
 			u_int64_t result = left / right;
 			cpu_state.cs_psw.psw_flags.f_z = (result == 0);
 			cpu_state.cs_psw.psw_flags.f_s = ((result & sign_bit32) == sign_bit32);
@@ -1307,8 +1305,7 @@ cpu_exec(const union cpu_inst inst)
 					if (source >= (double)INT32_MAX + 0.5 || source <= (double)INT32_MIN - 0.5)
 					{
 						cpu_state.cs_psw.psw_flags.f_fiv = 1;
-						debug_fatal_errorf("TODO: Floating-point invalid operation exception");
-						return false;
+						return debug_fatal_errorf("TODO: Floating-point invalid operation exception");
 					}
 					cpu_setfl_float_zsoc(source);
 					cpu_state.cs_r[inst.vii_reg2].s = (int32_t)lroundf(source);
@@ -1368,16 +1365,14 @@ cpu_exec(const union cpu_inst inst)
 						if (left == 0)
 						{
 							cpu_state.cs_psw.psw_flags.f_fiv = 1;
-							debug_fatal_errorf("TODO: Invalid operation exception");
-							return false;
+							return debug_fatal_errorf("TODO: Invalid operation exception");
 						}
 						else if (cpu_float_reserved(left))
 							return false;
 						else
 						{
 							cpu_state.cs_psw.psw_flags.f_fzd = 1;
-							debug_fatal_errorf("TODO: Divide by zero exception");
-							return false;
+							return debug_fatal_errorf("TODO: Divide by zero exception");
 						}
 					}
 					else if (cpu_float_reserved(left) || cpu_float_reserved(right))
@@ -1852,10 +1847,7 @@ cpu_step(void)
 
 	union cpu_inst inst;
 	if (!cpu_fetch(cpu_state.cs_pc, &inst))
-	{
-		debug_fatal_errorf("TODO: bus error fetching inst from PC 0x%08x", cpu_state.cs_pc);
-		return false;
-	}
+		return debug_fatal_errorf("TODO: bus error fetching inst from PC 0x%08x", cpu_state.cs_pc);
 
 	if (debug_trace_cpu)
 	{
