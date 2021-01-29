@@ -1,5 +1,6 @@
 BUILD_TYPE?= debug
 CMAKE_DIR = cmake-build-${BUILD_TYPE}
+MAKEFLAGS+= -j8
 
 ALL_TARGETS = all vvboy tags clean
 .PHONY: ${ALL_TARGETS}
