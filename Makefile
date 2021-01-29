@@ -21,16 +21,24 @@ clean/cmake-cache:
 distclean:
 	rm -rf ${CMAKE_DIR}
 
+ifdef ROM_FILE
+  ifeq '$(patsubst /%,X%,${ROM_FILE})' 'X'
+    RUN_ARGS+= "${ROM_FILE}"
+  else
+    RUN_ARGS+= "${PWD}/${ROM_FILE}"
+  endif
+endif
+
 .PHONY: vvboy/run
 vvboy/run: vvboy
-	cd ${CMAKE_DIR} && ./$<
+	cd ${CMAKE_DIR} && ./$< ${RUN_ARGS}
 
 .PHONY: run
 run: vvboy/run
 
 .PHONY: vvboy/debug
 vvboy/debug: vvboy
-	cd ${CMAKE_DIR} && lldb $<
+	cd ${CMAKE_DIR} && lldb $< -- ${RUN_ARGS}
 
 .PHONY: debug
 debug: vvboy/debug
