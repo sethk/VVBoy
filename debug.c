@@ -1327,14 +1327,14 @@ debug_toggle_stopped(void)
 }
 
 void
-debug_step_inst(void)
+debug_step_into(void)
 {
 	assert(debug_mode == DEBUG_STOP);
 	debug_mode = DEBUG_STEP;
 }
 
 void
-debug_next_inst(void)
+debug_step_over(void)
 {
 	assert(debug_mode == DEBUG_STOP);
 	union cpu_inst inst;
@@ -1513,14 +1513,14 @@ debug_exec(const char *cmd)
 		else if (!strcmp(argv[0], "s") || !strcmp(argv[0], "step"))
 		{
 			if (debug_mode == DEBUG_STOP)
-				debug_step_inst();
+				debug_step_into();
 			else
 				debug_printf("Not stopped in debugger\n");
 		}
 		else if (!strcmp(argv[0], "n") || !strcmp(argv[0], "next"))
 		{
 			if (debug_mode == DEBUG_STOP)
-				debug_next_inst();
+				debug_step_over();
 			else
 				debug_printf("Not stopped in debugger\n");
 		}
@@ -2060,6 +2060,7 @@ debug_printf(const char *fmt, ...)
 		debug_putchar(msg[offset]);
 }
 
+// TODO: Rename emu_trace?
 void __printflike(2, 3)
 debug_tracef(const char *tag, const char *fmt, ...)
 {
@@ -2152,9 +2153,18 @@ debug_fatal_errorf(const char *fmt, ...)
 void
 debug_frame_begin(void)
 {
-	if (debug_is_stopped() && igIsKeyPressed((enum tk_scancode)TK_SCANCODE_F7, true))
-		debug_step_inst();
-	if (igIsKeyPressed(TK_SCANCODE_F9, false))
+	enum tk_scancode dummy_scancode; // Hint for makeheaders
+	(void)dummy_scancode;
+
+	// TODO: Visual Studio keyboard shortcuts
+	if (debug_is_stopped())
+	{
+		if (igIsKeyPressed(TK_SCANCODE_F10, true))
+			debug_step_over();
+		else if (igIsKeyPressed(TK_SCANCODE_F11, true))
+			debug_step_into();
+	}
+	if (igIsKeyPressed(TK_SCANCODE_F5, false))
 		debug_toggle_stopped();
 	if (debug_is_stopped() && igIsKeyPressed(TK_SCANCODE_F8, true))
 		debug_next_frame();
@@ -2357,8 +2367,10 @@ debug_frame_end(void)
 void
 debug_emu_menu(void)
 {
-	if (igMenuItem("Step instruction", "F7", false, debug_is_stopped()))
-		debug_step_inst();
+	if (igMenuItem("Step over", "F10", false, debug_is_stopped()))
+		debug_step_over();
+	if (igMenuItem("Step into", "F11", false, debug_is_stopped()))
+		debug_step_into();
 
 	igSeparator();
 

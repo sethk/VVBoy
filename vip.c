@@ -1789,7 +1789,7 @@ vip_frame_begin(void)
 	imgui_key_toggle(TK_SCANCODE_F2, &vip_bgseg_open, true);
 	imgui_key_toggle(TK_SCANCODE_F3, &vip_chr_open, true);
 	imgui_key_toggle(TK_SCANCODE_F4, &vip_oam_open, true);
-	imgui_key_toggle(TK_SCANCODE_F5, &vip_fb_open, true);
+	//imgui_key_toggle(TK_SCANCODE_F5, &vip_fb_open, true);
 
 	if (vip_worlds_open)
 	{
