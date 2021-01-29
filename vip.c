@@ -317,8 +317,8 @@ vip_init(void)
 
 	events_set_desc(VIP_EVENT_FRAMESTART, "FRAMESTART FRMCYC=%i");
 	events_set_desc(VIP_EVENT_GAMESTART, "GAMESTART");
-	events_set_desc(VIP_EVENT_DRAW_ENABLE, "Draw enable");
-	events_set_desc(VIP_EVENT_DRAW_DISABLE, "Draw disable");
+	events_set_desc(VIP_EVENT_DRAW_ENABLE, "Draw enabled");
+	events_set_desc(VIP_EVENT_DRAW_DISABLE, "Draw disabled");
 	events_set_desc(VIP_EVENT_DRAW_START, "Draw FB%u");
 	events_set_desc(VIP_EVENT_CLEAR_START, "Clear FB%u");
 	events_set_desc(SCAN_EVENT_LDISP_START, "Display L:FB%u");

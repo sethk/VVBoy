@@ -29,7 +29,7 @@ static u_int32_t gl_debug_frame[512 * 512];
 static GLint last_viewport[4];
 static GLint last_program;
 static GLint last_vertex_array;
-static GLboolean last_enable_blend;
+static GLboolean last_blend_enabled;
 static GLenum last_blend_src_rgb;
 static GLenum last_blend_dst_rgb;
 static GLenum last_blend_src_alpha;
@@ -210,7 +210,7 @@ gl_save_state(void)
 	glGetIntegerv(GL_VIEWPORT, last_viewport);
 	glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
 	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &last_vertex_array);
-	last_enable_blend = glIsEnabled(GL_BLEND);
+	last_blend_enabled = glIsEnabled(GL_BLEND);
 	glGetIntegerv(GL_BLEND_SRC_RGB, (GLint*)&last_blend_src_rgb);
 	glGetIntegerv(GL_BLEND_DST_RGB, (GLint*)&last_blend_dst_rgb);
 	glGetIntegerv(GL_BLEND_SRC_ALPHA, (GLint*)&last_blend_src_alpha);
@@ -226,7 +226,9 @@ gl_restore_state(void)
 	glBindTexture(GL_TEXTURE_2D, last_texture);
 	glBlendEquationSeparate(last_blend_equation_rgb, last_blend_equation_alpha);
 	glBlendFuncSeparate(last_blend_src_rgb, last_blend_dst_rgb, last_blend_src_alpha, last_blend_dst_alpha);
-	if (last_enable_blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+	if (last_blend_enabled)
+		glEnable(GL_BLEND);
+	else glDisable(GL_BLEND);
 	glBindVertexArray(last_vertex_array);
 	glUseProgram(last_program);
 	glViewport(last_viewport[0], last_viewport[1], (GLsizei)last_viewport[2], (GLsizei)last_viewport[3]);

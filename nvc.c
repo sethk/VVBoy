@@ -2,6 +2,7 @@
 #include "nvc.h"
 
 #if INTERFACE
+	//_Alignas(4)
 	struct nvc_regs
 	{
 		u_int8_t nr_ccr;
@@ -32,6 +33,7 @@
 					 s_rfu2 : 1,
 					 s_k_int_inh : 1;
 		} nr_scr;
+		//u_int8_t nr_padding[50];
 	};
 
 	enum nvc_intlevel
@@ -410,7 +412,7 @@ nvc_mem_prepare(struct mem_request *request)
 	if (request->mr_size != 1)
 	{
 		static bool ignore_size = false;
-		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %u @ 0x%08x\n",
+		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %u @ 0x%08x",
 		                          request->mr_size, request->mr_emu))
 			return false;
 		request->mr_size = 1;
