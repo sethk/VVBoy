@@ -61,6 +61,8 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 	bool dismiss_allowed = ((resp_mask & (BIT(OS_RUNERR_RESP_OKAY) | BIT(OS_RUNERR_RESP_IGNORE))) != 0);
 
+	vsu_mutes_incr();
+
 	NSAutoreleasePool *pool = [NSAutoreleasePool new];
 	@try
 	{
@@ -103,24 +105,33 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 		if (resp_mask & BIT(OS_RUNERR_RESP_ALWAYS_IGNORE))
 			[[alert addButtonWithTitle:@"Always Ignore"] setTag:OS_RUNERR_RESP_ALWAYS_IGNORE];
 
-		__block NSModalResponse response;
-		__block BOOL done = NO;
-		[alert beginSheetModalForWindow:tk_get_main_win() completionHandler:^(NSModalResponse returnCode)
-		{
-			response = returnCode;
-			done = YES;
-		}];
 
-		while (!done)
+		os_win_handle_t main_win = tk_get_main_win();
+		if (main_win != OS_WIN_HANDLE_INVALID)
 		{
-			tk_pump_input();
-			usleep(100 * 1000);
+			__block NSModalResponse response;
+			__block BOOL done = NO;
+			[alert beginSheetModalForWindow:main_win completionHandler:^(NSModalResponse returnCode)
+			{
+				response = returnCode;
+				done = YES;
+			}];
+
+			while (!done)
+			{
+				tk_pump_input();
+				usleep(100 * 1000);
+			}
+
+			return response;
 		}
-
-		return response;
+		else
+			return [alert runModal];
 	}
 	@finally
 	{
 		[pool release];
+
+		vsu_mutes_decr();
 	}
 }

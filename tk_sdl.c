@@ -84,8 +84,9 @@ u_int tk_win_width, tk_win_height;
 int tk_draw_width, tk_draw_height;
 float tk_draw_scale;
 bool tk_audio_enabled;
+const u_int tk_audio_bufsize = 256; // TODO: Make tunable at runtime
 
-static SDL_Window *sdl_window;
+static SDL_Window *sdl_window = NULL;
 static SDL_GameController *sdl_controller;
 static SDL_GLContext sdl_gl_context;
 static SDL_AudioSpec sdl_audio_spec;
@@ -95,12 +96,10 @@ static void sdl_audio_callback(void *userdata, Uint8 *stream, int length);
 static bool
 tk_init_audio(void)
 {
-	tk_audio_enabled = false;
-
 	SDL_AudioSpec desired_audio;
-	desired_audio.freq = 41700;
+	desired_audio.freq = vsu_sample_rate;
 	desired_audio.format = AUDIO_S16SYS;
-	desired_audio.samples = 834;
+	desired_audio.samples = tk_audio_bufsize;
 	desired_audio.channels = 2;
 	desired_audio.callback = sdl_audio_callback;
 	desired_audio.userdata = NULL;
@@ -124,6 +123,8 @@ tk_init_audio(void)
 		assert(false);
 		return false;
 	}
+
+	SDL_PauseAudio(false);
 
 	return true;
 }
@@ -152,7 +153,8 @@ tk_init(void)
 					tk_win_width, tk_win_height,
 					SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI)))
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Couldn't create window: %s", SDL_GetError());
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Couldn't create window: %s",
+				SDL_GetError());
 		return false;
 	}
 	sdl_gl_context = SDL_GL_CreateContext(sdl_window);
@@ -168,7 +170,10 @@ tk_init(void)
 	tk_audio_enabled = tk_init_audio();
 
 	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Warning", "Could not load gamepad assignments database from gamecontrollerdb.txt", sdl_window);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING,
+				"Could not load gamepad assignments database from gamecontrollerdb.txt",
+				SDL_GetError(),
+				sdl_window);
 
 	int num_joysticks = SDL_NumJoysticks(), joy_index;
 	for (joy_index = 0; joy_index < num_joysticks; ++joy_index)
@@ -287,9 +292,11 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 {
 	(void)userdata;
 
+	tk_audio_lock();
+
 	if (sdl_audio_cvt.needed)
 	{
-		vsu_read_samples((int16_t *)sdl_audio_cvt.buf, sdl_audio_cvt.len);
+		vsu_samples_read((int16_t (*)[2])sdl_audio_cvt.buf, sdl_audio_cvt.len);
 		if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
 		{
 			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error converting audio samples", SDL_GetError(), sdl_window);
@@ -298,8 +305,8 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 	}
 	else
 	{
-		assert(length == 834 * 2 * 2);
-		vsu_read_samples((int16_t *)stream, 834);
+		assert((u_int)length == tk_audio_bufsize * 2 * 2);
+		vsu_samples_read((int16_t (*)[2])stream, tk_audio_bufsize);
 	}
 }
 

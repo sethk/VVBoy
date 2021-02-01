@@ -56,7 +56,8 @@ if(CTAGS OR CSCOPE)
 	string(REGEX REPLACE "^([^=]+)$" "\\1=1" _all_definitions "${_all_definitions}")
 	file(APPEND ${CTAGS_IDENTIFIER_LIST} "\n${_all_definitions}")
 
-	add_custom_target(tags ALL)
+	add_custom_target(tags)
+	#add_custom_target(tags ALL)
 endif()
 
 if(CTAGS)

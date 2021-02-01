@@ -43,6 +43,8 @@ bool debug_trace_vip = false;
 u_int16_t debug_vip_intflags = 0;
 bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
+bool debug_trace_vsu = false;
+bool debug_trace_vsu_buf = true;
 os_file_handle_t debug_trace_file = OS_FILE_HANDLE_INVALID;
 
 enum debug_mode
@@ -76,7 +78,8 @@ static struct debug_trace debug_traces[] =
 				{"mem.write", "Trace memory writes", &debug_trace_mem_write},
 				{"vip", "Trace VIP", &debug_trace_vip},
 				{"nvc", "Trace NVC", &debug_trace_nvc},
-				{"nvc.tim", "Trace NVC timer", &debug_trace_nvc_tim}
+				{"nvc.tim", "Trace NVC timer", &debug_trace_nvc_tim},
+				{"vsu", "Trace VSU", &debug_trace_vsu}
 		};
 
 struct debug_watch

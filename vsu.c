@@ -1,6 +1,17 @@
 #include "types.h"
 #include "vsu.h"
 #include <assert.h>
+#include <math.h>
+
+#if INTERFACE
+	enum vsu_event
+	{
+		VSU_EVENT_RENDER = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(0),
+		VSU_EVENT_OUTPUT = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(1),
+		VSU_EVENT_UNDERFLOW = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(2),
+		VSU_EVENT_OVERFLOW = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(3)
+	};
+#endif // INTERFACE
 
 struct vsu_ram
 {
@@ -74,16 +85,18 @@ struct vsu_regs
 	u_int32_t vr_rfu2[6];
 };
 
+static bool vsu_muted_by_user = false;
+static u_int vsu_mutes = 0;
+/*
+static bool vsu_muted = false;
+static bool vsu_output_muted = false;
+*/
+
 bool vsu_sounds_open = false;
 bool vsu_buffers_open = false;
 
 static struct vsu_ram vsu_ram;
 static struct vsu_regs vsu_regs;
-
-const u_int vsu_buffer_size = 417 * 10;
-static int16_t vsu_buffer[vsu_buffer_size][2];
-static u_int vsu_buffer_head, vsu_buffer_tail;
-static bool vsu_buffer_full;
 
 const u_int32_t vsu_sample_rate = 41700;
 static const u_int32_t clock_freq = 5000000;
@@ -100,11 +113,17 @@ static struct vsu_state
 	u_int16_t vs_env_value;
 	u_int vs_env_count;
 } vsu_states[6];
-static bool vsu_env_enable = true;
+static bool vsu_env_enabled = true;
+
+static const enum event_subsys dummy_subsys; // Hint for makeheaders
 
 bool
 vsu_init(void)
 {
+	(void)dummy_subsys;
+
+	//_Static_assert(tk_audio_bufsize <= vsu_buffer_size, "Toolkit audio buffer size larger than VSU buffer size");
+
 	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80, true);
 	for (u_int i = 0; i < 6; ++i)
 	{
@@ -119,6 +138,11 @@ vsu_init(void)
 		debug_create_symbolf(base + 0x18, true, "S%uRAM", sound);
 	}
 	debug_create_symbol("SSTOP", 0x01000580, true);
+
+	events_set_desc(VSU_EVENT_RENDER, "Render N=%u");
+	events_set_desc(VSU_EVENT_OUTPUT, "Output N=%u");
+	events_set_desc(VSU_EVENT_UNDERFLOW, "Underflow N=%u");
+	events_set_desc(VSU_EVENT_OVERFLOW, "Overflow N=%u");
 
 	return true;
 }
@@ -139,15 +163,51 @@ vsu_test(void)
 void
 vsu_reset(void)
 {
-	vsu_buffer_tail = 0;
-	vsu_buffer_head = 0;
-	vsu_buffer_full = false;
+	vsu_thread_reset();
 
 	for (u_int sound = 0; sound < 6; ++sound)
 	{
 		vsu_states[sound].vs_started = false;
 		vsu_regs.vr_sounds[sound].vsr_int.vi_start = 0;
 	}
+}
+
+void
+vsu_mutes_incr(void)
+{
+	if (++vsu_mutes == 1)
+	{
+		struct vsu_thread_data *vtdp = vsu_thread_lock();
+		vtdp->vtd_muted = true;
+		vsu_thread_unlock(&vtdp);
+	}
+}
+
+void
+vsu_mutes_decr(void)
+{
+	assert(vsu_mutes > 0);
+	if (--vsu_mutes == 0)
+		vsu_thread_set_muted(false);
+}
+
+bool
+vsu_is_muted_by_user(void)
+{
+	return vsu_muted_by_user;
+}
+
+void
+vsu_set_muted_by_user(bool muted)
+{
+	if (vsu_muted_by_user == muted)
+		return;
+
+	vsu_muted_by_user = muted;
+	if (vsu_muted_by_user)
+		vsu_mutes_incr();
+	else
+		vsu_mutes_decr();
 }
 
 static void
@@ -158,10 +218,11 @@ vsu_sound_start(u_int sound)
 
 	if (!state->vs_started)
 	{
-		debug_tracef("vsu", "Starting SOUND%u", sound);
+		if (debug_trace_vsu)
+			debug_tracef("vsu", "Starting SOUND%u", sound);
 		state->vs_env_value = vsr->vsr_ev0.ve_init;
 	}
-	else
+	else if (debug_trace_vsu)
 		debug_tracef("vsu", "Restarting SOUND%u", sound);
 
 	state->vs_started = true;
@@ -178,7 +239,8 @@ vsu_sound_stop(u_int sound)
 {
 	if (vsu_states[sound].vs_started)
 	{
-		debug_tracef("vsu", "Stopping SOUND%u", sound);
+		if (debug_trace_vsu)
+			debug_tracef("vsu", "Stopping SOUND%u", sound);
 		vsu_states[sound].vs_started = false;
 	}
 }
@@ -187,6 +249,8 @@ void
 vsu_samples_render(int16_t samples[][2], u_int num_samples)
 {
 	os_bzero(samples, sizeof(samples[0]) * num_samples);
+
+	events_fire(VSU_EVENT_RENDER, num_samples, 0);
 
 	for (u_int sound = 0; sound < 6; ++sound)
 	{
@@ -216,7 +280,7 @@ vsu_samples_render(int16_t samples[][2], u_int num_samples)
 
 			state->vs_freq_count+= clock_freq;
 
-			u_int8_t env = (vsu_env_enable) ? state->vs_env_value : 0xf;
+			u_int8_t env = (vsu_env_enabled) ? state->vs_env_value : 0xf;
 
 			if (state->vs_env_count == vsr->vsr_ev0.ve_step)
 			{
@@ -278,71 +342,48 @@ vsu_step(void)
 	{
 		u_int num_samples = 417;
 
-		tk_audio_lock(); // TODO -- Use atomic circular buffer or double/triple buffer
+		struct vsu_thread_data *vtdp = vsu_thread_lock();
+
+		u_int avail_space = ringbuf_get_avail(&vtdp->vtd_buffer);
+		if (avail_space < num_samples)
+		{
+			if (vtdp->vtd_output_muted)
+			{
+				// If we're muted and the buffer is full, just move the head pointer to make space
+				ringbuf_discard(&vtdp->vtd_buffer, num_samples - avail_space);
+			}
+			else if (!vtdp->vtd_muted)
+			{
+				// TODO: UI message
+				debug_printf("VSU buffer overflow--muting audio\n");
+				events_fire(VSU_EVENT_OVERFLOW, num_samples - avail_space, 0);
+				vsu_set_muted_by_user(true);
+				num_samples = avail_space;
+			}
+		}
 
 		while (num_samples)
 		{
-			u_int end_pos;
-			if (vsu_buffer_tail < vsu_buffer_head)
-				end_pos = vsu_buffer_head;
-			else if (vsu_buffer_tail > vsu_buffer_head || !vsu_buffer_full)
-				end_pos = vsu_buffer_size;
-			else
+			int16_t (*samples)[2];
+			u_int chunk_size = ringbuf_write_contig(&vtdp->vtd_buffer, (void **)&samples, num_samples, (debug_trace_vsu_buf) ? "vsu.buf" : NULL);
+			if (!chunk_size)
 			{
-				debug_printf("VSU buffer overrun--disabling audio");
-				// TODO: Disable audio or adjust timing
+				assert(chunk_size > 0); // Avail space was checked above
 				break;
 			}
 
-			u_int chunk_size = min_uint(end_pos - vsu_buffer_tail, num_samples);
-			vsu_samples_render(vsu_buffer + vsu_buffer_tail, chunk_size);
-
-			vsu_buffer_tail = (vsu_buffer_tail + chunk_size) % vsu_buffer_size;
-			if (vsu_buffer_tail == vsu_buffer_head)
-				vsu_buffer_full = true;
-
+			vsu_samples_render(samples, chunk_size);
 			num_samples-= chunk_size;
 		}
 
-		tk_audio_unlock();
-	}
-}
-
-void
-vsu_buffer_read(int16_t (*samples)[2], u_int count)
-{
-	while (count)
-	{
-		u_int end_pos;
-		if (vsu_buffer_head < vsu_buffer_tail)
-			end_pos = vsu_buffer_tail;
-		else if (vsu_buffer_head > vsu_buffer_tail || vsu_buffer_full)
-			end_pos = vsu_buffer_size;
-		else
-		{
-			debug_printf("VSU buffer underrun--disabling audio\n");
-			// TODO: Disable audio
-			os_bzero(samples, count * sizeof(samples[0]));
-			return;
-		}
-
-		u_int chunk_size = min_uint(end_pos - vsu_buffer_head, count);
-		os_bcopy(vsu_buffer + vsu_buffer_head, samples, chunk_size * sizeof(vsu_buffer[0]));
-
-		if (vsu_buffer_head == vsu_buffer_tail)
-			vsu_buffer_full = false;
-		vsu_buffer_head = (vsu_buffer_head + chunk_size) % vsu_buffer_size;
-
-		samples+= chunk_size;
-		count-= chunk_size;
+		vsu_thread_unlock(&vtdp);
 	}
 }
 
 static float
-vsu_sample_read(void *data, int index)
+vsu_buffer_peek(struct vsu_thread_data *vtdp, u_int index)
 {
-	u_int offset = (vsu_buffer_tail + index) % vsu_buffer_size;
-	return (float)((int16_t *)data)[offset * 2];
+	return (float)((u_int16_t *)ringbuf_elem_peek(&vtdp->vtd_buffer, index))[0];
 }
 
 void
@@ -364,7 +405,7 @@ vsu_frame_end(void)
 					vsu_sound_mask^= (1u << sound);
 			}
 			igSameLine(0, -1);
-			igCheckbox("Env.", &vsu_env_enable);
+			igCheckbox("Env.", &vsu_env_enabled);
 
 			for (u_int sound = 0; sound < 6; ++sound)
 			{
@@ -464,13 +505,17 @@ vsu_frame_end(void)
 	{
 		if (igBegin("Audio Buffers", &vsu_buffers_open, 0))
 		{
+			struct vsu_thread_data *vtdp = vsu_thread_lock();
+
 			for (u_int channel = 0; channel < 2; ++channel)
 				igPlotLines2((channel == 0) ? "Left" : "Right",
-				             vsu_sample_read,
-				             vsu_buffer, vsu_buffer_size, channel * sizeof(vsu_buffer[0][0]),
+				             (float (*)(void *, int))vsu_buffer_peek,
+				             vtdp, vtdp->vtd_buffer.rb_capacity, channel * vtdp->vtd_buffer.rb_elem_size,
 				             NULL,
 				             INT16_MIN, INT16_MAX,
 				             (struct ImVec2){834, 128});
+
+			vsu_thread_unlock(&vtdp);
 		}
 		igEnd();
 	}

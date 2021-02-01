@@ -20,6 +20,7 @@
 /nvc.h
 /sram.h
 /wram.h
+/ringbuf.h
 /tk_sdl.h
 /tk_glfw.h
 /tk_null.h

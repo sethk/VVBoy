@@ -16,6 +16,8 @@ static const u_int main_max_fps = 100;
 void
 main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
 {
+	// TODO: emu_stop()/pause()?
+
 	va_list ap;
 	va_start(ap, fmt);
 	os_runtime_verror(type, BIT(OS_RUNERR_RESP_ABORT), fmt, ap);

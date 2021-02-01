@@ -117,7 +117,7 @@ else()
 endif()
 
 ### Sources
-set(COMMON_SOURCES emu.c rom.c nvc.c imgui.c gl.c mem.c sram.c wram.c cpu.c vip.c vsu.c debug.c events.c)
+set(COMMON_SOURCES ringbuf.c emu.c rom.c nvc.c imgui.c gl.c mem.c sram.c wram.c cpu.c vip.c vsu.c vsu_thread.c debug.c events.c)
 set(COMMON_HEADERS types.h)
 #set(COMMON_SOURCES ${COMMON_SOURCES} vip_draw.c)
 #set(COMMON_SOURCES ${COMMON_SOURCES} vip_draw_slow.c)

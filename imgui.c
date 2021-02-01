@@ -1,5 +1,6 @@
 #include "types.h"
 #include "imgui.h"
+#include <assert.h>
 
 #if INTERFACE
 #   define IMVEC2(x, y) ((struct ImVec2){(x), (y)})
@@ -150,7 +151,16 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
+			bool sound_muted = vsu_is_muted_by_user();
+			if (igMenuItemPtr("Mute audio", NULL, &sound_muted, tk_audio_enabled))
+				vsu_set_muted_by_user(sound_muted);
+
+			igSeparator();
+
 			vip_settings_menu();
+
+			igSeparator();
+
 			igMenuItemPtr("Timing...", NULL, &show_timing, true);
 
 			igSeparator();
