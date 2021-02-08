@@ -219,7 +219,7 @@ main(int ac, char * const *av)
 		rom_unload();
 	main_fini();
 
-	if (debug_trace_file != NULL)
+	if (debug_trace_file)
 		fclose(debug_trace_file);
 
 	return 0;

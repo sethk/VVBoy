@@ -45,7 +45,7 @@ bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 bool debug_trace_vsu = false;
 bool debug_trace_vsu_buf = true;
-os_file_handle_t debug_trace_file = OS_FILE_HANDLE_INVALID;
+os_file_handle_t debug_trace_file = NULL;
 
 enum debug_mode
 {
@@ -2074,7 +2074,7 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	length+= os_vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
 	va_end(ap);
 
-	if (debug_trace_file == OS_FILE_HANDLE_INVALID)
+	if (!debug_trace_file)
 		debug_printf("%s\n", trace);
 	else
 	{
