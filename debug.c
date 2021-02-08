@@ -26,6 +26,7 @@
 
 #endif // INTERFACE
 
+#include <stdlib.h>
 #if HAVE_LIBEDIT
 # include <histedit.h>
 #endif // HAVE_LIBEDIT
