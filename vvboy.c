@@ -20,7 +20,12 @@ main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
 
 	va_list ap;
 	va_start(ap, fmt);
-	os_runtime_verror(type, BIT(OS_RUNERR_RESP_ABORT), fmt, ap);
+	enum os_runerr_resp resp_types = BIT(OS_RUNERR_RESP_ABORT);
+#ifndef NDEBUG
+	resp_types |= BIT(OS_RUNERR_RESP_DEBUG);
+#endif // !defined(NDEBUG)
+	if (os_runtime_verror(type, resp_types, fmt, ap) == OS_RUNERR_RESP_DEBUG)
+		os_debug_trap();
 	va_end(ap);
 	exit(1);
 }
