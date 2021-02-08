@@ -358,7 +358,7 @@ void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
 	os_tnode_t *existing;
-	existing = tfind(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+	existing = tfind(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 	if (existing)
 	{
 		struct debug_symbol *existing_sym = (struct debug_symbol *)existing->key;
@@ -378,7 +378,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 
 	if (!existing && debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tsearch(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tsearch(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 }
 
 struct debug_symbol *
@@ -423,7 +423,7 @@ void
 debug_destroy_symbol(struct debug_symbol *debug_sym)
 {
 	if (debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tdelete(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tdelete(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 
 	if (debug_sym->ds_name)
 		free(debug_sym->ds_name);

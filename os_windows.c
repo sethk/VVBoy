@@ -23,6 +23,8 @@
 #	define OS_MMAP_HANDLE_INVALID INVALID_HANDLE_VALUE
 	typedef HWND os_win_handle_t;
 #	define OS_WIN_HANDLE_INVALID INVALID_HANDLE_VALUE
+
+	typedef posix_tnode os_tnode_t;
 #endif // INTERFACE
 
 #include <CommCtrl.h>

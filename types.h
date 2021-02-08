@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#define _SEARCH_PRIVATE
+#include <search.h>
+#undef _SEARCH_PRIVATE
 
 typedef unsigned char u_char;
 typedef unsigned int u_int;
