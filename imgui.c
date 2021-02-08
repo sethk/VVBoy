@@ -219,7 +219,7 @@ void
 imgui_draw_win(void)
 {
 	char id[64];
-	os_snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
+	os_snprintf(id, sizeof(id), "%.*s###VVBoy", sizeof(id) - 9, rom_name);
 	igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
 	igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
 	struct ImGuiStyle *style = igGetStyle();
