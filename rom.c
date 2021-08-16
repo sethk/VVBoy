@@ -369,7 +369,7 @@ rom_add_symbol(const struct debug_symbol *sym)
 {
 	if (!rom_symbol_fp && rom_symbol_fn)
 	{
-		debug_tracef("rom", "Created symbol file %s\n", rom_symbol_fn);
+		debug_tracef("rom", "Created symbol file %s", rom_symbol_fn);
 		rom_symbol_fp = fopen(rom_symbol_fn, "a");
 		if (!rom_symbol_fp)
 			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not open symbol file %s", rom_symbol_fn);

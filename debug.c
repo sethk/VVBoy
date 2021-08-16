@@ -2047,14 +2047,11 @@ debug_putchar(char ch)
 	debug_console_dirty = true;
 }
 
-void __printflike(1, 2)
-debug_printf(const char *fmt, ...)
+void
+debug_vprintf(const char *fmt, va_list ap)
 {
-	va_list ap;
-	va_start(ap, fmt);
 	char msg[2048];
 	size_t length = os_vsnprintf(msg, sizeof(msg), fmt, ap);
-	va_end(ap);
 #if DEBUG_TTY
 	fputs(msg, stderr);
 #else
@@ -2062,6 +2059,15 @@ debug_printf(const char *fmt, ...)
 #endif // DEBUG_TTY
 	for (size_t offset = 0; offset < length; ++offset)
 		debug_putchar(msg[offset]);
+}
+
+void __printflike(1, 2)
+debug_printf(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	debug_vprintf(fmt, ap);
+	va_end(ap);
 }
 
 // TODO: Rename emu_trace?

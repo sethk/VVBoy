@@ -73,7 +73,7 @@ ringbuf_write_contig(struct ringbuf *rbp, void **bufferp, u_int count, const cha
 	}
 
 	if (trace_tag)
-		debug_tracef(trace_tag, "Writing %u-%u\n", rbp->rb_tail, rbp->rb_tail + chunk_size);
+		debug_tracef(trace_tag, "Writing %u-%u", rbp->rb_tail, rbp->rb_tail + chunk_size);
 
 	*bufferp = (char *)rbp->rb_buffer + rbp->rb_tail * rbp->rb_elem_size;
 	rbp->rb_tail = (rbp->rb_tail + chunk_size) % rbp->rb_capacity;
@@ -82,7 +82,7 @@ ringbuf_write_contig(struct ringbuf *rbp, void **bufferp, u_int count, const cha
 		rbp->rb_is_full = true;
 
 		if (trace_tag)
-			debug_tracef(trace_tag, "Ring buffer full\n");
+			debug_tracef(trace_tag, "Ring buffer full");
 	}
 
 	return chunk_size;

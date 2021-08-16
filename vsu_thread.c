@@ -122,7 +122,7 @@ vsu_thread_read(int16_t (*samples)[2], u_int count)
 		else
 		{
 			if (debug_trace_vsu_buf)
-				debug_tracef("vsu.buf", "Waiting for buffer to hit low watermark\n");
+				debug_tracef("vsu.buf", "Waiting for buffer to hit low watermark");
 
 			to_read = 0;
 		}
@@ -159,7 +159,7 @@ vsu_thread_read(int16_t (*samples)[2], u_int count)
 			u_int fade_count = min_uint(did_read, vsu_fade_samples);
 
 			if (debug_trace_vsu_buf)
-				debug_tracef("vsu.buf", "Output %s, fading %u samples\n", (vsu_muted) ? "muted" : "resumed", fade_count);
+				debug_tracef("vsu.buf", "Output %s, fading %u samples", (vtd->vtd_muted) ? "muted" : "resumed", fade_count);
 
 			int16_t (*fade_end)[2];
 			int fade_index, fade_step;
