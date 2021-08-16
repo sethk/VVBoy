@@ -11,6 +11,7 @@
 /os_macos.h
 /os_windows.h
 /vsu.h
+/vsu_thread.h
 /events.h
 /debug.h
 /gl.h

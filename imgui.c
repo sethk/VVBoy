@@ -151,7 +151,7 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
-			bool sound_muted = vsu_is_muted_by_user();
+			bool sound_muted = vsu_is_muted_by_user() || vsu_is_muted_by_engine();
 			if (igMenuItemPtr("Mute audio", NULL, &sound_muted, tk_audio_enabled))
 				vsu_set_muted_by_user(sound_muted);
 

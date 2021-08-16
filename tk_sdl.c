@@ -118,12 +118,6 @@ tk_init_audio(void)
 		return false;
 	}
 
-	if (sdl_audio_cvt.needed)
-	{
-		assert(false);
-		return false;
-	}
-
 	SDL_PauseAudio(false);
 
 	return true;
@@ -292,22 +286,33 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 {
 	(void)userdata;
 
-	tk_audio_lock();
+	struct vsu_thread_data *vtd = vsu_thread_lock();
 
 	if (sdl_audio_cvt.needed)
 	{
-		vsu_samples_read((int16_t (*)[2])sdl_audio_cvt.buf, sdl_audio_cvt.len);
-		if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
+		while (length)
 		{
-			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error converting audio samples", SDL_GetError(), sdl_window);
-			os_bzero(stream, length);
+			u_int convert_count = min_uint(length / sizeof(u_int16_t[2]), sdl_audio_spec.samples);
+			assert(convert_count > 0);
+			sdl_audio_cvt.buf = stream;
+			sdl_audio_cvt.len = convert_count * sizeof(u_int16_t[2]);
+			vsu_thread_read(vtd, (int16_t(*)[2])sdl_audio_cvt.buf, convert_count);
+			if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
+			{
+				vsu_thread_errorf(vtd, "Error converting audio samples: %s\n", SDL_GetError());
+				os_bzero(stream, length);
+			}
+			stream += sdl_audio_cvt.len_cvt;
+			length -= sdl_audio_cvt.len_cvt;
 		}
 	}
 	else
 	{
 		assert((u_int)length == tk_audio_bufsize * 2 * 2);
-		vsu_samples_read((int16_t (*)[2])stream, tk_audio_bufsize);
+		vsu_thread_read(vtd, (int16_t (*)[2])stream, tk_audio_bufsize);
 	}
+
+	vsu_thread_unlock(&vtd);
 }
 
 void

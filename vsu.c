@@ -3,15 +3,11 @@
 #include <assert.h>
 #include <math.h>
 
-#if INTERFACE
-	enum vsu_event
-	{
-		VSU_EVENT_RENDER = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(0),
-		VSU_EVENT_OUTPUT = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(1),
-		VSU_EVENT_UNDERFLOW = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(2),
-		VSU_EVENT_OVERFLOW = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(3)
-	};
-#endif // INTERFACE
+enum vsu_event
+{
+	VSU_EVENT_RENDER = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(0),
+	VSU_EVENT_OVERFLOW = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(3)
+};
 
 struct vsu_ram
 {
@@ -86,11 +82,8 @@ struct vsu_regs
 };
 
 static bool vsu_muted_by_user = false;
+static bool vsu_muted_by_engine = false;
 static u_int vsu_mutes = 0;
-/*
-static bool vsu_muted = false;
-static bool vsu_output_muted = false;
-*/
 
 bool vsu_sounds_open = false;
 bool vsu_buffers_open = false;
@@ -140,9 +133,10 @@ vsu_init(void)
 	debug_create_symbol("SSTOP", 0x01000580, true);
 
 	events_set_desc(VSU_EVENT_RENDER, "Render N=%u");
-	events_set_desc(VSU_EVENT_OUTPUT, "Output N=%u");
-	events_set_desc(VSU_EVENT_UNDERFLOW, "Underflow N=%u");
 	events_set_desc(VSU_EVENT_OVERFLOW, "Overflow N=%u");
+
+	if (!vsu_thread_init())
+		return false;
 
 	return true;
 }
@@ -205,6 +199,28 @@ vsu_set_muted_by_user(bool muted)
 
 	vsu_muted_by_user = muted;
 	if (vsu_muted_by_user)
+		vsu_mutes_incr();
+	else
+	{
+		vsu_mutes_decr();
+		vsu_set_muted_by_engine(false);
+	}
+}
+
+bool
+vsu_is_muted_by_engine(void)
+{
+	return vsu_muted_by_engine;
+}
+
+void
+vsu_set_muted_by_engine(bool muted)
+{
+	if (vsu_muted_by_engine == muted)
+		return;
+
+	vsu_muted_by_engine = muted;
+	if (vsu_muted_by_engine)
 		vsu_mutes_incr();
 	else
 		vsu_mutes_decr();
@@ -342,22 +358,20 @@ vsu_step(void)
 	{
 		u_int num_samples = 417;
 
-		struct vsu_thread_data *vtdp = vsu_thread_lock();
+		struct vsu_thread_data *vtd = vsu_thread_lock();
 
-		u_int avail_space = ringbuf_get_avail(&vtdp->vtd_buffer);
+		u_int avail_space = ringbuf_get_avail(&vtd->vtd_buffer);
 		if (avail_space < num_samples)
 		{
-			if (vtdp->vtd_output_muted)
+			if (vtd->vtd_output_muted)
 			{
 				// If we're muted and the buffer is full, just move the head pointer to make space
-				ringbuf_discard(&vtdp->vtd_buffer, num_samples - avail_space);
+				ringbuf_discard(&vtd->vtd_buffer, num_samples - avail_space);
 			}
-			else if (!vtdp->vtd_muted)
+			else if (!vtd->vtd_muted)
 			{
-				// TODO: UI message
-				debug_printf("VSU buffer overflow--muting audio\n");
+				vsu_thread_errorf(vtd, "VSU buffer overflow--muting audio");
 				events_fire(VSU_EVENT_OVERFLOW, num_samples - avail_space, 0);
-				vsu_set_muted_by_user(true);
 				num_samples = avail_space;
 			}
 		}
@@ -365,7 +379,7 @@ vsu_step(void)
 		while (num_samples)
 		{
 			int16_t (*samples)[2];
-			u_int chunk_size = ringbuf_write_contig(&vtdp->vtd_buffer, (void **)&samples, num_samples, (debug_trace_vsu_buf) ? "vsu.buf" : NULL);
+			u_int chunk_size = ringbuf_write_contig(&vtd->vtd_buffer, (void **)&samples, num_samples, (debug_trace_vsu_buf) ? "vsu.buf" : NULL);
 			if (!chunk_size)
 			{
 				assert(chunk_size > 0); // Avail space was checked above
@@ -376,7 +390,7 @@ vsu_step(void)
 			num_samples-= chunk_size;
 		}
 
-		vsu_thread_unlock(&vtdp);
+		vsu_thread_unlock(&vtd);
 	}
 }
 
@@ -389,6 +403,44 @@ vsu_buffer_peek(struct vsu_thread_data *vtdp, u_int index)
 void
 vsu_frame_end(void)
 {
+	bool has_error = false;
+	char *error_s[sizeof(((struct vsu_thread_data *)NULL)->vtd_error_str)];
+	{
+		struct vsu_thread_data *vtd = vsu_thread_lock();
+
+		if (vtd->vtd_error_count)
+		{
+			has_error = true;
+			os_bcopy(vtd->vtd_error_str, error_s, sizeof(vtd->vtd_error_str));
+			vtd->vtd_error_count = 0;
+			vsu_set_muted_by_engine(true);
+		}
+
+		if (vsu_buffers_open)
+		{
+			if (igBegin("Audio Buffers", &vsu_buffers_open, 0))
+			{
+				for (u_int channel = 0; channel < 2; ++channel)
+					igPlotLines2((channel == 0) ? "Left" : "Right",
+								 (float (*)(void *, int))vsu_buffer_peek,
+								 vtd, vtd->vtd_buffer.rb_capacity, channel * vtd->vtd_buffer.rb_elem_size,
+								 NULL,
+								 INT16_MIN, INT16_MAX,
+								 (struct ImVec2){834, 128});
+			}
+			igEnd();
+		}
+
+		vsu_thread_unlock(&vtd);
+	}
+
+	if (has_error)
+	{
+		// TODO: Show UI message
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY),
+			"Audio output error. %s Sound has been muted.", error_s);
+	}
+
 	if (vsu_sounds_open)
 	{
 		igSetNextWindowSize((struct ImVec2){600, 0}, ImGuiCond_Once);
@@ -497,25 +549,6 @@ vsu_frame_end(void)
 					igTreePop();
 				}
 			}
-		}
-		igEnd();
-	}
-
-	if (vsu_buffers_open)
-	{
-		if (igBegin("Audio Buffers", &vsu_buffers_open, 0))
-		{
-			struct vsu_thread_data *vtdp = vsu_thread_lock();
-
-			for (u_int channel = 0; channel < 2; ++channel)
-				igPlotLines2((channel == 0) ? "Left" : "Right",
-				             (float (*)(void *, int))vsu_buffer_peek,
-				             vtdp, vtdp->vtd_buffer.rb_capacity, channel * vtdp->vtd_buffer.rb_elem_size,
-				             NULL,
-				             INT16_MIN, INT16_MAX,
-				             (struct ImVec2){834, 128});
-
-			vsu_thread_unlock(&vtdp);
 		}
 		igEnd();
 	}
