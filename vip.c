@@ -1311,7 +1311,7 @@ vip_step(void)
 			vip_regs.vr_intpnd&= ~vip_regs.vr_intclr;
 			vip_regs.vr_intclr = 0;
 		}
-		if (vip_regs.vr_dpctrl.vd_lock != vip_regs.vr_dpctrl.vd_lock)
+		if (vip_regs.vr_dpctrl.vd_lock != vip_regs.vr_dpstts.vd_lock)
 		{
 			debug_runtime_errorf(NULL, "VIP: LOCK=%d\n", vip_regs.vr_dpctrl.vd_lock);
 			vip_regs.vr_dpstts.vd_lock = vip_regs.vr_dpctrl.vd_lock;
