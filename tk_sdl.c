@@ -289,7 +289,7 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 
 	if (sdl_audio_cvt.needed)
 	{
-		vsu_read_samples((int16_t *)sdl_audio_cvt.buf, sdl_audio_cvt.len);
+		vsu_buffer_read((int16_t (*)[2])sdl_audio_cvt.buf, sdl_audio_cvt.len);
 		if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
 		{
 			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error converting audio samples", SDL_GetError(), sdl_window);
@@ -299,7 +299,7 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 	else
 	{
 		assert(length == 834 * 2 * 2);
-		vsu_read_samples((int16_t *)stream, 834);
+		vsu_buffer_read((int16_t (*)[2])stream, 834);
 	}
 }
 
