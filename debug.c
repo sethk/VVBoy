@@ -45,7 +45,7 @@ u_int16_t debug_vip_intflags = 0;
 bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 bool debug_trace_vsu = false;
-bool debug_trace_vsu_buf = true;
+bool debug_trace_vsu_buf = false;
 os_file_handle_t debug_trace_file = NULL;
 
 enum debug_mode
@@ -80,7 +80,8 @@ static struct debug_trace debug_traces[] =
 				{"vip", "Trace VIP", &debug_trace_vip},
 				{"nvc", "Trace NVC", &debug_trace_nvc},
 				{"nvc.tim", "Trace NVC timer", &debug_trace_nvc_tim},
-				{"vsu", "Trace VSU", &debug_trace_vsu}
+				{"vsu", "Trace VSU", &debug_trace_vsu},
+				{"vsu.buf", "Trace VSU buffers", &debug_trace_vsu_buf},
 		};
 
 struct debug_watch
