@@ -435,7 +435,7 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 	static WCHAR wide_msg[512];
 	size_t msg_len = strlen(msg);
-	int wmsg_len = MultiByteToWideChar(CP_UTF8, 0, msg, msg_len, wide_msg, sizeof(wide_msg));
+	int wmsg_len = MultiByteToWideChar(CP_UTF8, 0, msg, msg_len + 1, wide_msg, COUNT_OF(wide_msg));
 	assert(wmsg_len > 0);
 	config.pszMainInstruction = wide_msg;
 
