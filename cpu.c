@@ -248,15 +248,6 @@ cpu_init(void)
 	enum event_subsys dummy_subsys;
 	(void)dummy_subsys; // Hint for makeheaders
 
-	debug_create_symbol("vect.fpe", 0xffffff60, true);
-	debug_create_symbol("vect.div0", 0xffffff80, true);
-	debug_create_symbol("vect.ill", 0xffffff90, true);
-	debug_create_symbol("vect.trapa", 0xffffffa0, true);
-	debug_create_symbol("vect.trapb", 0xffffffb0, true);
-	debug_create_symbol("vect.atrap", 0xffffffc0, true);
-	debug_create_symbol("vect.nmi", 0xffffffd0, true);
-	debug_create_symbol("vect.reset", 0xfffffff0, true);
-
 	events_set_desc(CPU_EVENT_INTR_ENTER, "Interrupt %u (%s)");
 	events_set_desc(CPU_EVENT_INTR_RETURN, "Return from interrupt");
 	events_set_desc(CPU_EVENT_INTR_ENABLE, "Enable interrupts");
@@ -266,6 +257,19 @@ cpu_init(void)
 	cpu_wait = 1;
 
 	return true;
+}
+
+void
+cpu_init_debug()
+{
+	debug_create_symbol("vect.fpe", 0xffffff60, true);
+	debug_create_symbol("vect.div0", 0xffffff80, true);
+	debug_create_symbol("vect.ill", 0xffffff90, true);
+	debug_create_symbol("vect.trapa", 0xffffffa0, true);
+	debug_create_symbol("vect.trapb", 0xffffffb0, true);
+	debug_create_symbol("vect.atrap", 0xffffffc0, true);
+	debug_create_symbol("vect.nmi", 0xffffffd0, true);
+	debug_create_symbol("vect.reset", 0xfffffff0, true);
 }
 
 void
@@ -351,6 +355,7 @@ cpu_extend5to16(u_int16_t s5)
 	return s5;
 }
 
+// TODO: Possibly just assign signed type
 inline static u_int32_t
 cpu_extend5to32(u_int32_t s5)
 {

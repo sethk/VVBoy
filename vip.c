@@ -279,6 +279,27 @@ vip_init(void)
 {
 	(void)dummy_event_subsys;
 
+	events_set_desc(VIP_EVENT_FRAMESTART, "FRAMESTART FRMCYC=%i");
+	events_set_desc(VIP_EVENT_GAMESTART, "GAMESTART");
+	events_set_desc(VIP_EVENT_DRAW_ENABLE, "Draw enabled");
+	events_set_desc(VIP_EVENT_DRAW_DISABLE, "Draw disabled");
+	events_set_desc(VIP_EVENT_DRAW_START, "Draw FB%u");
+	events_set_desc(VIP_EVENT_CLEAR_START, "Clear FB%u");
+	events_set_desc(SCAN_EVENT_LDISP_START, "Display L:FB%u");
+	events_set_desc(SCAN_EVENT_RDISP_START, "Display R:FB%u");
+
+	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
+	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
+	os_bzero(&vip_regs, sizeof(vip_regs));
+	vip_regs.vr_dpstts.vd_scanrdy = 1;
+	vip_disp_index = 0;
+
+	return true;
+}
+
+void
+vip_init_debug()
+{
 	debug_create_symbol("L:FB0", 0x00000, true);
 	debug_create_symbol("L:FB1", 0x08000, true);
 	debug_create_symbol("R:FB0", 0x10000, true);
@@ -314,23 +335,6 @@ vip_init(void)
 	debug_create_symbol("CLM_TBL", 0x3dc00, true);
 	debug_create_symbol("OAM", 0x3e000, true);
 	debug_create_symbol("CHR", 0x78000, true);
-
-	events_set_desc(VIP_EVENT_FRAMESTART, "FRAMESTART FRMCYC=%i");
-	events_set_desc(VIP_EVENT_GAMESTART, "GAMESTART");
-	events_set_desc(VIP_EVENT_DRAW_ENABLE, "Draw enabled");
-	events_set_desc(VIP_EVENT_DRAW_DISABLE, "Draw disabled");
-	events_set_desc(VIP_EVENT_DRAW_START, "Draw FB%u");
-	events_set_desc(VIP_EVENT_CLEAR_START, "Clear FB%u");
-	events_set_desc(SCAN_EVENT_LDISP_START, "Display L:FB%u");
-	events_set_desc(SCAN_EVENT_RDISP_START, "Display R:FB%u");
-
-	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
-	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
-	os_bzero(&vip_regs, sizeof(vip_regs));
-	vip_regs.vr_dpstts.vd_scanrdy = 1;
-	vip_disp_index = 0;
-
-	return true;
 }
 
 void

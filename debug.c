@@ -343,6 +343,28 @@ debug_format_addr(u_int32_t addr, debug_str_t s)
 	return debug_format_addrsym(addr, match_sym, s);
 }
 
+const char *
+debug_format_symbol(const struct debug_symbol *sym, debug_str_t s)
+{
+	const char *type_s;
+
+	switch (sym->ds_type)
+	{
+		case ISX_SYMBOL_CONST: type_s = "CONST"; break;
+		case ISX_SYMBOL_POINTER: type_s = "POINTER"; break;
+		case ISX_SYMBOL_END: type_s = "END"; break;
+		default:
+		{
+			static char unknown_type_s[32];
+			os_snprintf(unknown_type_s, sizeof(unknown_type_s), "Unknown (%d)", sym->ds_type);
+		}
+	}
+
+	os_snprintf(s, debug_str_len, DEBUG_ADDR_FMT " = 0x%08x, type = %s, is_system = %d",
+			sym->ds_name, sym->ds_addr, type_s, sym->ds_is_system);
+	return s;
+}
+
 const char *debug_rnames[32] =
 {
 	"r0", "r1", "hp", "sp", "gp", "tp", "r6", "r7",
@@ -522,6 +544,8 @@ debug_disasm_ii(debug_str_t decode,
 	debug_str_t reg2_s;
 	debug_disasm_fmtreg(reg2_s, reg2_fmt, context, inst->ci_ii.ii_reg2);
 	os_snprintf(decomp, debug_str_len, decomp_fmt, debug_rnames[inst->ci_ii.ii_reg2], reg2_s, imm5_s);
+
+	debug_clear_reg(context, inst->ci_ii.ii_reg2);
 }
 
 static void
@@ -857,7 +881,6 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			break;
 		case OP_ADD2:
 			debug_disasm_ii(decode, decomp, inst, "ADD", "%2$i", "%i", "%1$s <- %2$s + %3$s", context);
-			debug_clear_reg(context, inst->ci_ii.ii_reg2);
 			break;
 		case OP_SETF:
 		{
@@ -1195,6 +1218,12 @@ debug_mem_read(u_int32_t addr, void *dest, u_int size)
 		debug_printf("Could not read %u bytes from 0x%08x: Invalid address", size, addr);
 		return false;
 	}
+}
+
+const struct debug_symbol *
+debug_get_symbols()
+{
+	return debug_syms;
 }
 
 u_int32_t
@@ -1785,8 +1814,11 @@ debug_exec(const char *cmd)
 			if (argc == 1)
 			{
 				for (struct debug_symbol *sym = debug_syms; sym; sym = sym->ds_next)
-					debug_printf("debug symbol: %s = 0x%08x, type = %u\n",
-					             sym->ds_name, sym->ds_addr, sym->ds_type);
+				{
+					debug_str_t sym_s;
+					debug_format_symbol(sym, sym_s);
+					debug_printf("%s\n", sym_s);
+				}
 			}
 			else if (argc == 2)
 			{

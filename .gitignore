@@ -1,3 +1,6 @@
+*.dSYM
+tags
+cscope.out
 /test/
 /roms/
 /vvboy

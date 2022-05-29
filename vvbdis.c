@@ -39,6 +39,8 @@ main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
 static struct func *
 create_func(const struct debug_symbol *sym)
 {
+	assert(sym);
+
 	struct func *func = malloc(sizeof(*func));
 	if (!func)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate function");
@@ -253,7 +255,7 @@ show_disasm(union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *con
 }
 
 static void
-scan_area(u_int32_t begin, u_int32_t end)
+scan_area(const u_int32_t begin, const u_int32_t end)
 {
 	u_int32_t pc = begin;
 	static u_int func_sym_index = 0;
@@ -359,6 +361,67 @@ disasm_area(u_int32_t begin, u_int32_t end)
 	}
 }
 
+static void
+disasm_func(struct func *func)
+{
+	struct func *next_func = func->f_next;
+	show_func(func->f_debug_sym, func);
+
+	u_int32_t pc = func->f_debug_sym->ds_addr;
+	u_int32_t end = ((CPU_MAX_PC - pc) >= 16384UL) ? pc + 16384UL : CPU_MAX_PC; // Maximum function length
+
+	u_int32_t last_branch = 0;
+	struct debug_disasm_context context;
+	os_bzero(&context, sizeof(context));
+	while (pc < end)
+	{
+		union cpu_inst inst;
+		fetch_inst(&inst, pc);
+
+		if (inst.ci_hwords[0] == 0xffff && inst.ci_hwords[1] == 0xffff)
+		{
+			printf(";; Stopping at improbable instruction 0xffff 0xffff\n");
+			break;
+		}
+
+		show_disasm(&inst, pc, &context);
+
+		if (verbose)
+			fflush(stdout);
+
+		u_int32_t target;
+		if (inst_is_branch(&inst, pc, next_func, &context, &target))
+		{
+			if (verbose >= 2)
+				fprintf(stderr, "Branch target at 0x%08x: 0x%08x\n", pc, target);
+
+			if (target > last_branch)
+			{
+				if (verbose)
+					fprintf(stderr, "Moving last branch to 0x%08x\n", target);
+				last_branch = target;
+			}
+		}
+		else if ((inst.ci_i.i_opcode == OP_JMP ||
+				  inst.ci_i.i_opcode == OP_RETI ||
+				  inst.ci_i.i_opcode == OP_TRAP) &&
+				pc >= last_branch)
+			break;
+
+		incr_pc(&pc, &inst);
+
+		u_int32_t offset;
+		if ((next_func && pc == next_func->f_debug_sym->ds_addr) ||
+				(debug_resolve_addr(pc, &offset) != func->f_debug_sym))
+		{
+			printf(";; Warning: Hit end of %s without seeing last JR/JMP/RETI/TRAP\n",
+					func->f_debug_sym->ds_name);
+			printf(";; last_branch = 0x%08x\n", last_branch);
+			break;
+		}
+	}
+}
+
 bool main_fixed_rate = false; // TODO: Remove
 
 void
@@ -388,10 +451,12 @@ main_close_rom(void)
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-av] [-b <base-addr>] <file.vb> | <file.isx>\n", os_getprogname());
+	fprintf(stderr, "usage: %s [-asv] [-b <base-addr>] <file.vb> | <file.isx>\n", os_getprogname());
 	fprintf(stderr, "\t-a\tDisassemble all sections, not just called functions\n");
-	fprintf(stderr, "\t-b <base-addr>\tSet the base load address\n");
-	fprintf(stderr, "\t-a\tIncrease verbosity level\n");
+	fputs("\t-b <base-addr>\tSet the base load address\n", stderr);
+	fputs("\t-d <name>\tDisassemble only the named function (entire text is still scanned for cross-reference)\n", stderr);
+	fputs("\t-s\t\tShow all symbols\n", stderr);
+	fputs("\t-v\t\tIncrease verbosity level\n", stderr);
 	exit(64); // EX_USAGE
 }
 
@@ -399,12 +464,15 @@ int
 main(int ac, char * const *av)
 {
 	extern int optind;
+	bool show_syms = false;
 	bool show_graph = false;
 	bool funcs_only = true;
 	debug_trace_file = stderr;
+	const char *disasm_name = NULL;
+	int status = 0;
 
 	int ch;
-	while ((ch = getopt(ac, av, "ab:gv")) != -1)
+	while ((ch = getopt(ac, av, "ab:d:gsv")) != -1)
 		switch (ch)
 		{
 			default:
@@ -426,8 +494,16 @@ main(int ac, char * const *av)
 				break;
 			}
 
+			case 'd':
+				disasm_name = optarg;
+				break;
+
 			case 'g':
 				show_graph = true;
+				break;
+
+			case 's':
+				show_syms = true;
 				break;
 
 			case 'v':
@@ -439,6 +515,8 @@ main(int ac, char * const *av)
 
 	if (ac != 1)
 		usage();
+
+	emu_init_debug();
 
 	if (!rom_load(av[0]))
 		return 1;
@@ -476,6 +554,16 @@ main(int ac, char * const *av)
 	scan_area(text_begin, text_end);
 	scan_area(vect_begin, vect_end);
 
+	if (show_syms)
+	{
+		puts("Symbols:");
+		for (const struct debug_symbol *sym = debug_get_symbols(); sym; sym = sym->ds_next)
+		{
+			debug_str_t sym_s;
+			printf("\t%s\n", debug_format_symbol(sym, sym_s));
+		}
+	}
+
 	if (show_graph)
 	{
 		puts("digraph calls {");
@@ -484,68 +572,28 @@ main(int ac, char * const *av)
 			show_call_graph(func);
 		puts("}");
 	}
+	else if (disasm_name)
+	{
+		struct func *func = NULL;
+		for (func = funcs; func; func = func->f_next)
+		{
+			fprintf(stderr, "func %s\n", func->f_debug_sym->ds_name);
+			if (!strcmp(disasm_name, func->f_debug_sym->ds_name))
+				break;
+		}
+
+		if (func)
+			disasm_func(func);
+		else
+		{
+			fprintf(stderr, "No function named %s found to disassemble\n", disasm_name);
+			status = 1;
+		}
+	}
 	else if (funcs_only)
 	{
-		struct func *next_func;
-		for (struct func *func = funcs; func; func = next_func)
-		{
-			next_func = func->f_next;
-			show_func(func->f_debug_sym, func);
-
-			u_int32_t pc = func->f_debug_sym->ds_addr;
-			u_int32_t end = min_uint(pc + (u_int64_t)16384, CPU_MAX_PC); // Maximum function length
-			assert(end >= pc);
-			u_int32_t last_branch = 0;
-			struct debug_disasm_context context;
-			os_bzero(&context, sizeof(context));
-			while (pc < end)
-			{
-				union cpu_inst inst;
-				fetch_inst(&inst, pc);
-
-				if (inst.ci_hwords[0] == 0xffff && inst.ci_hwords[1] == 0xffff)
-				{
-					printf(";; Stopping at improbable instruction 0xffff 0xffff\n");
-					break;
-				}
-
-				show_disasm(&inst, pc, &context);
-
-				if (verbose)
-					fflush(stdout);
-
-				u_int32_t target;
-				if (inst_is_branch(&inst, pc, next_func, &context, &target))
-				{
-					if (verbose >= 2)
-						fprintf(stderr, "Branch target at 0x%08x: 0x%08x\n", pc, target);
-
-					if (target > last_branch)
-					{
-						if (verbose)
-							fprintf(stderr, "Moving last branch to 0x%08x\n", target);
-						last_branch = target;
-					}
-				}
-				else if ((inst.ci_i.i_opcode == OP_JMP ||
-						  inst.ci_i.i_opcode == OP_RETI ||
-				          inst.ci_i.i_opcode == OP_TRAP) &&
-						pc >= last_branch)
-					break;
-
-				incr_pc(&pc, &inst);
-
-				u_int32_t offset;
-				if ((next_func && pc == next_func->f_debug_sym->ds_addr) ||
-						(debug_resolve_addr(pc, &offset) != func->f_debug_sym))
-				{
-					printf(";; Warning: Hit end of %s without seeing last JR/JMP/RETI/TRAP\n",
-					        func->f_debug_sym->ds_name);
-					printf(";; last_branch = 0x%08x\n", last_branch);
-					break;
-				}
-			}
-		}
+		for (struct func *func = funcs; func; func = func->f_next)
+			disasm_func(func);
 	}
 	else
 	{
@@ -553,21 +601,8 @@ main(int ac, char * const *av)
 		disasm_area(vect_begin, vect_end);
 	}
 
-	while (funcs)
-	{
-		struct func *func = funcs;
-		struct func_caller *callers = func->f_callers;
-		while (callers)
-		{
-			struct func_caller *caller = callers;
-			callers = caller->fc_next;
-			free(caller);
-		}
-		funcs = func->f_next;
-		free(func);
-	}
 
 	rom_unload();
 
-	return 0;
+	return status;
 }

@@ -105,6 +105,12 @@ static bool vsu_env_enable = true;
 bool
 vsu_init(void)
 {
+	return true;
+}
+
+void
+vsu_init_debug()
+{
 	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80, true);
 	for (u_int i = 0; i < 6; ++i)
 	{
@@ -119,8 +125,6 @@ vsu_init(void)
 		debug_create_symbolf(base + 0x18, true, "S%uRAM", sound);
 	}
 	debug_create_symbol("SSTOP", 0x01000580, true);
-
-	return true;
 }
 
 void

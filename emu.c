@@ -31,6 +31,15 @@ emu_init(void)
 }
 
 void
+emu_init_debug()
+{
+	wram_init_debug();
+	vip_init_debug();
+	vsu_init_debug();
+	nvc_init_debug();
+}
+
+void
 emu_fini(void)
 {
 	debug_fini();
