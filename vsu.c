@@ -117,6 +117,18 @@ vsu_init(void)
 
 	//_Static_assert(tk_audio_bufsize <= vsu_buffer_size, "Toolkit audio buffer size larger than VSU buffer size");
 
+	events_set_desc(VSU_EVENT_RENDER, "Render N=%u");
+	events_set_desc(VSU_EVENT_OVERFLOW, "Overflow N=%u");
+
+	if (!vsu_thread_init())
+		return false;
+
+	return true;
+}
+
+void
+vsu_init_debug()
+{
 	debug_create_symbol_array("SNDWAV", 0x01000000, 5, 0x80, true);
 	for (u_int i = 0; i < 6; ++i)
 	{
@@ -131,14 +143,6 @@ vsu_init(void)
 		debug_create_symbolf(base + 0x18, true, "S%uRAM", sound);
 	}
 	debug_create_symbol("SSTOP", 0x01000580, true);
-
-	events_set_desc(VSU_EVENT_RENDER, "Render N=%u");
-	events_set_desc(VSU_EVENT_OVERFLOW, "Overflow N=%u");
-
-	if (!vsu_thread_init())
-		return false;
-
-	return true;
 }
 
 void

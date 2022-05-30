@@ -102,6 +102,16 @@ nvc_init(void)
 	enum event_subsys dummy_subsys;
 	(void)dummy_subsys; // Hint for makeheaders
 
+	events_set_desc(NVC_EVENT_TIMER_SET, "Timer set");
+	events_set_desc(NVC_EVENT_TIMER_EXPIRED, "Timer expired");
+	events_set_desc(NVC_EVENT_KEY_DOWN, "Key 0x%x down");
+	events_set_desc(NVC_EVENT_KEY_UP, "Key 0x%x up");
+	return cpu_init();
+}
+
+void
+nvc_init_debug()
+{
 	debug_create_symbol("SCR", 0x02000028, true);
 	debug_create_symbol("WCR", 0x02000024, true);
 	debug_create_symbol("TCR", 0x02000020, true);
@@ -120,11 +130,7 @@ nvc_init(void)
 	debug_create_symbol("vect.com", 0xfffffe30, true);
 	debug_create_symbol("vect.vip", 0xfffffe40, true);
 
-	events_set_desc(NVC_EVENT_TIMER_SET, "Timer set");
-	events_set_desc(NVC_EVENT_TIMER_EXPIRED, "Timer expired");
-	events_set_desc(NVC_EVENT_KEY_DOWN, "Key 0x%x down");
-	events_set_desc(NVC_EVENT_KEY_UP, "Key 0x%x up");
-	return cpu_init();
+	cpu_init_debug();
 }
 
 void

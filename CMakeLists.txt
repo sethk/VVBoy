@@ -13,7 +13,8 @@ add_executable(vvboy)
 if(MSVC)
 	set(COMMON_C_FLAGS /W1 /GR- /EHsc) # /WX
 else()
-	set(COMMON_C_FLAGS -Wall -Wextra -Wformat) # -Werror
+	set(COMMON_C_FLAGS -Wall -Wextra -Wformat -Wshadow) # -Werror
+	#set(COMMON_C_FLAGS -Weverything) # -Werror
 	set(CMAKE_C_FLAGS_RELEASE -O3)
 	#set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -fno-inline -O0")
 	#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
@@ -116,8 +117,7 @@ else()
     set(TK_SOURCES tk_null.c)
 endif()
 
-### Sources
-set(COMMON_SOURCES ringbuf.c emu.c rom.c nvc.c imgui.c gl.c mem.c sram.c wram.c cpu.c vip.c vsu.c vsu_thread.c debug.c events.c)
+set(COMMON_SOURCES bitset.c ringbuf.c emu.c rom.c nvc.c imgui.c gl.c mem.c sram.c wram.c cpu.c vip.c vsu.c vsu_thread.c debug.c events.c)
 set(COMMON_HEADERS types.h)
 #set(COMMON_SOURCES ${COMMON_SOURCES} vip_draw.c)
 #set(COMMON_SOURCES ${COMMON_SOURCES} vip_draw_slow.c)
