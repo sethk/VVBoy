@@ -151,7 +151,7 @@ imgui_frame_begin(void)
 
 			igSeparator();
 
-			bool sound_muted = vsu_is_muted_by_user();
+			bool sound_muted = vsu_is_muted_by_user() || vsu_is_muted_by_engine();
 			if (igMenuItemPtr("Mute audio", NULL, &sound_muted, tk_audio_enabled))
 				vsu_set_muted_by_user(sound_muted);
 
@@ -219,7 +219,7 @@ void
 imgui_draw_win(void)
 {
 	char id[64];
-	os_snprintf(id, sizeof(id), "%s##VVBoy", rom_name);
+	os_snprintf(id, sizeof(id), "%.*s###VVBoy", sizeof(id) - 9, rom_name);
 	igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
 	igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
 	struct ImGuiStyle *style = igGetStyle();

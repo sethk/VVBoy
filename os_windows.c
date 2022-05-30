@@ -4,8 +4,6 @@
 #if INTERFACE
 #	include <Windows.h>
 #	include <sys/types.h>
-#	define os_snprintf _sprintf_p // Must support positional arguments
-#	define os_vsnprintf _vsprintf_p
 #	define os_bzero(p, s) ZeroMemory(p, s)
 #	define os_bcopy(s, d, l) CopyMemory(d, s, l)
 #	if defined(WIN64)
@@ -13,6 +11,9 @@
 #	else
 #		define os_bcmp(a, b, s) memcmp(a, b, s)
 #	endif
+#	define os_strcasecmp stricmp
+#	define os_debug_trap() __debugbreak()
+
 #	define OS_SHORTCUT_LKEY TK_SCANCODE_LCTRL
 #	define OS_SHORTCUT_RKEY TK_SCANCODE_RCTRL
 #	define OS_SHORTCUT_KEY_NAME "Ctrl"
@@ -23,6 +24,8 @@
 #	define OS_MMAP_HANDLE_INVALID INVALID_HANDLE_VALUE
 	typedef HWND os_win_handle_t;
 #	define OS_WIN_HANDLE_INVALID INVALID_HANDLE_VALUE
+
+	typedef posix_tnode os_tnode_t;
 #endif // INTERFACE
 
 #include <CommCtrl.h>
@@ -30,6 +33,7 @@
 #include <shellapi.h>
 #include <stdio.h>
 #include <malloc.h>
+#include <limits.h>
 #include <assert.h>
 
 #if defined _M_IX86
@@ -55,6 +59,12 @@ os_init(void)
 void
 os_fini(void)
 {
+}
+
+void
+os_debug_log(const char *msg)
+{
+	OutputDebugStringA(msg);
 }
 
 static CHAR progname[MAX_PATH] = { '\0' };
@@ -86,6 +96,137 @@ os_get_usec(void)
 	return (count.QuadPart * 1000000) / os_ticks_per_sec.QuadPart;
 }
 
+size_t
+os_snprintf(char *s, size_t size, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	size_t result = os_vsnprintf(s, size, fmt, ap);
+	va_end(ap);
+	return result;
+}
+
+static void
+os_sprintf_copyfmt(const char **src_beginp, const char *src_end, char **dest_beginp, char *dest_end)
+{
+	while (*src_beginp != src_end)
+	{
+		if (*dest_beginp == dest_end)
+			main_fatal_error(OS_RUNERR_TYPE_WARNING, "Format string with positional arguments too long");
+
+		*(*dest_beginp)++ = *(*src_beginp)++;
+	}
+}
+
+size_t
+os_vsnprintf(char * const out, size_t out_size, const char * const orig_fmt_buffer, va_list args)
+{
+	//if (!strchr(orig_fmt, '$'))
+		//return _vsprintf_p(out, orig_fmt_size, orig_fmt, args);
+
+	// Windows vsprintf_p() forbids mixing of positional and non-positional arguments and unused positions, so we just
+	// make all of them positional and append any skipped ones:
+	size_t orig_fmt_len = strlen(orig_fmt_buffer);
+	const char *orig_fmt = orig_fmt_buffer, *orig_fmt_end = orig_fmt_buffer + orig_fmt_len;
+	size_t out_fmt_len = orig_fmt_len * 4;
+	char *out_fmt_buffer = alloca(out_fmt_len + 1), *out_fmt = out_fmt_buffer, *out_fmt_end = out_fmt_buffer + out_fmt_len;
+	if (!out_fmt)
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not allocate format string");
+
+	u_int max_pos = 0;
+	u_int pos_mask = 0;
+
+	while (orig_fmt != orig_fmt_end)
+	{
+		const char *next_orig_fmt = orig_fmt + 1;
+		if (*orig_fmt != '%')
+		{
+			os_sprintf_copyfmt(&orig_fmt, next_orig_fmt, &out_fmt, out_fmt_end);
+			continue;
+		}
+
+		if (*next_orig_fmt == '%')
+		{
+			os_sprintf_copyfmt(&orig_fmt, next_orig_fmt + 1, &out_fmt, out_fmt_end);
+			continue;
+		}
+
+		char *end_orig_arg;
+		long arg_pos = strtol(next_orig_fmt, &end_orig_arg, 10);
+		bool have_arg_pos = false;
+		if (end_orig_arg != next_orig_fmt && *end_orig_arg == '$')
+		{
+			have_arg_pos = true;
+			next_orig_fmt = end_orig_arg + 1;
+		}
+
+		char arg_fmt_buffer[12 + 1], *next_arg_fmt = arg_fmt_buffer, *arg_fmt_end = arg_fmt_buffer + sizeof(arg_fmt_buffer) - 1;
+		bool in_fmt_arg = true;
+		do
+		{
+			switch (*next_orig_fmt)
+			{
+				case '\0':
+					main_fatal_error(OS_RUNERR_TYPE_WARNING, "Unterminated format specifier");
+
+				case '*':
+				{
+					++next_orig_fmt;
+					char *end_width_pos;
+					unsigned long width_pos = strtoul(next_orig_fmt, &end_width_pos, 10);
+					if (end_width_pos != next_orig_fmt && *end_width_pos == '$')
+					{
+						max_pos = max_uint(width_pos, max_pos);
+						next_orig_fmt = end_width_pos + 1;
+					}
+					else
+						width_pos = ++max_pos;
+
+					assert(width_pos <= sizeof(pos_mask) *CHAR_BIT);
+					pos_mask |= BIT(width_pos - 1);
+					next_arg_fmt+= snprintf(next_arg_fmt, (arg_fmt_end - next_arg_fmt) + 1, "*%u$", width_pos);
+					break;
+				}
+
+				case 'c': case 'C':
+				case 'd': case 'i': case 'o': case 'u': case 'x': case 'X':
+				case 'a': case 'A': case 'e': case 'E': case 'f': case 'F': case 'g': case 'G':
+				case 'n':
+				case 'p':
+				case 's': case 'S':
+					in_fmt_arg = false;
+					// FALLTHRU
+				default:
+					os_sprintf_copyfmt(&next_orig_fmt, next_orig_fmt + 1, &next_arg_fmt, arg_fmt_end);
+			}
+		}
+		while (in_fmt_arg);
+		orig_fmt = next_orig_fmt;
+
+		if (have_arg_pos)
+			max_pos = max_uint(arg_pos, max_pos);
+		else
+			arg_pos = ++max_pos;
+		assert(arg_pos <= sizeof(pos_mask) *CHAR_BIT);
+		pos_mask |= BIT(arg_pos - 1);
+
+		out_fmt+= snprintf(out_fmt, (out_fmt_end - out_fmt) + 1, "%%%u$", arg_pos);
+		char *arg_fmt = arg_fmt_buffer;
+		os_sprintf_copyfmt(&arg_fmt, next_arg_fmt, &out_fmt, out_fmt_end);
+	}
+
+	for (u_int pos = 1; pos < max_pos; ++pos)
+	{
+		if (pos_mask & BIT(pos - 1))
+			continue;
+
+		out_fmt += snprintf(out_fmt, (out_fmt_end - out_fmt) + 1, "%%%d$0.0s", pos);
+	}
+
+	*out_fmt = '\0';
+	return _vsprintf_p(out, out_size, out_fmt_buffer, args);
+}
+
 os_file_handle_t
 os_file_open(const char *fn, enum os_perm perm)
 {
@@ -111,6 +252,13 @@ os_file_close(os_file_handle_t handle)
 }
 
 bool
+os_file_exists(const char *path)
+{
+	DWORD attrs = GetFileAttributes(path);
+	return (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+bool
 os_file_getsize(os_file_handle_t handle, off_t *psize)
 {
 	LARGE_INTEGER size;
@@ -118,6 +266,19 @@ os_file_getsize(os_file_handle_t handle, off_t *psize)
 		return false;
 	*psize = size.QuadPart;
 	return true;
+}
+
+bool
+os_file_iseof(os_file_handle_t handle)
+{
+	LARGE_INTEGER zero, size, pos;
+	zero.QuadPart = 0;
+	if (!GetFileSizeEx(handle, &size) || !SetFilePointerEx(handle, zero, &pos, FILE_CURRENT))
+	{
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "GetFileSizeEx()/SetFilePointerEx() failed");
+		return true;
+	}
+	return pos.QuadPart == size.QuadPart;
 }
 
 size_t
@@ -274,7 +435,7 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 	static WCHAR wide_msg[512];
 	size_t msg_len = strlen(msg);
-	int wmsg_len = MultiByteToWideChar(CP_UTF8, 0, msg, msg_len, wide_msg, sizeof(wide_msg));
+	int wmsg_len = MultiByteToWideChar(CP_UTF8, 0, msg, msg_len + 1, wide_msg, COUNT_OF(wide_msg));
 	assert(wmsg_len > 0);
 	config.pszMainInstruction = wide_msg;
 
@@ -336,12 +497,6 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 	HRESULT result = TaskDialogIndirect(&config, &button, NULL, NULL);
 	assert(result == S_OK);
 	return button;
-}
-
-void
-os_debug_trap(void)
-{
-	__debugbreak();
 }
 
 int

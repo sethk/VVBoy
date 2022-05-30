@@ -1012,7 +1012,7 @@ vip_draw_8rows(vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows, 
 		{
 			char buf[1024];
 			vip_format_world_att(buf, sizeof(buf), vwa);
-			debug_tracef("vip", "WORLD_ATT[%u]: %s\n", world_index, buf);
+			debug_tracef("vip", "WORLD_ATT[%u]: %s", world_index, buf);
 		}
 
 		if (vwa->vwa_bgm == WORLD_BGM_OBJ)
@@ -1035,7 +1035,7 @@ vip_draw_8rows(vip_unpacked_8rows_t left_rows, vip_unpacked_8rows_t right_rows, 
 				{
 					debug_str_t oamstr;
 					vip_format_oam(oamstr, obj);
-					debug_tracef("vip", "OBJ[%u]: %s\n", obj->vo_jca, oamstr);
+					debug_tracef("vip", "OBJ[%u]: %s", obj->vo_jca, oamstr);
 				}
 
 				struct vip_vspan vspan;

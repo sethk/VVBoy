@@ -34,7 +34,7 @@ set(OS_SOURCES os_common.c)
 
 if(UNIX)
 	### Platform: Unix
-	add_compile_definitions(vvboy PRIVATE DEBUG_TTY=${DEBUG_TTY} HAVE_LIBEDIT _SEARCH_PRIVATE)
+	add_compile_definitions(vvboy PRIVATE DEBUG_TTY=${DEBUG_TTY} HAVE_LIBEDIT)
 	find_library(EDIT_LIB edit)
 	target_link_libraries(vvboy PRIVATE ${EDIT_LIB})
 	target_link_libraries(vvbdis PRIVATE ${EDIT_LIB})

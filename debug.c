@@ -26,6 +26,7 @@
 
 #endif // INTERFACE
 
+#include <stdlib.h>
 #if HAVE_LIBEDIT
 # include <histedit.h>
 #endif // HAVE_LIBEDIT
@@ -44,8 +45,8 @@ u_int16_t debug_vip_intflags = 0;
 bool debug_trace_nvc = false;
 bool debug_trace_nvc_tim = false;
 bool debug_trace_vsu = false;
-bool debug_trace_vsu_buf = true;
-os_file_handle_t debug_trace_file = OS_FILE_HANDLE_INVALID;
+bool debug_trace_vsu_buf = false;
+os_file_handle_t debug_trace_file = NULL;
 
 enum debug_mode
 {
@@ -79,7 +80,8 @@ static struct debug_trace debug_traces[] =
 				{"vip", "Trace VIP", &debug_trace_vip},
 				{"nvc", "Trace NVC", &debug_trace_nvc},
 				{"nvc.tim", "Trace NVC timer", &debug_trace_nvc_tim},
-				{"vsu", "Trace VSU", &debug_trace_vsu}
+				{"vsu", "Trace VSU", &debug_trace_vsu},
+				{"vsu.buf", "Trace VSU buffers", &debug_trace_vsu_buf},
 		};
 
 struct debug_watch
@@ -358,7 +360,7 @@ void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
 	os_tnode_t *existing;
-	existing = tfind(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+	existing = tfind(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 	if (existing)
 	{
 		struct debug_symbol *existing_sym = (struct debug_symbol *)existing->key;
@@ -378,7 +380,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 
 	if (!existing && debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tsearch(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tsearch(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 }
 
 struct debug_symbol *
@@ -423,7 +425,7 @@ void
 debug_destroy_symbol(struct debug_symbol *debug_sym)
 {
 	if (debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tdelete(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tdelete(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 
 	if (debug_sym->ds_name)
 		free(debug_sym->ds_name);
@@ -2046,14 +2048,11 @@ debug_putchar(char ch)
 	debug_console_dirty = true;
 }
 
-void __printflike(1, 2)
-debug_printf(const char *fmt, ...)
+void
+debug_vprintf(const char *fmt, va_list ap)
 {
-	va_list ap;
-	va_start(ap, fmt);
 	char msg[2048];
 	size_t length = os_vsnprintf(msg, sizeof(msg), fmt, ap);
-	va_end(ap);
 #if DEBUG_TTY
 	fputs(msg, stderr);
 #else
@@ -2061,6 +2060,15 @@ debug_printf(const char *fmt, ...)
 #endif // DEBUG_TTY
 	for (size_t offset = 0; offset < length; ++offset)
 		debug_putchar(msg[offset]);
+}
+
+void __printflike(1, 2)
+debug_printf(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	debug_vprintf(fmt, ap);
+	va_end(ap);
 }
 
 // TODO: Rename emu_trace?
@@ -2074,7 +2082,7 @@ debug_tracef(const char *tag, const char *fmt, ...)
 	length+= os_vsnprintf(trace + length, sizeof(trace) - length, fmt, ap);
 	va_end(ap);
 
-	if (debug_trace_file == OS_FILE_HANDLE_INVALID)
+	if (!debug_trace_file)
 		debug_printf("%s\n", trace);
 	else
 	{

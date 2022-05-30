@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#define _SEARCH_PRIVATE
+#include <search.h>
+#undef _SEARCH_PRIVATE
 
 typedef unsigned char u_char;
 typedef unsigned int u_int;
@@ -15,15 +18,20 @@ typedef uint64_t u_int64_t;
 # define UNUSED_ENUM /**/ // TODO
 # define FLAG_ENUM /**/ // TODO
 # define __printflike(a, b) /**/
-# pragma warning(1:4820)
+# define ENABLE_PADDING_WARNING __pragma(warning(1:4820))
+# define DISABLE_PADDING_WARNING __pragma(warning(disable:4820))
+# define STATIC_ASSERT static_assert
 #else
 # define UNUSED_ENUM __attribute__((unused))
 # define FLAG_ENUM __attribute__((clang::flag_enum))
+# define DISABLE_PADDING_WARNING
+# define ENABLE_PADDING_WARNING
+# define STATIC_ASSERT _Static_assert
 #endif // _MSC_VER
 
 #define ASSERT_SIZEOF(t, s) do { \
-		_Static_assert(sizeof(t) < s + 1, "sizeof(" #t ") should be " #s " but is >= " #s " + 1"); \
-		_Static_assert(sizeof(t) > s - 1, "sizeof(" #t ") should be " #s " but is <= " #s " - 1"); \
+		STATIC_ASSERT(sizeof(t) < s + 1, "sizeof(" #t ") should be " #s " but is >= " #s " + 1"); \
+		STATIC_ASSERT(sizeof(t) > s - 1, "sizeof(" #t ") should be " #s " but is <= " #s " - 1"); \
 	} while (0)
 
 #define BIT(n) (1 << (n))

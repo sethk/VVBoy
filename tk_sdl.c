@@ -118,12 +118,6 @@ tk_init_audio(void)
 		return false;
 	}
 
-	if (sdl_audio_cvt.needed)
-	{
-		assert(false);
-		return false;
-	}
-
 	SDL_PauseAudio(false);
 
 	return true;
@@ -146,12 +140,10 @@ tk_init(void)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 
-	tk_win_width = 384 * 3;
-	tk_win_height = 224 * 3;
 	if (!(sdl_window = SDL_CreateWindow("VVBoy",
 					SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-					tk_win_width, tk_win_height,
-					SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI)))
+					384 * 3, 224 * 3,
+					SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI)))
 	{
 		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Couldn't create window: %s",
 				SDL_GetError());
@@ -161,9 +153,7 @@ tk_init(void)
 
 	SDL_GL_SetSwapInterval(VSYNC);
 
-	SDL_GL_GetDrawableSize(sdl_window, &tk_draw_width, &tk_draw_height);
-	tk_draw_scale = tk_draw_width / tk_win_width;
-	SDL_assert_always(fdimf(tk_draw_height / tk_win_height, tk_draw_scale) < 1e-6);
+	tk_win_resized();
 
 	ImGui_ImplSdlGL3_Init(sdl_window, NULL);
 
@@ -208,6 +198,15 @@ tk_init(void)
 }
 
 void
+tk_win_resized()
+{
+	SDL_GetWindowSize(sdl_window, &tk_win_width, &tk_win_height);
+	SDL_GL_GetDrawableSize(sdl_window, &tk_draw_width, &tk_draw_height);
+	tk_draw_scale = tk_draw_width / tk_win_width;
+	SDL_assert_always(fdimf(tk_draw_height / tk_win_height, tk_draw_scale) < 1e-6);
+}
+
+void
 tk_update_caption(const char *caption)
 {
 	SDL_SetWindowTitle(sdl_window, caption);
@@ -243,6 +242,12 @@ tk_poll_input()
 			case SDL_QUIT:
 				return false;
 				break;
+
+			case SDL_WINDOWEVENT:
+				if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+					tk_win_resized();
+				break;
+
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
 			{
@@ -292,22 +297,33 @@ sdl_audio_callback(void *userdata, Uint8 *stream, int length)
 {
 	(void)userdata;
 
-	tk_audio_lock();
+	struct vsu_thread_data *vtd = vsu_thread_lock();
 
 	if (sdl_audio_cvt.needed)
 	{
-		vsu_buffer_read((int16_t (*)[2])sdl_audio_cvt.buf, sdl_audio_cvt.len);
-		if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
+		while (length)
 		{
-			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error converting audio samples", SDL_GetError(), sdl_window);
-			os_bzero(stream, length);
+			u_int convert_count = min_uint(length / sizeof(u_int16_t[2]), sdl_audio_spec.samples);
+			assert(convert_count > 0);
+			sdl_audio_cvt.buf = stream;
+			sdl_audio_cvt.len = convert_count * sizeof(u_int16_t[2]);
+			vsu_thread_read(vtd, (int16_t(*)[2])sdl_audio_cvt.buf, convert_count);
+			if (SDL_ConvertAudio(&sdl_audio_cvt) == -1)
+			{
+				vsu_thread_errorf(vtd, "Error converting audio samples: %s\n", SDL_GetError());
+				os_bzero(stream, length);
+			}
+			stream += sdl_audio_cvt.len_cvt;
+			length -= sdl_audio_cvt.len_cvt;
 		}
 	}
 	else
 	{
 		assert((u_int)length == tk_audio_bufsize * 2 * 2);
-		vsu_buffer_read((int16_t (*)[2])stream, tk_audio_bufsize);
+		vsu_thread_read(vtd, (int16_t (*)[2])stream, tk_audio_bufsize);
 	}
+
+	vsu_thread_unlock(&vtd);
 }
 
 void
