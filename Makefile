@@ -1,4 +1,4 @@
-BUILD_TYPE?= debug
+BUILD_TYPE?= Debug
 CMAKE_DIR = cmake-build-${BUILD_TYPE}
 MAKEFLAGS+= -j8
 
