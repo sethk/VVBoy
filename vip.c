@@ -1597,7 +1597,7 @@ vip_test(void)
 	ASSERT_SIZEOF(struct vip_xpctrl, 2);
 	ASSERT_SIZEOF(vip_regs, 0x80);
 	ASSERT_SIZEOF(struct vip_world_att, 32);
-	mem_test_addr("world_att[1]", debug_locate_symbol("WORLD_ATT:1"), 4, &(vip_dram.vd_world_atts[1]));
+	mem_test_addr("WORLD_ATT:1", 0x3d820, 4, &(vip_dram.vd_world_atts[1]));
 	mem_test_addr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
 	mem_test_addr("PARAM_TBL[0x8800]", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
 	mem_test_addr("WORLD_ATTS", 0x3d800, 4, &(vip_dram.vd_world_atts));

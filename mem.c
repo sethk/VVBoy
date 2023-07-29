@@ -445,8 +445,8 @@ mem_test_addr_ro(const char *name, u_int32_t emu_addr, u_int size, void *expecte
 	u_int mem_wait;
 	const void *addr = mem_get_read_ptr(emu_addr, size, &mem_wait);
 	if (addr != expected)
-		debug_fatal_errorf("mem_get_read_ptr(%s) is %p but should be %p (offset %ld)",
-				name, addr, expected, (intptr_t)expected - (intptr_t)addr);
+		debug_fatal_errorf("mem_get_read_ptr(%s@0x%08x) is %p but should be %p (offset %ld)",
+				name, emu_addr, addr, expected, (intptr_t)expected - (intptr_t)addr);
 }
 
 void
@@ -457,7 +457,7 @@ mem_test_addr(const char *name, u_int32_t emu_addr, u_int size, void *expected)
 	void *addr = mem_get_write_ptr(emu_addr, size, &mask);
 	if (addr != expected)
 	{
-		debug_fatal_errorf("mem_get_write_ptr(%s) is %p but should be %p (offset %ld)",
-				name, addr, expected, (intptr_t)expected - (intptr_t)addr);
+		debug_fatal_errorf("mem_get_write_ptr(%s@0x%08x) is %p but should be %p (offset %ld)",
+				name, emu_addr, addr, expected, (intptr_t)expected - (intptr_t)addr);
 	}
 }
