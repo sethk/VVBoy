@@ -131,7 +131,9 @@ vsu_thread_read(struct vsu_thread_data *vtd, int16_t (*samples)[2], u_int count)
 	if (to_read > 0)
 	{
 		enum event_subsys dummy_subsys;
-		enum vsu_event dummy_event; // Hint for makeheaders
+		(void)dummy_subsys;
+		enum vsu_thread_event dummy_event; // Hint for makeheaders
+		(void)dummy_event;
 
 		did_read = ringbuf_read_copy(&vtd->vtd_buffer, samples, to_read, NULL);
 		events_fire(VSU_EVENT_OUTPUT, did_read, 0);
