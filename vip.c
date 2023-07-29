@@ -556,22 +556,31 @@ vip_bgmap_read_slow(const struct vip_bgsc *bgmap_base,
                     const struct vip_world_att *vwa,
                     u_int win_x, u_int win_y,
                     bool right,
-                    union vip_params *vp,
+                    const union vip_params *vp,
                     bool *opaquep)
 {
 	int x, y;
 	if ((enum vip_world_bgm)vwa->vwa_bgm == WORLD_BGM_AFFINE)
 	{
-		float mx = (float)vp->vp_affine.va_mx / (1 << 3);
-		float my = (float)vp->vp_affine.va_my / (1 << 3);
-		float dx = (float)vp->vp_affine.va_dx / (1 << 9);
-		float dy = (float)vp->vp_affine.va_dy / (1 << 9);
+		const struct vip_affine *vap = &(vp->vp_affine);
+
 		int bias_x = win_x;
-		//assert(vp->vp_affine.va_mp > -256 && vp->vp_affine.va_mp < 255);
-		if ((vp->vp_affine.va_mp >= 0) == right)
-			bias_x+= vp->vp_affine.va_mp;
+		assert(vap->va_mp > -256 && vap->va_mp < 255);
+		if ((vap->va_mp >= 0) == right)
+			bias_x+= vap->va_mp;
+#if VIP_AFFINE_FLOAT
+		float mx = (float)vap->va_mx / (1 << 3);
+		float my = (float)vap->va_my / (1 << 3);
+		float dx = (float)vap->va_dx / (1 << 9);
+		float dy = (float)vap->va_dy / (1 << 9);
 		x = (int)lroundf(mx + dx * bias_x);
 		y = (int)lroundf(my + dy * bias_x);
+#else
+		int fixed_x = (vap->va_mx << 6) + vap->va_dx * bias_x;
+		int fixed_y = (vap->va_my << 6) + vap->va_dy * bias_x;
+		x = (fixed_x + 0x100) >> 9;
+		y = (fixed_y + 0x100) >> 9;
+#endif // !VIP_AFFINE_FLOAT
 	}
 	else
 	{
@@ -836,6 +845,7 @@ static void
 vip_draw_bgmap_affine_row(const struct vip_bgsc *bgmap_base,
 		const struct vip_world_att *vwa,
 		u_int win_y,
+		bool is_right,
 		const struct vip_hspan *hspan,
 		const struct vip_affine *affine,
 		vip_unpacked_row_t row)
@@ -846,7 +856,7 @@ vip_draw_bgmap_affine_row(const struct vip_bgsc *bgmap_base,
 	while (width > 0)
 	{
 		bool opaque;
-		u_int8_t pixel = vip_bgmap_read_slow(bgmap_base, vwa, win_x, win_y, false, (union vip_params *)affine, &opaque);
+		u_int8_t pixel = vip_bgmap_read_slow(bgmap_base, vwa, win_x, win_y, is_right, (union vip_params *)affine, &opaque);
 		if (opaque)
 			row[scr_x] = pixel;
 
@@ -881,10 +891,10 @@ vip_draw_bgmap_affine(const struct vip_bgsc *bgmap_base,
 	while (height > 0)
 	{
 		if (draw_left)
-			vip_draw_bgmap_affine_row(bgmap_base, vwa, win_y, &left_hspan, affine, left_rows[clip_y]);
+			vip_draw_bgmap_affine_row(bgmap_base, vwa, win_y, false, &left_hspan, affine, left_rows[clip_y]);
 
 		if (draw_right)
-			vip_draw_bgmap_affine_row(bgmap_base, vwa, win_y, &right_hspan, affine, right_rows[clip_y]);
+			vip_draw_bgmap_affine_row(bgmap_base, vwa, win_y, true, &right_hspan, affine, right_rows[clip_y]);
 
 		++win_y;
 		++clip_y;
