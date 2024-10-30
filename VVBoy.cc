@@ -1,12 +1,14 @@
-#include "types.h"
-#include "vvboy.h"
+#include "VVBoy.Gen.hh"
+#include "OS.hh"
+#include "TK.hh"
 
-#include <stdlib.h>
-#include <signal.h>
+#include <cstdarg>
+#include <cstdlib>
+#include <csignal>
 #ifdef __APPLE__
 # include <unistd.h> // getopt()
 #endif // __APPLE__
-#include <math.h>
+#include <cmath>
 
 static bool main_running = true;
 bool main_fixed_rate = false;
@@ -14,15 +16,15 @@ static const u_int main_min_fps = 25;
 static const u_int main_max_fps = 100;
 
 void
-main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
+main_fatal_error(os_runerr_type type, const char *fmt, ...)
 {
 	// TODO: emu_stop()/pause()?
 
 	va_list ap;
 	va_start(ap, fmt);
-	enum os_runerr_resp resp_types = BIT(OS_RUNERR_RESP_ABORT);
+	auto resp_types = os_runerr_resp_mask::ABORT;
 #ifndef NDEBUG
-	resp_types |= BIT(OS_RUNERR_RESP_DEBUG);
+	resp_types |= os_runerr_resp_mask::DEBUG;
 #endif // !defined(NDEBUG)
 	if (os_runtime_verror(type, resp_types, fmt, ap) == OS_RUNERR_RESP_DEBUG)
 		os_debug_trap();
@@ -176,7 +178,7 @@ main(int ac, char * const *av)
 
 	if (ac > 1 || help)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), usage_fmt, os_getprogname());
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, usage_fmt, os_getprogname());
 		return 64; // EX_USAGE
 	}
 
@@ -184,10 +186,10 @@ main(int ac, char * const *av)
 	{
 		debug_trace_file = fopen(trace_path, "w");
 		if (!debug_trace_file)
-			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_ABORT), "Can't open trace file %s", trace_path);
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::ABORT, "Can't open trace file %s", trace_path);
 	#ifndef WIN32
 		if (linebuf && setlinebuf(debug_trace_file) != 0)
-			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_ABORT), "Can't set trace line-buffered");
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::ABORT, "Can't set trace line-buffered");
 	#endif // !WIN32
 	}
 

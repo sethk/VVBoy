@@ -1,22 +1,33 @@
-#include "types.h"
-#include "vvbdis.h"
-#include <stdlib.h>
+#include "Types.hh"
+#include "OS.hh"
+#include "ROM.hh"
+#include "VVBDis.Gen.hh"
+#include <cstdlib>
 #ifdef __APPLE__
 # include <unistd.h> // getopt()
 #endif // __APPLE__
-#include <assert.h>
+#include <cassert>
+#include <new>
 
-static struct func
+struct func
 {
+	func(debug_symbol *debug_sym) : f_debug_sym(debug_sym)
+	{
+		assert(debug_sym);
+	}
+
 	const struct debug_symbol *f_debug_sym;
 	struct func_caller
 	{
+		func_caller(u_int32_t addr) : fc_addr(addr) { }
+
 		u_int32_t fc_addr;
-		struct func_caller *fc_next;
-	} *f_callers;
-	u_int f_call_count;
-	struct func *f_next;
-} *funcs = NULL;
+		struct func_caller *fc_next = nullptr;
+	} *f_callers = nullptr;
+	u_int f_call_count = 0;
+	struct func *f_next = nullptr;
+};
+static func *funcs = nullptr;
 
 static int verbose = 0;
 static const u_int32_t rom_addr = MEM_SEG2ADDR(MEM_SEG_ROM);
@@ -25,7 +36,7 @@ static u_int32_t text_begin = MEM_SEG2ADDR(MEM_SEG_ROM), text_end;
 static const u_int32_t vect_begin = 0xfffffe00, vect_end = 0xfffffffe;
 
 void
-main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
+main_fatal_error(os_runerr_type type, const char *fmt, ...)
 {
 	(void)type;
 	va_list ap;
@@ -34,20 +45,6 @@ main_fatal_error(enum os_runerr_type type, const char *fmt, ...)
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
 	exit(1);
-}
-
-static struct func *
-create_func(const struct debug_symbol *sym)
-{
-	assert(sym);
-
-	struct func *func = malloc(sizeof(*func));
-	if (!func)
-		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate function");
-	func->f_callers = NULL;
-	func->f_call_count = 0;
-	func->f_debug_sym = sym;
-	return func;
 }
 
 static bool
@@ -107,19 +104,16 @@ upsert_func(const char *basename, u_int32_t func_addr, u_int *func_sym_indexp, u
 			rom_add_symbol(sym);
 		}
 
-		func = create_func(sym);
+		func = new struct func(sym);
 		func->f_next = next_func;
 		*prevp = func;
 	}
 
-	struct func_caller **prev_callerp;
+	func::func_caller **prev_callerp;
 	for (prev_callerp = &(func->f_callers); *prev_callerp; prev_callerp = &((*prev_callerp)->fc_next))
 		;
-	struct func_caller *caller = malloc(sizeof(*caller));
-	if (!caller)
-		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate function caller");
-	caller->fc_addr = caller_addr;
-	caller->fc_next = NULL;
+
+	func::func_caller *caller = new func::func_caller(caller_addr);
 	*prev_callerp = caller;
 
 	if (verbose >= 2)
@@ -136,7 +130,7 @@ create_entry_func(u_int32_t entry_addr)
 	struct debug_symbol *entry_sym = debug_resolve_addr(entry_addr, &offset);
 	assert(entry_sym);
 	assert(offset == 0);
-	struct func *entry_func = create_func(entry_sym);
+	struct func *entry_func = new func(entry_sym);
 	struct func **prevp;
 	for (prevp = &(funcs); *prevp; prevp = &((*prevp)->f_next))
 		;
@@ -154,7 +148,7 @@ show_func(const struct debug_symbol *sym, const struct func *func)
 	{
 		printf(";; Called from %u unique address%s\n",
 		       func->f_call_count, (func->f_call_count == 1) ? "" : "es");
-		for (struct func_caller *caller = func->f_callers; caller; caller = caller->fc_next)
+		for (func::func_caller *caller = func->f_callers; caller; caller = caller->fc_next)
 		{
 			debug_str_t addr_s;
 			printf(";;\t%s\n", debug_format_addr(caller->fc_addr, addr_s));
@@ -166,7 +160,7 @@ show_func(const struct debug_symbol *sym, const struct func *func)
 static void
 show_call_graph(const struct func *func)
 {
-	for (struct func_caller *caller = func->f_callers; caller; caller = caller->fc_next)
+	for (func::func_caller *caller = func->f_callers; caller; caller = caller->fc_next)
 	{
 		u_int32_t offset;
 		struct debug_symbol *caller_sym = debug_resolve_addr(caller->fc_addr, &offset);
@@ -279,7 +273,7 @@ scan_area(const u_int32_t begin, const u_int32_t end)
 			caller_addr = pc;
 #endif // 0
 
-		switch ((enum cpu_opcode)inst.ci_i.i_opcode)
+		switch (static_cast<cpu_opcode>(inst.ci_i.i_opcode))
 		{
 			default:
 				break;
@@ -452,7 +446,7 @@ static void
 usage(void)
 {
 	fprintf(stderr, "usage: %s [-asv] [-b <base-addr>] <file.vb> | <file.isx>\n", os_getprogname());
-	fprintf(stderr, "\t-a\tDisassemble all sections, not just called functions\n");
+	fprintf(stderr, "\t-a\t\tDisassemble all sections, not just called functions\n");
 	fputs("\t-b <base-addr>\tSet the base load address\n", stderr);
 	fputs("\t-d <name>\tDisassemble only the named function (entire text is still scanned for cross-reference)\n", stderr);
 	fputs("\t-s\t\tShow all symbols\n", stderr);
@@ -463,146 +457,153 @@ usage(void)
 int
 main(int ac, char * const *av)
 {
-	extern int optind;
-	bool show_syms = false;
-	bool show_graph = false;
-	bool funcs_only = true;
-	debug_trace_file = stderr;
-	const char *disasm_name = NULL;
-	int status = 0;
+	try
+	{
+		extern int optind;
+		bool show_syms = false;
+		bool show_graph = false;
+		bool funcs_only = true;
+		debug_trace_file = stderr;
+		const char *disasm_name = NULL;
+		int status = 0;
 
-	int ch;
-	while ((ch = getopt(ac, av, "ab:d:gsv")) != -1)
-		switch (ch)
-		{
-			default:
-				usage();
-
-			case 'a':
-				funcs_only = false;
-				break;
-
-			case 'b':
+		int ch;
+		while ((ch = getopt(ac, av, "ab:d:gsv")) != -1)
+			switch (ch)
 			{
-				char *endp;
-				text_begin = strtoul(optarg, &endp, 0);
-				if (*endp != '\0')
-				{
-					fprintf(stderr, "Can't parse base address %s\n", optarg);
+				default:
 					usage();
+
+				case 'a':
+					funcs_only = false;
+					break;
+
+				case 'b':
+				{
+					char *endp;
+					text_begin = strtoul(optarg, &endp, 0);
+					if (*endp != '\0')
+					{
+						fprintf(stderr, "Can't parse base address %s\n", optarg);
+						usage();
+					}
+					break;
 				}
-				break;
+
+				case 'd':
+					disasm_name = optarg;
+					break;
+
+				case 'g':
+					show_graph = true;
+					break;
+
+				case 's':
+					show_syms = true;
+					break;
+
+				case 'v':
+					++verbose;
+					break;
+			}
+		ac-= optind;
+		av+= optind;
+
+		if (ac != 1)
+			usage();
+
+		emu_init_debug();
+
+		if (!rom_load(av[0]))
+			return 1;
+
+		rom_end = min_uint(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+		assert(rom_end > rom_addr);
+
+		text_end = debug_locate_symbol("text");
+		if (text_end == DEBUG_ADDR_NONE)
+		{
+			text_end = min_uint(text_begin + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+			if (verbose > 0)
+				fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
+		}
+		assert(text_end > text_begin);
+
+		if (verbose > 0)
+			fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, text_begin: 0x%08x, text_end: 0x%08x\n",
+					rom_addr, rom_end, text_begin, text_end);
+
+		create_entry_func(0xfffffe00);
+		create_entry_func(0xfffffe10);
+		create_entry_func(0xfffffe20);
+		create_entry_func(0xfffffe30);
+		create_entry_func(0xfffffe40);
+		create_entry_func(0xffffff60);
+		create_entry_func(0xffffff80);
+		create_entry_func(0xffffff90);
+		create_entry_func(0xffffffa0);
+		create_entry_func(0xffffffb0);
+		create_entry_func(0xffffffc0);
+		create_entry_func(0xffffffd0);
+		create_entry_func(0xfffffff0);
+
+		scan_area(text_begin, text_end);
+		scan_area(vect_begin, vect_end);
+
+		if (show_syms)
+		{
+			puts("Symbols:");
+			for (const struct debug_symbol *sym = debug_get_symbols(); sym; sym = sym->ds_next)
+			{
+				debug_str_t sym_s;
+				printf("\t%s\n", debug_format_symbol(sym, sym_s));
+			}
+		}
+
+		if (show_graph)
+		{
+			puts("digraph calls {");
+			puts("\trankdir=LR;");
+			for (struct func *func = funcs; func; func = func->f_next)
+				show_call_graph(func);
+			puts("}");
+		}
+		else if (disasm_name)
+		{
+			struct func *func = NULL;
+			for (func = funcs; func; func = func->f_next)
+			{
+				fprintf(stderr, "func %s\n", func->f_debug_sym->ds_name);
+				if (!strcmp(disasm_name, func->f_debug_sym->ds_name))
+					break;
 			}
 
-			case 'd':
-				disasm_name = optarg;
-				break;
-
-			case 'g':
-				show_graph = true;
-				break;
-
-			case 's':
-				show_syms = true;
-				break;
-
-			case 'v':
-				++verbose;
-				break;
+			if (func)
+				disasm_func(func);
+			else
+			{
+				fprintf(stderr, "No function named %s found to disassemble\n", disasm_name);
+				status = 1;
+			}
 		}
-	ac-= optind;
-	av+= optind;
-
-	if (ac != 1)
-		usage();
-
-	emu_init_debug();
-
-	if (!rom_load(av[0]))
-		return 1;
-
-	rom_end = min_uint(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
-	assert(rom_end > rom_addr);
-
-	text_end = debug_locate_symbol("text");
-	if (text_end == DEBUG_ADDR_NONE)
-	{
-		text_end = min_uint(text_begin + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
-		if (verbose > 0)
-			fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
-	}
-	assert(text_end > text_begin);
-
-	if (verbose > 0)
-		fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, text_begin: 0x%08x, text_end: 0x%08x\n",
-		        rom_addr, rom_end, text_begin, text_end);
-
-	create_entry_func(0xfffffe00);
-	create_entry_func(0xfffffe10);
-	create_entry_func(0xfffffe20);
-	create_entry_func(0xfffffe30);
-	create_entry_func(0xfffffe40);
-	create_entry_func(0xffffff60);
-	create_entry_func(0xffffff80);
-	create_entry_func(0xffffff90);
-	create_entry_func(0xffffffa0);
-	create_entry_func(0xffffffb0);
-	create_entry_func(0xffffffc0);
-	create_entry_func(0xffffffd0);
-	create_entry_func(0xfffffff0);
-
-	scan_area(text_begin, text_end);
-	scan_area(vect_begin, vect_end);
-
-	if (show_syms)
-	{
-		puts("Symbols:");
-		for (const struct debug_symbol *sym = debug_get_symbols(); sym; sym = sym->ds_next)
+		else if (funcs_only)
 		{
-			debug_str_t sym_s;
-			printf("\t%s\n", debug_format_symbol(sym, sym_s));
+			for (struct func *func = funcs; func; func = func->f_next)
+				disasm_func(func);
 		}
-	}
-
-	if (show_graph)
-	{
-		puts("digraph calls {");
-		puts("\trankdir=LR;");
-		for (struct func *func = funcs; func; func = func->f_next)
-			show_call_graph(func);
-		puts("}");
-	}
-	else if (disasm_name)
-	{
-		struct func *func = NULL;
-		for (func = funcs; func; func = func->f_next)
-		{
-			fprintf(stderr, "func %s\n", func->f_debug_sym->ds_name);
-			if (!strcmp(disasm_name, func->f_debug_sym->ds_name))
-				break;
-		}
-
-		if (func)
-			disasm_func(func);
 		else
 		{
-			fprintf(stderr, "No function named %s found to disassemble\n", disasm_name);
-			status = 1;
+			disasm_area(text_begin, text_end);
+			disasm_area(vect_begin, vect_end);
 		}
+
+		rom_unload();
+
+		return status;
 	}
-	else if (funcs_only)
+	catch (std::bad_alloc &alloc_err)
 	{
-		for (struct func *func = funcs; func; func = func->f_next)
-			disasm_func(func);
+		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocation failed: %s", alloc_err.what());
+		return 1;
 	}
-	else
-	{
-		disasm_area(text_begin, text_end);
-		disasm_area(vect_begin, vect_end);
-	}
-
-
-	rom_unload();
-
-	return status;
 }

@@ -1,5 +1,5 @@
-#include "types.h"
-#include "os_windows.h"
+#include "Types.hh"
+#include "OS_Windows.hh"
 
 #if INTERFACE
 #	include <Windows.h>
@@ -31,10 +31,10 @@
 #include <CommCtrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
-#include <stdio.h>
-#include <malloc.h>
-#include <limits.h>
-#include <assert.h>
+#include <cstdio>
+#include <cmalloc>
+#include <climits>
+#include <cassert>
 
 #if defined _M_IX86
 	#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='x86' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -228,7 +228,7 @@ os_vsnprintf(char * const out, size_t out_size, const char * const orig_fmt_buff
 }
 
 os_file_handle_t
-os_file_open(const char *fn, enum os_perm perm)
+os_file_open(const char *fn, os_perm_mask perm)
 {
 	DWORD access = 0;
 	DWORD creation = 0;
@@ -275,7 +275,7 @@ os_file_iseof(os_file_handle_t handle)
 	zero.QuadPart = 0;
 	if (!GetFileSizeEx(handle, &size) || !SetFilePointerEx(handle, zero, &pos, FILE_CURRENT))
 	{
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "GetFileSizeEx()/SetFilePointerEx() failed");
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::OKAY, "GetFileSizeEx()/SetFilePointerEx() failed");
 		return true;
 	}
 	return pos.QuadPart == size.QuadPart;
@@ -291,7 +291,7 @@ os_file_read(os_file_handle_t handle, void *buffer, size_t size)
 }
 
 off_t
-os_file_seek(os_file_handle_t handle, off_t offset, enum os_seek_anchor anchor)
+os_file_seek(os_file_handle_t handle, off_t offset, os_seek_anchor anchor)
 {
 	DWORD method;
 	switch (anchor)
@@ -309,7 +309,7 @@ os_file_seek(os_file_handle_t handle, off_t offset, enum os_seek_anchor anchor)
 }
 
 os_mmap_handle_t
-os_mmap_file(os_file_handle_t file_handle, size_t size, enum os_perm perms, void **pmap)
+os_mmap_file(os_file_handle_t file_handle, size_t size, os_perm_mask perms, void **pmap)
 {
 	DWORD protect = 0;
 	DWORD access = 0;
@@ -405,12 +405,12 @@ os_choose_file(const char *desc, const char * const exts[], u_int num_exts, bool
 	{
 		DWORD ext_error = CommDlgExtendedError();
 		if (ext_error)
-			os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "GetOpenFileNameW() failed with error 0x%04x", ext_error);
+			os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, "GetOpenFileNameW() failed with error 0x%04x", ext_error);
 	}
 }
 
-enum os_runerr_resp
-os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const char *fmt, va_list ap)
+os_runerr_resp
+os_runtime_verror(os_runerr_type type, os_runerr_resp resp_mask, const char *fmt, va_list ap)
 {
 	DWORD os_err = GetLastError();
 
@@ -426,11 +426,11 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 	config.hInstance = NULL;
 	config.dwFlags = TDF_POSITION_RELATIVE_TO_WINDOW | TDF_SIZE_TO_CONTENT;
-	bool dismiss_allowed = ((resp_mask & (BIT(OS_RUNERR_RESP_OKAY) | BIT(OS_RUNERR_RESP_IGNORE))) != 0);
+	bool dismiss_allowed = ((resp_mask & (os_runerr_resp_mask::OKAY | os_runerr_resp_mask::IGNORE)) != 0);
 	if (dismiss_allowed)
 		config.dwFlags |= TDF_ALLOW_DIALOG_CANCELLATION;
 	config.dwCommonButtons = 0;
-	if (resp_mask & BIT(OS_RUNERR_RESP_OKAY))
+	if (resp_mask & os_runerr_resp_mask::OKAY)
 		config.dwCommonButtons |= TDCBF_OK_BUTTON;
 
 	static WCHAR wide_msg[512];
@@ -470,13 +470,13 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 	static TASKDIALOG_BUTTON buttons[OS_RUNERR_NUM_RESP];
 	UINT num_buttons = 0;
-	for (u_int resp = 0; resp < OS_RUNERR_NUM_RESP; ++resp)
+	for (os_runerr_resp resp = static_cast<os_runerr_resp>(0); resp < OS_RUNERR_NUM_RESP; ++resp)
 	{
-		if ((resp_mask & BIT(resp)) == 0)
+		if ((resp_mask & static_cast<os_runerr_resp_mask>(BIT(resp))) == 0)
 			continue;
 
 		buttons[num_buttons].nButtonID = resp;
-		switch ((enum os_runerr_resp)resp)
+		switch (resp)
 		{
 			case OS_RUNERR_RESP_OKAY: buttons[num_buttons].pszButtonText = L"OK"; break;
 			case OS_RUNERR_RESP_IGNORE: buttons[num_buttons].pszButtonText = L"Ignore"; break;
@@ -507,7 +507,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShow
 	if (!wide_args)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not parse command-line string");
 
-	char **av = calloc(ac + 1, sizeof(*av));
+	char **av = new(std::nothrow) char *[ac + 1]();
 	if (!av)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not allocate space for command-line");
 
@@ -518,7 +518,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShow
 									   wide_args[i], -1,
 									   NULL, 0,
 									   NULL, NULL);
-		av[i] = malloc(size);
+		av[i] = new char[size];
 		if (!av[i])
 			main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not allocate space for command-line argument");
 
@@ -529,7 +529,6 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShow
 											  NULL, NULL);
 		assert(actual_size == size);
 	}
-	av[ac] = NULL;
 
 	return main(ac, av);
 }

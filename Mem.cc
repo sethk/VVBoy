@@ -1,7 +1,9 @@
-#include "types.h"
-#include "mem.h"
+#include "Types.hh"
+#include "Mem.Gen.hh"
 
 #if INTERFACE
+#	include "OS.hh"
+
 	enum mem_segment
 	{
 		MEM_SEG_VIP = 0,
@@ -20,7 +22,7 @@
 		os_mmap_handle_t ms_handle;
 		u_int8_t *ms_ptr;
 		u_int32_t ms_addrmask;
-		enum os_perm ms_perms;
+		os_perm_mask ms_perms;
 		bool ms_is_mmap;
 	};
 
@@ -28,27 +30,27 @@
 	{
 		u_int32_t mr_emu;
 		u_int mr_size;
-		int mr_ops;
+		os_perm_mask mr_ops;
 		void *mr_host;
-		int mr_perms;
+		os_perm_mask mr_perms;
 		u_int32_t mr_mask;
 		u_int mr_wait;
 	};
 
-#	define MEM_ADDR2SEG(a) (((a) & 0x07000000) >> 24)
+#	define MEM_ADDR2SEG(a) static_cast<mem_segment>(((a) & 0x07000000) >> 24)
 #	define MEM_ADDR2OFF(a) ((a) & 0x00ffffff)
 #	define MEM_SEG2ADDR(s) ((s) << 24)
 
 #endif // INTERFACE
 
-#include <stdlib.h>
-#include <math.h>
-#include <assert.h>
+#include <cstdlib>
+#include <cmath>
+#include <cassert>
 
 #define INIT_DEAD_MEM 1
 #define DEAD_MEM_PATTERN (0) // (0xdeadc0de)
 
-struct mem_seg_desc mem_segs[(enum mem_segment)MEM_NSEGS];
+mem_seg_desc mem_segs[static_cast<mem_segment>(MEM_NSEGS)];
 
 bool mem_checks = false;
 
@@ -85,13 +87,13 @@ mem_fini(void)
 }
 
 bool
-mem_seg_alloc(enum mem_segment seg, u_int size, int perms)
+mem_seg_alloc(mem_segment seg, u_int size, os_perm_mask perms)
 {
 	assert(validate_seg_size(size));
-	mem_segs[seg].ms_ptr = malloc(size);
+	mem_segs[seg].ms_ptr = static_cast<uint8_t *>(malloc(size));
 	if (!mem_segs[seg].ms_ptr)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY),
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::OKAY,
 				"Could not allocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
 		return false;
 	}
@@ -115,13 +117,13 @@ mem_seg_alloc(enum mem_segment seg, u_int size, int perms)
 }
 
 bool
-mem_seg_mmap(enum mem_segment seg, u_int size, os_file_handle_t handle)
+mem_seg_mmap(mem_segment seg, u_int size, os_file_handle_t handle)
 {
 	mem_segs[seg].ms_size = size;
-	mem_segs[seg].ms_handle = os_mmap_file(handle, size, OS_PERM_READ, (void **)&mem_segs[seg].ms_ptr);
+	mem_segs[seg].ms_handle = os_mmap_file(handle, size, os_perm_mask::READ, (void **)&mem_segs[seg].ms_ptr);
 	if (!mem_segs[seg].ms_ptr)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "os_mmap_file() %s", mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::OKAY, "os_mmap_file() %s", mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_addrmask = size - 1;
@@ -130,14 +132,14 @@ mem_seg_mmap(enum mem_segment seg, u_int size, os_file_handle_t handle)
 }
 
 static bool
-mem_seg_realloc(enum mem_segment seg, u_int size)
+mem_seg_realloc(mem_segment seg, u_int size)
 {
 	assert(!mem_segs[seg].ms_is_mmap);
 	assert(validate_seg_size(size));
-	mem_segs[seg].ms_ptr = realloc(mem_segs[seg].ms_ptr, size);
+	mem_segs[seg].ms_ptr = static_cast<uint8_t *>(realloc(mem_segs[seg].ms_ptr, size));
 	if (!mem_segs[seg].ms_ptr)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not reallocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::OKAY, "Could not reallocate 0x%x bytes for segment %s", size, mem_seg_names[seg]);
 		return false;
 	}
 	mem_segs[seg].ms_size = size;
@@ -146,19 +148,19 @@ mem_seg_realloc(enum mem_segment seg, u_int size)
 }
 
 void
-mem_seg_free(enum mem_segment seg)
+mem_seg_free(mem_segment seg)
 {
 	if (!mem_segs[seg].ms_is_mmap)
 		free(mem_segs[seg].ms_ptr);
 	else
 	{
 		if (!os_munmap_file(mem_segs[seg].ms_handle, mem_segs[seg].ms_ptr, mem_segs[seg].ms_size))
-			os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY),
+			os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::OKAY,
 					"os_munmap_file(mem_segs[%s], ...) failed",
 					mem_seg_names[seg]);
 		mem_segs[seg].ms_is_mmap = false;
 	}
-	mem_segs[seg].ms_ptr = NULL;
+	mem_segs[seg].ms_ptr = nullptr;
 }
 
 u_int32_t
@@ -177,7 +179,7 @@ mem_size_ceil(u_int32_t size)
 static bool
 mem_prepare(struct mem_request *request)
 {
-	enum mem_segment seg = MEM_ADDR2SEG(request->mr_emu);
+	mem_segment seg = MEM_ADDR2SEG(request->mr_emu);
 	if (seg == MEM_SEG_VIP)
 		return vip_mem_prepare(request);
 	else if (seg == MEM_SEG_VSU)
@@ -224,7 +226,7 @@ mem_perm_error(const struct mem_request *request, bool *always_ignorep)
 			debug_format_perms(request->mr_ops, ops_s),
 			debug_format_perms(request->mr_perms, perms_s));
 
-	bool allow_ignore = ((request->mr_ops & OS_PERM_READ) == 0);
+	bool allow_ignore = ((request->mr_ops & os_perm_mask::READ) == os_perm_mask::NONE);
 	return debug_runtime_error(allow_ignore, always_ignorep, msg);
 }
 
@@ -237,12 +239,12 @@ mem_bus_error(u_int32_t addr)
 const void *
 mem_get_read_ptr(u_int32_t addr, u_int size, u_int *mem_waitp)
 {
-	enum mem_segment seg = MEM_ADDR2SEG(addr);
+	mem_segment seg = MEM_ADDR2SEG(addr);
 	switch (seg)
 	{
 		case MEM_SEG_VIP:
 		{
-			struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = 0};
+			struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::NONE};
 			if (!vip_mem_prepare(&request))
 				return NULL;
 			*mem_waitp = request.mr_wait;
@@ -250,7 +252,7 @@ mem_get_read_ptr(u_int32_t addr, u_int size, u_int *mem_waitp)
 		}
 		case MEM_SEG_VSU:
 		{
-			struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = 0};
+			struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::NONE};
 			if (!vsu_mem_prepare(&request))
 				return NULL;
 			*mem_waitp = request.mr_wait;
@@ -258,7 +260,7 @@ mem_get_read_ptr(u_int32_t addr, u_int size, u_int *mem_waitp)
 		}
 		case MEM_SEG_NVC:
 		{
-			struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = 0};
+			struct mem_request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::NONE};
 			if (!nvc_mem_prepare(&request))
 				return NULL;
 			*mem_waitp = request.mr_wait;
@@ -285,12 +287,12 @@ mem_get_read_ptr(u_int32_t addr, u_int size, u_int *mem_waitp)
 
 			u_int32_t offset = addr & mem_segs[seg].ms_addrmask;
 
-			if (mem_checks && !(mem_segs[seg].ms_perms & OS_PERM_READ))
+			if (mem_checks && (mem_segs[seg].ms_perms & os_perm_mask::READ) == os_perm_mask::NONE)
 			{
 				struct mem_request request =
 				{
 					.mr_emu = addr,
-					.mr_ops = OS_PERM_READ,
+					.mr_ops = os_perm_mask::READ,
 					.mr_perms = mem_segs[seg].ms_perms
 				};
 				mem_perm_error(&request, NULL);
@@ -311,13 +313,13 @@ mem_read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp)
 			{
 					.mr_emu = addr,
 					.mr_size = size,
-					.mr_perms = OS_PERM_READ | OS_PERM_WRITE,
+					.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE,
 					.mr_mask = 0xffffffff,
 					.mr_wait = 2
 			};
-	request.mr_ops = OS_PERM_READ;
+	request.mr_ops = os_perm_mask::READ;
 	if (is_exec)
-		request.mr_ops|= OS_PERM_EXEC;
+		request.mr_ops|= os_perm_mask::EXEC;
 
 	if (!mem_prepare(&request))
 		return mem_bus_error(addr);
@@ -330,7 +332,7 @@ mem_read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp)
 		debug_str_t addr_s;
 		debug_str_t hex_s;
 		debug_tracef("mem.read", "%s <- [" DEBUG_ADDR_FMT "]",
-		             debug_format_hex(request.mr_host, size, hex_s),
+		             debug_format_hex(static_cast<u_int8_t *>(request.mr_host), size, hex_s),
 		             debug_format_addr(addr, addr_s));
 	}
 
@@ -361,8 +363,8 @@ mem_get_write_ptr(u_int32_t addr, u_int size, u_int32_t *maskp)
 	{
 			.mr_emu = addr,
 			.mr_size = size,
-			.mr_perms = OS_PERM_READ | OS_PERM_WRITE | OS_PERM_EXEC,
-			.mr_ops = OS_PERM_WRITE,
+			.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE | os_perm_mask::EXEC,
+			.mr_ops = os_perm_mask::WRITE,
 			.mr_mask = 0xffffffff,
 			.mr_wait = 2
 	};
@@ -386,8 +388,8 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 	{
 			.mr_emu = addr,
 			.mr_size = size,
-			.mr_perms = OS_PERM_READ | OS_PERM_WRITE | OS_PERM_EXEC,
-			.mr_ops = OS_PERM_WRITE,
+			.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE | os_perm_mask::EXEC,
+			.mr_ops = os_perm_mask::WRITE,
 			.mr_mask = 0xffffffff,
 			.mr_wait = 2
 	};
@@ -398,7 +400,7 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 		return mem_bus_error(addr);
 	}
 
-	if ((request.mr_perms & OS_PERM_WRITE) == 0)
+	if ((request.mr_perms & os_perm_mask::WRITE) == os_perm_mask::NONE)
 	{
 		static bool ignore_writes = false;
 		return mem_perm_error(&request, &ignore_writes);
@@ -409,10 +411,10 @@ mem_write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
 		debug_str_t addr_s;
 		debug_str_t hex_s;
 		debug_tracef("mem.write", "[" DEBUG_ADDR_FMT "] <- %s",
-		             debug_format_addr(addr, addr_s), debug_format_hex(src, size, hex_s));
+		             debug_format_addr(addr, addr_s), debug_format_hex(static_cast<const u_int8_t *>(src), size, hex_s));
 	}
 
-	enum mem_segment seg = MEM_ADDR2SEG(addr);
+	mem_segment seg = MEM_ADDR2SEG(addr);
 	if (seg == MEM_SEG_VSU)
 		vsu_mem_write(&request, src);
 	else if (seg == MEM_SEG_NVC)

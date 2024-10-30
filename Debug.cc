@@ -1,14 +1,19 @@
-#include "types.h"
-#include "debug.h"
+#include "Types.hh"
+#include "Debug.Gen.hh"
+#include <new>
 
 #if INTERFACE
+#	include "Types.hh"
+#	include "ROM.hh"
+#	include "OS.hh"
+
 	struct debug_symbol
 	{
-		char *ds_name;
-		u_int32_t ds_addr;
-		struct debug_symbol *ds_next;
-		enum isx_symbol_type ds_type;
-		bool ds_is_system;
+		char *ds_name = nullptr;
+		u_int32_t ds_addr = DEBUG_ADDR_NONE;
+		struct debug_symbol *ds_next = nullptr;
+		isx_symbol_type ds_type = ISX_SYMBOL_INVALID;
+		bool ds_is_system = false;
 	};
 # define DEBUG_ADDR_NONE (0xffffffff)
 
@@ -26,12 +31,12 @@
 
 #endif // INTERFACE
 
-#include <stdlib.h>
+#include <cstdlib>
 #if HAVE_LIBEDIT
 # include <histedit.h>
 #endif // HAVE_LIBEDIT
-#include <limits.h>
-#include <assert.h>
+#include <climits>
+#include <cassert>
 
 bool debug_show_console = false;
 bool debug_trace_cpu = false;
@@ -57,7 +62,7 @@ enum debug_mode
 	DEBUG_NEXT
 };
 
-static enum debug_mode debug_mode = DEBUG_RUN;
+static debug_mode debug_mode = DEBUG_RUN;
 static bool debug_stepping_frame = false;
 static u_int32_t debug_break = DEBUG_ADDR_NONE;
 static u_int32_t debug_next_pc = DEBUG_ADDR_NONE;
@@ -87,7 +92,7 @@ static struct debug_trace debug_traces[] =
 struct debug_watch
 {
 	u_int32_t dw_addr;
-	int dw_ops;
+	os_perm_mask dw_ops;
 	struct debug_watch *dw_next;
 };
 struct debug_watch *debug_watches = NULL;
@@ -126,7 +131,7 @@ debug_prompt(EditLine *editline __unused)
 bool
 debug_init(void)
 {
-	enum event_subsys dummy_subsys;
+	event_subsys dummy_subsys;
 	(void)dummy_subsys; // Hint for makeheaders
 
 	events_set_desc(DEBUG_EVENT_WATCH_READ, "%1$08x <- [0x%2$08x]");
@@ -136,7 +141,7 @@ debug_init(void)
 	s_history = history_init();
 	if (!s_history)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not initialize history editing");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, "Could not initialize history editing");
 		return false;
 	}
 	HistEvent event;
@@ -145,7 +150,7 @@ debug_init(void)
 	s_token = tok_init(NULL);
 	if (!s_token)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not initialize tokenizer");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, "Could not initialize tokenizer");
 		return false;
 	}
 
@@ -153,7 +158,7 @@ debug_init(void)
 		s_editline = el_init("vvboy", stdin, stdout, stderr);
 		if (!s_editline)
 		{
-			os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not initialize editline");
+			os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, "Could not initialize editline");
 			return false;
 		}
 		el_set(s_editline, EL_PROMPT, debug_prompt);
@@ -382,7 +387,7 @@ void
 debug_add_symbol(struct debug_symbol *debug_sym)
 {
 	os_tnode_t *existing;
-	existing = tfind(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+	existing = (os_tnode_t *)tfind(debug_sym, (void * const *)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 	if (existing)
 	{
 		struct debug_symbol *existing_sym = (struct debug_symbol *)existing->key;
@@ -402,22 +407,26 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 	debug_syms = debug_sym;
 
 	if (!existing && debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tsearch(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tsearch(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 }
 
 struct debug_symbol *
 debug_create_symbol(const char *name, u_int32_t addr, bool is_system)
 {
-	struct debug_symbol *debug_sym = calloc(1, sizeof(*debug_sym));
+	struct debug_symbol *debug_sym = new(std::nothrow) debug_symbol;
 	if (!debug_sym)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not allocate debug symbol");
+
 	debug_sym->ds_name = strdup(name);
 	if (!debug_sym->ds_name)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not copy symbol name");
+
 	debug_sym->ds_addr = addr;
 	debug_sym->ds_type = ISX_SYMBOL_POINTER;
 	debug_sym->ds_is_system = is_system;
+
 	debug_add_symbol(debug_sym);
+
 	return debug_sym;
 }
 
@@ -447,11 +456,12 @@ void
 debug_destroy_symbol(struct debug_symbol *debug_sym)
 {
 	if (debug_sym->ds_type == ISX_SYMBOL_POINTER)
-		tdelete(debug_sym, &debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
+		tdelete(debug_sym, (void **)&debug_addrs, (int (*)(const void *, const void *))debug_symbol_cmpaddr);
 
 	if (debug_sym->ds_name)
 		free(debug_sym->ds_name);
-	free(debug_sym);
+
+	delete debug_sym;
 }
 
 struct debug_disasm_context *
@@ -584,7 +594,7 @@ debug_disasm_v(debug_str_t decode,
 	{
 		switch (inst->ci_v.v_opcode)
 		{
-			enum cpu_opcode dummy_opcode;
+			cpu_opcode dummy_opcode;
 			(void)dummy_opcode; // Hint for makeheaders
 
 			union cpu_reg reg2;
@@ -707,7 +717,7 @@ debug_disasm_vii(debug_str_t decode,
                  const char *decomp_fmt,
                  struct debug_disasm_context *context)
 {
-	enum float_subop dummy_subop;
+	float_subop dummy_subop;
 	(void)dummy_subop; // Hint for makeheaders
 
 	const char *fmt;
@@ -733,7 +743,7 @@ debug_disasm_vii(debug_str_t decode,
 }
 
 static const char *
-debug_regid_str(enum cpu_regid regid)
+debug_regid_str(cpu_regid regid)
 {
 	switch (regid)
 	{
@@ -750,7 +760,7 @@ debug_regid_str(enum cpu_regid regid)
 static char *
 debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_context *context, debug_str_t dis)
 {
-	enum cpu_bcond dummy_bcond;
+	cpu_bcond dummy_bcond;
 	(void)dummy_bcond; // Hint for makeheaders
 
 	debug_str_t decode, decomp = {0};
@@ -875,6 +885,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			debug_disasm_i(decode, decomp, inst, "NOT", "%u<0x%08x>", "", "%3$s <- ~%2$s", context);
 			break;
 		case OP_JMP:
+		{
 			os_snprintf(decode, debug_str_len, "%s [%s]", mnemonic, debug_rnames[inst->ci_i.i_reg1]);
 			const union cpu_reg *reg1 = debug_get_reg(context, inst->ci_i.i_reg1);
 			if (reg1)
@@ -884,6 +895,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 							debug_format_addr(reg1->u, addr_s));
 			}
 			break;
+		}
 		case OP_ADD2:
 			debug_disasm_ii(decode, decomp, inst, "ADD", "%2$i", "%i", "%1$s <- %2$s + %3$s", context);
 			break;
@@ -953,7 +965,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 			break;
 		case OP_BSTR:
 		{
-			enum cpu_bstr dummy_bstr;
+			cpu_bstr dummy_bstr;
 			(void)dummy_bstr; // Hint for makeheaders
 
 			switch (inst->ci_ii.ii_imm5)
@@ -1003,7 +1015,7 @@ debug_disasm_s(const union cpu_inst *inst, u_int32_t pc, struct debug_disasm_con
 		case OP_LDSR:
 		{
 			char decomp_fmt[32];
-			os_snprintf(decomp_fmt, sizeof(decomp_fmt), "%s <- %%2$s", debug_regid_str(inst->ci_ii.ii_imm5));
+			os_snprintf(decomp_fmt, sizeof(decomp_fmt), "%s <- %%2$s", debug_regid_str(static_cast<cpu_regid>(inst->ci_ii.ii_imm5)));
 			debug_disasm_ii(decode, decomp, inst, "LDSR", "%hu", "0x%08x", decomp_fmt, context);
 			break;
 		}
@@ -1406,16 +1418,13 @@ debug_format_flags(debug_str_t s, ...)
 }
 
 const char *
-debug_format_perms(int perms, debug_str_t s)
+debug_format_perms(os_perm_mask perms, debug_str_t s)
 {
-	enum os_perm dummy_perm;
-	(void)dummy_perm; // Hint for makeheaders
-
 	return debug_format_flags(s,
-							  "NONE", (perms == 0),
-							  "READ", (perms & OS_PERM_READ),
-							  "WRITE", (perms & OS_PERM_WRITE),
-							  "EXEC", (perms & OS_PERM_EXEC),
+							  "NONE", (perms == os_perm_mask::NONE),
+							  "READ", ((perms & os_perm_mask::READ) != os_perm_mask::NONE),
+							  "WRITE", ((perms & os_perm_mask::WRITE) != os_perm_mask::NONE),
+							  "EXEC", ((perms & os_perm_mask::EXEC) != os_perm_mask::NONE),
 							  NULL);
 }
 
@@ -1465,18 +1474,18 @@ debug_toggle_trace(const char *key)
 }
 
 struct debug_watch *
-debug_find_watch(u_int32_t addr, int mem_op)
+debug_find_watch(u_int32_t addr, os_perm_mask mem_ops)
 {
 	for (struct debug_watch *watch = debug_watches; watch; watch = watch->dw_next)
 		if (watch->dw_addr == addr)
-			return ((watch->dw_ops & mem_op) != 0) ? watch : NULL;
+			return ((watch->dw_ops & mem_ops) != os_perm_mask::NONE) ? watch : NULL;
 	return NULL;
 }
 
 void
 debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 {
-	if (debug_find_watch(addr, OS_PERM_READ))
+	if (debug_find_watch(addr, os_perm_mask::READ))
 	{
 		debug_str_t addr_s, mem_addr_s, hex_s;
 		debug_tracef("watch", DEBUG_ADDR_FMT ": %s <- [" DEBUG_ADDR_FMT "]",
@@ -1491,7 +1500,7 @@ debug_watch_read(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 void
 debug_watch_write(u_int32_t pc, u_int32_t addr, u_int32_t value, u_int byte_size)
 {
-	if (debug_find_watch(addr, OS_PERM_WRITE))
+	if (debug_find_watch(addr, os_perm_mask::WRITE))
 	{
 		debug_str_t addr_s, mem_addr_s, hex_s;
 		debug_tracef("watch", DEBUG_ADDR_FMT ": [" DEBUG_ADDR_FMT "] <- %s",
@@ -1511,7 +1520,7 @@ debug_exec(const char *cmd)
 
 	HistEvent hist_event;
 	if (history(s_history, &hist_event, H_ENTER, cmd) == -1)
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Could not save editline history");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, "Could not save editline history");
 
 	int argc;
 	const char **argv;
@@ -1870,15 +1879,15 @@ debug_exec(const char *cmd)
 			}
 			else if (argc == 3)
 			{
-				int ops;
+				os_perm_mask ops;
 				if (!strcmp(argv[1], "read"))
-					ops = OS_PERM_READ;
+					ops = os_perm_mask::READ;
 				else if (!strcmp(argv[1], "write"))
-					ops = OS_PERM_WRITE;
+					ops = os_perm_mask::WRITE;
 				else if (!strcmp(argv[1], "all"))
-					ops = OS_PERM_RDWR;
+					ops = os_perm_mask::RDWR;
 				else if (!strcmp(argv[1], "none"))
-					ops = 0;
+					ops = os_perm_mask::NONE;
 				else
 				{
 					debug_usage('w');
@@ -1902,7 +1911,7 @@ debug_exec(const char *cmd)
 				}
 				if (watch)
 				{
-					if (ops)
+					if (ops != os_perm_mask::NONE)
 					{
 						if (watch->dw_ops == ops)
 							debug_printf("Watch at 0x%08x already exists\n", addr);
@@ -1912,16 +1921,16 @@ debug_exec(const char *cmd)
 					else
 					{
 						*prevp = watch->dw_next;
-						free(watch);
+						delete watch;
 					}
 				}
 				else
 				{
-					if (!ops)
+					if (ops == os_perm_mask::NONE)
 						debug_printf("No watch found for 0x%08x\n", addr);
 					else
 					{
-						watch = malloc(sizeof(*watch));
+						watch = new(std::nothrow) debug_watch;
 						if (!watch)
 							main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate debug watch");
 						watch->dw_addr = addr;
@@ -2068,7 +2077,7 @@ debug_putchar(char ch)
 
 		if (next_begin == debug_console_end)
 		{
-			os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY), "Console buffer overflow\n");
+			os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY, "Console buffer overflow\n");
 			return;
 		}
 
@@ -2134,14 +2143,14 @@ debug_runtime_error(bool allow_ignore, bool *always_ignore_flagp, const char *ms
 	if (debug_mode == DEBUG_STOP)
 		return true;
 
-	u_int resp_mask = BIT(OS_RUNERR_RESP_ABORT);
+	os_runerr_resp_mask resp_mask = os_runerr_resp_mask::ABORT;
 	if (rom_loaded)
-		resp_mask |= BIT(OS_RUNERR_RESP_DEBUG);
+		resp_mask |= os_runerr_resp_mask::DEBUG;
 	if (allow_ignore)
 	{
-		resp_mask |= BIT(OS_RUNERR_RESP_IGNORE);
+		resp_mask |= os_runerr_resp_mask::IGNORE;
 		if (always_ignore_flagp)
-			resp_mask |= BIT(OS_RUNERR_RESP_ALWAYS_IGNORE);
+			resp_mask |= os_runerr_resp_mask::ALWAYS_IGNORE;
 	}
 
 	switch (os_runtime_error(OS_RUNERR_TYPE_EMULATION, resp_mask, msg))
@@ -2196,7 +2205,7 @@ debug_fatal_errorf(const char *fmt, ...)
 void
 debug_frame_begin(void)
 {
-	enum tk_scancode dummy_scancode; // Hint for makeheaders
+	tk_scancode dummy_scancode; // Hint for makeheaders
 	(void)dummy_scancode;
 
 	// TODO: Visual Studio keyboard shortcuts

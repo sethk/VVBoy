@@ -1,17 +1,6 @@
-#include "types.h"
-#include "os_macos.h"
-
-#if INTERFACE
-#	define os_getprogname getprogname
-
-	typedef NSWindow *os_win_handle_t;
-#	define OS_WIN_HANDLE_INVALID NULL
-
-#	define OS_SHORTCUT_LKEY TK_SCANCODE_LGUI
-#	define OS_SHORTCUT_RKEY TK_SCANCODE_RGUI
-#	define OS_SHORTCUT_KEY_NAME "Cmd"
-
-#endif // INTERFACE
+#include "Types.hh"
+#include "OS.hh"
+#include "OS_macOS.Gen.hh"
 
 #import <AppKit/AppKit.h>
 
@@ -55,11 +44,11 @@ os_choose_file(const char *desc, const char * const exts[], u_int num_exts, bool
 }
 
 enum os_runerr_resp
-os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const char *fmt, va_list ap)
+os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp_mask resp_mask, const char *fmt, va_list ap)
 {
 	int os_errno = errno;
 
-	bool dismiss_allowed = ((resp_mask & (BIT(OS_RUNERR_RESP_OKAY) | BIT(OS_RUNERR_RESP_IGNORE))) != 0);
+	bool dismiss_allowed = ((resp_mask & (os_runerr_resp_mask::OKAY | os_runerr_resp_mask::IGNORE)) != os_runerr_resp_mask::NONE);
 
 	vsu_mutes_incr();
 
@@ -96,13 +85,13 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 
 		[alert setInformativeText:informativeText];
 
-		if (resp_mask & BIT(OS_RUNERR_RESP_DEBUG))
+		if ((resp_mask & os_runerr_resp_mask::DEBUG) != os_runerr_resp_mask::NONE)
 			[[alert addButtonWithTitle:@"Debug"] setTag:OS_RUNERR_RESP_DEBUG];
-		if (resp_mask & BIT(OS_RUNERR_RESP_ABORT))
+		if ((resp_mask & os_runerr_resp_mask::ABORT) != os_runerr_resp_mask::NONE)
 			[[alert addButtonWithTitle:@"Abort"] setTag:OS_RUNERR_RESP_ABORT];
-		if (resp_mask & BIT(OS_RUNERR_RESP_IGNORE))
+		if ((resp_mask & os_runerr_resp_mask::IGNORE) != os_runerr_resp_mask::NONE)
 			[[alert addButtonWithTitle:@"Ignore"] setTag:OS_RUNERR_RESP_IGNORE];
-		if (resp_mask & BIT(OS_RUNERR_RESP_ALWAYS_IGNORE))
+		if ((resp_mask & os_runerr_resp_mask::ALWAYS_IGNORE) != os_runerr_resp_mask::NONE)
 			[[alert addButtonWithTitle:@"Always Ignore"] setTag:OS_RUNERR_RESP_ALWAYS_IGNORE];
 
 
@@ -123,10 +112,10 @@ os_runtime_verror(enum os_runerr_type type, enum os_runerr_resp resp_mask, const
 				usleep(100 * 1000);
 			}
 
-			return response;
+			return static_cast<os_runerr_resp>(response);
 		}
 		else
-			return [alert runModal];
+			return static_cast<os_runerr_resp>([alert runModal]);
 	}
 	@finally
 	{

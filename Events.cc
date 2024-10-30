@@ -1,5 +1,5 @@
-#include "types.h"
-#include "events.h"
+#include "Types.hh"
+#include "Events.Gen.hh"
 
 #if INTERFACE
 
@@ -20,13 +20,15 @@
 #   define EVENT_GET_WHICH(e) ((e) & _EVENT_WHICH_MASK)
 #   define EVENTS_MAX (_EVENT_WHICH_MASK + 1)
 #   define EVENT_SUBSYS_BITS(s) ((s) << 6)
-#   define EVENT_GET_SUBSYS(e) (((e) >> 6) & 0xf)
+#   define EVENT_GET_SUBSYS(e) static_cast<event_subsys>(((e) >> 6) & 0xf)
 #   define EVENT_START_BIT (1 << 14) // TODO: BIT()
 #   define EVENT_FINISH_BIT (1 << 15) // TODO: BIT()
 #endif // INTERFACE
 
-#include <assert.h>
-#include <math.h>
+DEFINE_ENUM_INTOPS(event_subsys, int)
+
+#include <cassert>
+#include <cmath>
 
 struct event
 {
@@ -42,7 +44,7 @@ static bool events_capturing = false;
 static bool events_overflowed = false;
 static struct event events[64 * 1024];
 static u_int events_count;
-static enum event_subsys dummy_event_subsys; // Trick makeheaders into understanding that the declarations below require EVENT_SUBSYS_*
+static event_subsys dummy_event_subsys; // Trick makeheaders into understanding that the declarations below require EVENT_SUBSYS_*
 static struct event *events_first_by_subsys[EVENT_NUM_SUBSYS];
 static struct event *events_last_by_subsys[EVENT_NUM_SUBSYS];
 static bool events_dirty = false;
@@ -88,7 +90,7 @@ events_fini(void)
 void
 events_set_desc(u_int16_t code, const char *fmt)
 {
-	enum event_subsys subsys = EVENT_GET_SUBSYS(code);
+	event_subsys subsys = EVENT_GET_SUBSYS(code);
 	u_int which = EVENT_GET_WHICH(code);
 	events_descs[subsys][which] = fmt;
 }
@@ -101,7 +103,7 @@ events_fire(u_int16_t code, u_int32_t index, const void *user_data)
 
 	if (events_count < COUNT_OF(events))
 	{
-		enum event_subsys subsys = EVENT_GET_SUBSYS(code);
+		event_subsys subsys = EVENT_GET_SUBSYS(code);
 		struct event *event = &(events[events_count]);
 		if (!events_first_by_subsys[subsys])
 			events_first_by_subsys[subsys] = event;
@@ -135,7 +137,7 @@ events_clear(void)
 		return;
 
 	events_count = 0;
-	for (enum event_subsys subsys = 0; subsys < EVENT_NUM_SUBSYS; ++subsys)
+	for (event_subsys subsys = static_cast<event_subsys>(0); subsys < EVENT_NUM_SUBSYS; ++subsys)
 	{
 		events_first_by_subsys[subsys] = NULL;
 		events_last_by_subsys[subsys] = NULL;
@@ -188,7 +190,7 @@ events_frame_end(void)
 
 				igSetColumnWidth(-1, 40);
 
-				for (enum event_subsys subsys = 0; subsys < EVENT_NUM_SUBSYS; ++subsys)
+				for (event_subsys subsys = static_cast<event_subsys>(0); subsys < EVENT_NUM_SUBSYS; ++subsys)
 					igText(events_subsys_names[subsys]);
 
 				igNextColumn();
@@ -209,7 +211,7 @@ events_frame_end(void)
 					current_track_size.x = (float)(emu_usec / 1e6) * track_size.x;
 					current_track_size.y = track_size.y;
 
-					for (enum event_subsys subsys = 0; subsys < EVENT_NUM_SUBSYS; ++subsys)
+					for (event_subsys subsys = static_cast<event_subsys>(0); subsys < EVENT_NUM_SUBSYS; ++subsys)
 					{
 						igGetCursorScreenPos(&(min_track_vecs[subsys]));
 						struct ImVec2 max_vect =
@@ -276,13 +278,13 @@ events_frame_end(void)
 				igSeparator();
 
 				float last_event_max_x = -1;
-				enum event_subsys last_event_subsys;
+				event_subsys last_event_subsys;
 				u_int last_event_usecs;
 
 				for (u_int i = 0; i < events_count; ++i)
 				{
 					struct event *event = &(events[i]);
-					enum event_subsys subsys = EVENT_GET_SUBSYS(event->e_code);
+					event_subsys subsys = EVENT_GET_SUBSYS(event->e_code);
 					u_int which = EVENT_GET_WHICH(event->e_code);
 					igText(events_subsys_names[subsys]);
 					igNextColumn();

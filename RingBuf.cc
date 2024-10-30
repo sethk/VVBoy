@@ -1,7 +1,8 @@
-#include "types.h"
-#include "ringbuf.h"
-#include <limits.h>
-#include <assert.h>
+#include "Types.hh"
+#include "RingBuf.Gen.hh"
+#include "OS.hh"
+#include <climits>
+#include <cassert>
 
 #if INTERFACE
 	struct ringbuf

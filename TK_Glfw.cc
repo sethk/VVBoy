@@ -1,6 +1,5 @@
 #if INTERFACE
 # include <sys/types.h>
-# include <stdbool.h>
 
 # include <GLFW/glfw3.h>
 
@@ -64,8 +63,8 @@
 #endif // INTERFACE
 
 #include "tk_glfw.h"
-#include <assert.h>
-#include <math.h>
+#include <cassert>
+#include <cmath>
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "vendor/cimgui_glfw_opengl3/imgui_impl_glfw_gl3.h"

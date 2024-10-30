@@ -1,10 +1,11 @@
 #define NO_IMGUI_TYPES
-#include "types.h"
+#	include "Types.hh"
+#	include "OS.hh"
 #undef NO_IMGUI_TYPES
-#include "tk_sdl.h"
+#	include "TK_SDL.Gen.hh"
 #if INTERFACE
-# include <SDL_scancode.h>
-# include <SDL_gamecontroller.h>
+#	include <SDL_scancode.h>
+#	include <SDL_gamecontroller.h>
 
 	enum tk_scancode
 	{
@@ -72,7 +73,7 @@
 #include <SDL_syswm.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
-#include "assert.h"
+#include <cassert>
 
 #if !SDL_VERSION_ATLEAST(2, 0, 7)
 # warning Problems with game controller GUIDs on macOS with version 2.0.5
@@ -80,7 +81,7 @@
 
 #define VSYNC (true)
 
-u_int tk_win_width, tk_win_height;
+int tk_win_width, tk_win_height;
 int tk_draw_width, tk_draw_height;
 float tk_draw_scale;
 bool tk_audio_enabled;
@@ -128,7 +129,7 @@ tk_init(void)
 {
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Failed to initialize: %s\n", SDL_GetError());
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::ABORT, "SDL: Failed to initialize: %s\n", SDL_GetError());
 		return false;
 	}
 
@@ -145,7 +146,7 @@ tk_init(void)
 					384 * 3, 224 * 3,
 					SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI)))
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "SDL: Couldn't create window: %s",
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::ABORT, "SDL: Couldn't create window: %s",
 				SDL_GetError());
 		return false;
 	}
@@ -256,15 +257,15 @@ tk_poll_input()
 
 				if (event.key.repeat)
 					break;
-				nvc_input_key((enum tk_scancode)event.key.keysym.scancode, event.key.state);
+				nvc_input_key(static_cast<tk_scancode>(event.key.keysym.scancode), event.key.state);
 				break;
 			}
 			case SDL_CONTROLLERBUTTONDOWN:
 			case SDL_CONTROLLERBUTTONUP:
-				nvc_input_button(event.cbutton.button, event.cbutton.state);
+				nvc_input_button(static_cast<tk_button>(event.cbutton.button), event.cbutton.state);
 				break;
 			case SDL_CONTROLLERAXISMOTION:
-				nvc_input_axis((enum tk_axis)event.caxis.axis, event.caxis.value / 32767.f);
+				nvc_input_axis(static_cast<tk_axis>(event.caxis.axis), event.caxis.value / 32767.f);
 				break;
 			default:
 				break;

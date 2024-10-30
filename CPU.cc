@@ -1,5 +1,5 @@
-#include "types.h"
-#include "cpu.h"
+#include "Types.hh"
+#include "CPU.Gen.hh"
 
 #if INTERFACE
 #   define CPU_MAX_PC (0xfffffffe)
@@ -27,6 +27,8 @@
 			u_int16_t iii_disp9 : 9;
 			u_int16_t iii_cond : 4;
 			u_int16_t iii_opcode : 3;
+
+			enum cpu_bcond GetCondition() const { return static_cast<cpu_bcond>(iii_cond); }
 		} ci_iii;
 		struct
 		{
@@ -226,9 +228,9 @@
 	};
 #endif // INTERFACE
 
-#include <assert.h>
-#include <float.h>
-#include <math.h>
+#include <cassert>
+#include <cfloat>
+#include <cmath>
 
 struct cpu_state cpu_state;
 bool cpu_accurate_timing = true;
@@ -245,7 +247,7 @@ enum cpu_event
 bool
 cpu_init(void)
 {
-	enum event_subsys dummy_subsys;
+	event_subsys dummy_subsys;
 	(void)dummy_subsys; // Hint for makeheaders
 
 	events_set_desc(CPU_EVENT_INTR_ENTER, "Interrupt %u (%s)");
@@ -309,7 +311,7 @@ cpu_inst_disp26(const union cpu_inst *inst)
 bool
 cpu_fetch(u_int32_t pc, union cpu_inst *inst)
 {
-	enum mem_segment dummy_segment;
+	mem_segment dummy_segment;
 	(void)dummy_segment; // Hint for makeheaders
 
 	const union cpu_inst *rom_inst = (const union cpu_inst *)rom_get_read_ptr(pc);
@@ -379,10 +381,11 @@ cpu_extend16(u_int32_t s16)
 		s16|= 0xffff0000;
 	return s16;
 }
+
 #endif // INTERFACE
 
 static bool
-cpu_getfl(enum cpu_bcond cond)
+cpu_getfl(cpu_bcond cond)
 {
 	switch (cond)
 	{
@@ -759,7 +762,7 @@ cpu_next_pc(const union cpu_inst inst)
 		return cpu_state.cs_r[31].u;
 	else if (inst.ci_iii.iii_opcode == OP_BCOND)
 	{
-		bool branch = cpu_getfl(inst.ci_iii.iii_cond);
+		bool branch = cpu_getfl(inst.ci_iii.GetCondition());
 		if (branch)
 		{
 			u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
@@ -935,7 +938,7 @@ cpu_exec(const union cpu_inst inst)
 		}
 		case OP_SETF:
 		{
-			cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_getfl(inst.ci_ii.ii_imm5);
+			cpu_state.cs_r[inst.ci_ii.ii_reg2].u = cpu_getfl(static_cast<cpu_bcond>(inst.ci_ii.ii_imm5));
 			break;
 		}
 		case OP_CMP2:
@@ -1206,7 +1209,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int mem_wait;
-			const u_int16_t *mem_ptr = mem_get_read_ptr(addr, 2, &mem_wait);
+			const u_int16_t *mem_ptr = static_cast<const uint16_t *>(mem_get_read_ptr(addr, 2, &mem_wait));
 			if (!mem_ptr)
 				return false;
 			cpu_state.cs_r[inst.ci_vi.vi_reg2].u = cpu_extend16(*mem_ptr);
@@ -1430,7 +1433,7 @@ cpu_exec(const union cpu_inst inst)
 		default:
 			if (inst.ci_iii.iii_opcode == OP_BCOND)
 			{
-				bool branch = cpu_getfl(inst.ci_iii.iii_cond);
+				bool branch = cpu_getfl(inst.ci_iii.GetCondition());
 				if (branch)
 				{
 					u_int32_t disp = cpu_extend9(inst.ci_iii.iii_disp9);
@@ -1868,7 +1871,7 @@ cpu_step(void)
 }
 
 void
-cpu_intr(enum nvc_intlevel level)
+cpu_intr(nvc_intlevel level)
 {
 	if (!cpu_state.cs_psw.psw_flags.f_np && !cpu_state.cs_psw.psw_flags.f_ep && !cpu_state.cs_psw.psw_flags.f_id)
 	{

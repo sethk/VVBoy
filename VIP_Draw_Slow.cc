@@ -2,9 +2,9 @@
 # include <sys/types.h>
 #endif // INTERFACE
 
-#include <string.h>
-#include <assert.h>
-#include <math.h>
+#include <cstring>
+#include <cassert>
+#include <cmath>
 
 #include "vip_draw_slow.h"
 

@@ -1,7 +1,8 @@
-#include "types.h"
-#include "vip.h"
-#include <assert.h>
-#include <math.h>
+#include "Types.hh"
+#include "ROM.hh"
+#include "VIP.Gen.hh"
+#include <cassert>
+#include <cmath>
 
 #if INTERFACE
 	struct vip_chr
@@ -140,6 +141,8 @@ enum vip_intflag
 	VIP_TIMEERR = (1 << 15)
 };
 
+DEFINE_ENUM_BITOPS(vip_intflag, int)
+
 struct vip_dpctrl
 {
 	u_int16_t vd_dprst: 1;
@@ -222,9 +225,9 @@ typedef u_int8_t vip_unpacked_row_t[384];
 typedef vip_unpacked_row_t vip_unpacked_8rows_t[8];
 typedef vip_unpacked_row_t vip_unpacked_fb_t[224];
 
-static const enum vip_intflag vip_dpints =
+static const vip_intflag vip_dpints =
 		VIP_SCANERR | VIP_LFBEND | VIP_RFBEND | VIP_GAMESTART | VIP_FRAMESTART | VIP_TIMEERR;
-static const enum vip_intflag vip_xpints = VIP_SBHIT | VIP_XPEND | VIP_TIMEERR;
+static const vip_intflag vip_xpints = VIP_SBHIT | VIP_XPEND | VIP_TIMEERR;
 
 bool vip_scan_accurate = false;
 u_int32_t vip_world_mask = ~0;
@@ -253,7 +256,7 @@ static const char * const vip_bgm_strings[4] =
 static u_int vip_disp_index = 0;
 static u_int vip_frame_cycles = 0;
 
-static enum event_subsys dummy_event_subsys; // Hint for makeheaders
+static event_subsys dummy_event_subsys; // Hint for makeheaders
 enum vip_event
 {
 	VIP_EVENT_FRAMESTART = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VIP) | EVENT_WHICH_BITS(0),
@@ -344,7 +347,7 @@ vip_reset(void)
 }
 
 static void
-vip_raise(enum vip_intflag intflag)
+vip_raise(vip_intflag intflag)
 {
 	vip_regs.vr_intpnd|= intflag;
 	if (vip_regs.vr_intenb & intflag)
@@ -560,7 +563,7 @@ vip_bgmap_read_slow(const struct vip_bgsc *bgmap_base,
                     bool *opaquep)
 {
 	int x, y;
-	if ((enum vip_world_bgm)vwa->vwa_bgm == WORLD_BGM_AFFINE)
+	if (static_cast<vip_world_bgm>(vwa->vwa_bgm) == WORLD_BGM_AFFINE)
 	{
 		const struct vip_affine *vap = &(vp->vp_affine);
 
@@ -1099,7 +1102,7 @@ vip_update_sbcount(u_int sbcount)
 static void
 vip_frame_clock(void)
 {
-	enum vip_intflag intflags = VIP_FRAMESTART;
+	vip_intflag intflags = VIP_FRAMESTART;
 
 	if (debug_trace_vip)
 		debug_tracef("vip", "FRAMESTART");
@@ -1469,7 +1472,7 @@ vip_fini(void)
 bool
 vip_mem_prepare(struct mem_request *request)
 {
-	if (request->mr_ops & OS_PERM_READ)
+	if ((request->mr_ops & os_perm_mask::READ) != os_perm_mask::NONE)
 		request->mr_wait = 8;
 	else
 		request->mr_wait = 4;
@@ -1517,7 +1520,7 @@ vip_mem_prepare(struct mem_request *request)
 			case 0x10:
 			case 0x18:
 			case 0x20:
-				request->mr_perms = OS_PERM_READ;
+				request->mr_perms = os_perm_mask::READ;
 				break;
 			case 0x02:
 			case 0x11:
@@ -1528,15 +1531,15 @@ vip_mem_prepare(struct mem_request *request)
 			case 0x17:
 			case 0x21:
 			{
-				request->mr_perms = OS_PERM_WRITE;
-				if (request->mr_ops & OS_PERM_READ)
+				request->mr_perms = os_perm_mask::WRITE;
+				if ((request->mr_ops & os_perm_mask::READ) != os_perm_mask::NONE)
 				{
 					static bool ignore_read = false;
 					debug_str_t addr_s;
 					if (!debug_runtime_errorf(&ignore_read, "Trying to read write-only VIP register at %s",
 					                          debug_format_addr(request->mr_emu, addr_s)))
 						return false;
-					request->mr_perms|= OS_PERM_READ;
+					request->mr_perms|= os_perm_mask::READ;
 				}
 				break;
 			}
@@ -1799,7 +1802,7 @@ vip_settings_menu()
 void
 vip_frame_begin(void)
 {
-	imgui_key_toggle((enum tk_scancode)TK_SCANCODE_F1, &vip_worlds_open, true);
+	imgui_key_toggle(static_cast<tk_scancode>(TK_SCANCODE_F1), &vip_worlds_open, true);
 	imgui_key_toggle(TK_SCANCODE_F2, &vip_bgseg_open, true);
 	imgui_key_toggle(TK_SCANCODE_F3, &vip_chr_open, true);
 	imgui_key_toggle(TK_SCANCODE_F4, &vip_oam_open, true);

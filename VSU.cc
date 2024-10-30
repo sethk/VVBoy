@@ -1,7 +1,8 @@
-#include "types.h"
-#include "vsu.h"
-#include <assert.h>
-#include <math.h>
+#include "Types.hh"
+#include "ROM.hh"
+#include "VSU.Gen.hh"
+#include <cassert>
+#include <cmath>
 
 enum vsu_event
 {
@@ -108,7 +109,7 @@ static struct vsu_state
 } vsu_states[6];
 static bool vsu_env_enabled = true;
 
-static const enum event_subsys dummy_subsys; // Hint for makeheaders
+static const event_subsys dummy_subsys = EVENT_NUM_SUBSYS; // Hint for makeheaders
 
 bool
 vsu_init(void)
@@ -150,7 +151,7 @@ vsu_test(void)
 {
 	debug_printf("Running VSU self-test\n");
 	ASSERT_SIZEOF(vsu_ram, 0x100);
-	ASSERT_SIZEOF(struct vsu_sound_regs, 0x10);
+	ASSERT_SIZEOF(struct vsu_regs::vsu_sound_regs, 0x10);
 	ASSERT_SIZEOF(vsu_regs, 0x80);
 	mem_test_addr("S1INT", 0x01000400, 1, &(vsu_regs.vr_sounds[0].vsr_int));
 	mem_test_addr("S2INT", 0x01000440, 1, &(vsu_regs.vr_sounds[1].vsr_int));
@@ -233,7 +234,7 @@ vsu_set_muted_by_engine(bool muted)
 static void
 vsu_sound_start(u_int sound)
 {
-	const struct vsu_sound_regs *vsr = vsu_regs.vr_sounds + sound;
+	const struct vsu_regs::vsu_sound_regs *vsr = vsu_regs.vr_sounds + sound;
 	struct vsu_state *state = vsu_states + sound;
 
 	if (!state->vs_started)
@@ -279,7 +280,7 @@ vsu_samples_render(int16_t samples[][2], u_int num_samples)
 		if (!state->vs_started)
 			continue;
 
-		const struct vsu_sound_regs *vsr = vsu_regs.vr_sounds + sound;
+		const struct vsu_regs::vsu_sound_regs *vsr = vsu_regs.vr_sounds + sound;
 		const u_int8_t *vsu_wave = vsu_ram.vr_waves[vsr->vsr_ram.vr_addr];
 
 		// TODO: Noise sound source
@@ -441,7 +442,7 @@ vsu_frame_end(void)
 	if (has_error)
 	{
 		// TODO: Show UI message
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_OKAY),
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::OKAY,
 			"Audio output error. %s Sound has been muted.", error_s);
 	}
 
@@ -466,7 +467,7 @@ vsu_frame_end(void)
 			for (u_int sound = 0; sound < 6; ++sound)
 			{
 				char id[32];
-				struct vsu_sound_regs *vsr = &(vsu_regs.vr_sounds[sound]);
+				struct vsu_regs::vsu_sound_regs *vsr = &(vsu_regs.vr_sounds[sound]);
 				os_snprintf(id, sizeof(id), "SOUND%u", sound);
 				char interval_s[16];
 				if (vsr->vsr_int.vi_mode)

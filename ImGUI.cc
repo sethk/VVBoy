@@ -1,6 +1,7 @@
-#include "types.h"
-#include "imgui.h"
-#include <assert.h>
+#include "Types.hh"
+#include "ImGUI.Gen.hh"
+#include "OS.hh"
+#include <cassert>
 
 #if INTERFACE
 #   define IMVEC2(x, y) ((struct ImVec2){(x), (y)})
@@ -55,7 +56,7 @@ imgui_key_toggle(int key_index, bool *togglep, bool show_on_active)
 void
 imgui_frame_begin(void)
 {
-	enum tk_scancode dummy_scancode;
+	tk_scancode dummy_scancode;
 	(void)dummy_scancode; // Hint for makeheaders
 
 	if (rom_loaded && (igIsKeyPressed(TK_SCANCODE_ESCAPE, false) /*|| igIsKeyPressed(TK_SCANCODE_SPACE, false)*/))
@@ -219,7 +220,7 @@ void
 imgui_draw_win(void)
 {
 	char id[64];
-	os_snprintf(id, sizeof(id), "%.*s###VVBoy", sizeof(id) - 9, rom_name);
+	os_snprintf(id, sizeof(id), "%.*s###VVBoy", NARROW_CAST(int, sizeof(id) - 9), rom_name);
 	igPushStyleVar(ImGuiStyleVar_WindowRounding, 0);
 	igPushStyleVarVec(ImGuiStyleVar_WindowPadding, IMVEC2_ZERO);
 	struct ImGuiStyle *style = igGetStyle();
@@ -229,7 +230,7 @@ imgui_draw_win(void)
 					width + style->WindowBorderSize * 2,
 					height + style->WindowBorderSize
 			};
-	igSetNextWindowPos((struct ImVec2){tk_win_width / 2.0, tk_win_height / 2.0},
+	igSetNextWindowPos((struct ImVec2){tk_win_width / 2.f, tk_win_height / 2.f},
 					   ImGuiCond_FirstUseEver,
 					   (struct ImVec2){0.5, 0.5});
 	igSetNextWindowContentSize(content_size);
@@ -259,13 +260,13 @@ imgui_frame_end(void)
 }
 
 void
-imgui_debug_image(enum gl_texture texture, u_int width, u_int height)
+imgui_debug_image(gl_texture texture, u_int width, u_int height)
 {
 	static const struct ImVec4 color = {1, 1, 1, 1};
 	static const struct ImVec4 border_color = {0.5, 0.5, 0.5, 1};
 	u_int texture_id = gl_debug_blit(texture);
 	igImage((ImTextureID)(uintptr_t)texture_id,
-	        (struct ImVec2) {width, height},
+	        (struct ImVec2) {NARROW_CAST(float, width), NARROW_CAST(float, height)},
 	        IMVEC2_ZERO, (struct ImVec2) {(float)width / 512, (float)height / 512},
 	        color, border_color);
 }

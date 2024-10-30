@@ -1,24 +1,8 @@
-#include "types.h"
-#include "os_unix.h"
+#include "Types.hh"
+#include "OS.hh"
+#include "OS_Unix.Gen.hh"
 
 #if INTERFACE
-#	include <stdio.h>
-
-	typedef FILE *os_file_handle_t;
-#define OS_FILE_HANDLE_INVALID NULL
-	typedef void *os_mmap_handle_t;
-#define OS_MMAP_HANDLE_INVALID NULL
-
-#	include <strings.h>
-#	define os_bcopy bcopy
-#	define os_bcmp bcmp
-#	define os_bzero bzero
-#	define os_strcasecmp strcasecmp
-#	define os_snprintf snprintf
-#	define os_vsnprintf vsnprintf
-
-#	include <search.h>
-	typedef node_t os_tnode_t;
 #endif // INTERFACE
 
 #include <sys/time.h>
@@ -28,7 +12,7 @@
 #include <sys/param.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <signal.h>
+#include <csignal>
 
 u_int64_t
 os_get_usec(void)
@@ -41,15 +25,15 @@ os_get_usec(void)
 }
 
 os_file_handle_t
-os_file_open(const char *fn, enum os_perm perm)
+os_file_open(const char *fn, os_perm_mask perms)
 {
 	const char *mode;
-	switch (perm)
+	switch (perms)
 	{
-		case OS_PERM_READ: mode = "r"; break;
-		case OS_PERM_WRITE: mode = "w"; break;
-		case OS_PERM_RDWR: mode = "w+"; break;
-		case OS_PERM_EXEC:
+		case os_perm_mask::READ: mode = "r"; break;
+		case os_perm_mask::WRITE: mode = "w"; break;
+		case os_perm_mask::RDWR: mode = "w+"; break;
+		case os_perm_mask::EXEC:
 		default:
 		   os_debug_trap();
 	}
@@ -70,7 +54,7 @@ os_file_exists(const char *path)
 		return true;
 	
 	if (errno != ENOENT)
-		os_runtime_error(OS_RUNERR_TYPE_OSERR, BIT(OS_RUNERR_RESP_OKAY), "Could not stat %s", path);
+		os_runtime_error(OS_RUNERR_TYPE_OSERR, os_runerr_resp_mask::OKAY, "Could not stat %s", path);
 
 	return false;
 }
@@ -99,7 +83,7 @@ os_file_read(os_file_handle_t handle, void *buffer, size_t size)
 }
 
 off_t
-os_file_seek(os_file_handle_t handle, off_t offset, enum os_seek_anchor anchor)
+os_file_seek(os_file_handle_t handle, off_t offset, os_seek_anchor anchor)
 {
 	int whence;
 	switch (anchor)
@@ -115,14 +99,14 @@ os_file_seek(os_file_handle_t handle, off_t offset, enum os_seek_anchor anchor)
 }
 
 os_mmap_handle_t
-os_mmap_file(os_file_handle_t file_handle, size_t size, enum os_perm perms, void **pmap)
+os_mmap_file(os_file_handle_t file_handle, size_t size, os_perm_mask perms, void **pmap)
 {
 	int prot = 0;
-	if (perms & OS_PERM_READ)
+	if ((perms & os_perm_mask::READ) != os_perm_mask::NONE)
 		prot|= PROT_READ;
-	if (perms & OS_PERM_WRITE)
+	if ((perms & os_perm_mask::WRITE) != os_perm_mask::NONE)
 		prot|= PROT_WRITE;
-	if (perms & OS_PERM_EXEC)
+	if ((perms & os_perm_mask::EXEC) != os_perm_mask::NONE)
 		prot|= PROT_EXEC;
 
 	*pmap = mmap(NULL, size, prot, MAP_FILE | MAP_PRIVATE, fileno(file_handle), 0);

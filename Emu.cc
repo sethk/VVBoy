@@ -1,5 +1,6 @@
-#include "types.h"
-#include "emu.h"
+#include "Types.hh"
+#include "Emu.Gen.hh"
+#include "OS.hh"
 
 #if INTERFACE
 	struct emu_stats_t

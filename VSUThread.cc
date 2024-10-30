@@ -1,15 +1,15 @@
-#include "types.h"
-#include "vsu_thread.h"
-#include <assert.h>
+#include "Types.hh"
+#include "VSUThread.Gen.hh"
+#include <cassert>
 
 #if INTERFACE
 	struct vsu_thread_data
 	{
-		bool vtd_inited;
+		bool vtd_inited = false;
 		struct ringbuf vtd_buffer;
-		bool vtd_muted, vtd_output_muted;
-		u_int vtd_error_count;
-		char vtd_error_str[128 + 1];
+		bool vtd_muted = false, vtd_output_muted = false;
+		u_int vtd_error_count = 0;
+		char vtd_error_str[128 + 1]{0};
 	};
 #endif // INTERFACE
 
@@ -22,7 +22,7 @@ enum vsu_thread_event
 enum vsu_buffer_size { VSU_BUFFER_SIZE = 417 * 10 };
 static const u_int vsu_low_watermark = 128;
 
-static struct vsu_thread_data vsu_thread_data = { false };
+static struct vsu_thread_data vsu_thread_data;
 
 enum vsu_fade_samples { VSU_FADE_SAMPLES = 150 };
 static u_int16_t vsu_fade_env[VSU_FADE_SAMPLES];
@@ -130,9 +130,9 @@ vsu_thread_read(struct vsu_thread_data *vtd, int16_t (*samples)[2], u_int count)
 	u_int did_read = 0;
 	if (to_read > 0)
 	{
-		enum event_subsys dummy_subsys;
+		event_subsys dummy_subsys;
 		(void)dummy_subsys;
-		enum vsu_thread_event dummy_event; // Hint for makeheaders
+		vsu_thread_event dummy_event; // Hint for makeheaders
 		(void)dummy_event;
 
 		did_read = ringbuf_read_copy(&vtd->vtd_buffer, samples, to_read, NULL);

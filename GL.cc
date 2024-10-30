@@ -1,5 +1,6 @@
-#include "types.h"
-#include "gl.h"
+#include "Types.hh"
+#include "OS.hh"
+#include "GL.Gen.hh"
 
 #if INTERFACE
 	enum gl_texture
@@ -14,7 +15,7 @@
 #endif // INTERFACE
 
 #include <GL/gl3w.h>
-#include <assert.h>
+#include <cassert>
 
 bool gl_draw_left = true;
 bool gl_draw_right = true;
@@ -91,7 +92,7 @@ gl_init(void)
 {
 	if (gl3wInit() == -1)
 	{
-		os_runtime_error(OS_RUNERR_TYPE_WARNING, BIT(OS_RUNERR_RESP_ABORT), "Could not load OpenGL");
+		os_runtime_error(OS_RUNERR_TYPE_WARNING, os_runerr_resp_mask::ABORT, "Could not load OpenGL");
 		return false;
 	}
 
@@ -358,7 +359,7 @@ gl_debug_draw(u_int x, u_int y, u_int8_t pixel)
 }
 
 u_int
-gl_debug_blit(enum gl_texture texture)
+gl_debug_blit(gl_texture texture)
 {
 	glBindTexture(GL_TEXTURE_2D, gl_textures[texture]);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 512, 512, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, gl_debug_frame);

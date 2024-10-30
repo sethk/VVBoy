@@ -1,7 +1,7 @@
 #include <sys/time.h>
-#include <err.h>
-#include <stdio.h>
-#include "tk_null.h"
+#include <cerr>
+#include <cstdio>
+#include "TK_Null.Gen.hh"
 
 u_int tk_win_width, tk_win_height;
 int tk_draw_width, tk_draw_height;

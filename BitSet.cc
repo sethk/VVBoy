@@ -1,9 +1,11 @@
-#include "types.h"
-#include "bitset.h"
+#include "Types.hh"
+#include "BitSet.Gen.hh"
+#include "OS.hh"
 
-#include <stdlib.h>
+#include <cstdlib>
 
 #if INTERFACE
+#	include "OS.hh"
 	typedef u_int8_t *bitset_t;
 #endif // INTERFACE
 
@@ -12,7 +14,7 @@ bitset_create(u_int num_bits)
 {
 	size_t num_bytes = (num_bits + 7) / 8;
 
-	u_int8_t *bitset = calloc(num_bytes, 1);
+	u_int8_t *bitset = new u_int8_t[num_bytes]();
 	if (!bitset)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate bitset (size=%u)", num_bytes);
 
@@ -38,5 +40,5 @@ bitset_set(bitset_t bitset, u_int index)
 void
 bitset_destroy(bitset_t bitset)
 {
-	free(bitset);
+	delete[] bitset;
 }

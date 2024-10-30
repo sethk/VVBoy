@@ -1,5 +1,7 @@
-#include "types.h"
-#include "nvc.h"
+#include "Types.hh"
+#include "ROM.hh"
+#include "NVC.Gen.hh"
+#include "OS.hh"
 
 #if INTERFACE
 	//_Alignas(4)
@@ -79,7 +81,7 @@ static struct
 } nvc_timer;
 u_int nvc_cycles_per_usec = 20;
 static u_int16_t nvc_keys;
-const char * const nvc_intnames[(enum nvc_intlevel)NVC_NUM_INTLEVEL] =
+const char * const nvc_intnames[static_cast<nvc_intlevel>(NVC_NUM_INTLEVEL)] =
 		{
 				[NVC_INTKEY] = "KEY",
 				[NVC_INTTIM] = "TIM",
@@ -99,7 +101,7 @@ enum nvc_event
 bool
 nvc_init(void)
 {
-	enum event_subsys dummy_subsys;
+	event_subsys dummy_subsys;
 	(void)dummy_subsys; // Hint for makeheaders
 
 	events_set_desc(NVC_EVENT_TIMER_SET, "Timer set");
@@ -282,7 +284,7 @@ nvc_step(void)
 }
 
 static void
-nvc_input(enum nvc_key key, bool state)
+nvc_input(nvc_key key, bool state)
 {
 	if (state)
 		nvc_keys|= key;
@@ -316,7 +318,7 @@ nvc_input(enum nvc_key key, bool state)
 }
 
 bool
-nvc_input_key(enum tk_scancode scancode, bool state)
+nvc_input_key(tk_scancode scancode, bool state)
 {
 	switch (scancode)
 	{
@@ -339,7 +341,7 @@ nvc_input_key(enum tk_scancode scancode, bool state)
 }
 
 void
-nvc_input_button(enum tk_button button, bool state)
+nvc_input_button(tk_button button, bool state)
 {
 	switch (button)
 	{
@@ -357,7 +359,7 @@ nvc_input_button(enum tk_button button, bool state)
 }
 
 void
-nvc_input_axis(enum tk_axis axis, float value)
+nvc_input_axis(tk_axis axis, float value)
 {
 	static const float dead_zone = 0.25f;
 	switch (axis)
@@ -412,9 +414,6 @@ nvc_input_axis(enum tk_axis axis, float value)
 bool
 nvc_mem_prepare(struct mem_request *request)
 {
-	enum os_perm dummy_perm;
-	(void)dummy_perm; // Hint for makeheaders
-
 	if (request->mr_size != 1)
 	{
 		static bool ignore_size = false;
@@ -436,13 +435,13 @@ nvc_mem_prepare(struct mem_request *request)
 			case 0x02000008:
 			case 0x02000004:
 			case 0x02000000:
-				request->mr_perms = OS_PERM_READ | OS_PERM_WRITE;
+				request->mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
 				break;
 			case 0x02000020:
-				request->mr_perms = OS_PERM_READ | OS_PERM_WRITE;
+				request->mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
 				break;
 			default:
-				request->mr_perms = 0;
+				request->mr_perms = os_perm_mask::NONE;
 		}
 		request->mr_host = (u_int8_t *) &nvc_regs + ((request->mr_emu & 0x3f) >> 2);
 	}
@@ -463,7 +462,7 @@ nvc_mem_write(const struct mem_request *request, const void *src)
 	{
 		case 0x02000020:
 		{
-			const struct nvc_tcr *new_tcr = (struct nvc_tcr *)src;
+			const struct nvc_regs::nvc_tcr *new_tcr = (struct nvc_regs::nvc_tcr *)src;
 
 			nvc_regs.nr_tcr.t_z_int = new_tcr->t_z_int;
 

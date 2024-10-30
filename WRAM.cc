@@ -1,15 +1,14 @@
-#include "types.h"
-#include "wram.h"
+#include "Types.hh"
+#include "OS.hh"
+#include "ROM.hh"
+#include "WRAM.Gen.hh"
 
 #define WRAM_SIZE 0x1000000
 
 bool
 wram_init(void)
 {
-	enum os_perm dummy_perm;
-	(void)dummy_perm;
-
-	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, OS_PERM_READ | OS_PERM_WRITE);
+	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, os_perm_mask::READ | os_perm_mask::WRITE);
 }
 
 void
