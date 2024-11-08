@@ -2,9 +2,9 @@ BUILD_TYPE?= Debug
 CMAKE_DIR = cmake-build-${BUILD_TYPE}
 MAKEFLAGS+= -j8
 
-ALL_TARGETS = all vvboy tags clean
+ALL_TARGETS = all VVBoy tags clean
 .PHONY: ${ALL_TARGETS}
-#.DEFAULT: vvboy
+#.DEFAULT: VVBoy
 
 ${ALL_TARGETS}: ${CMAKE_DIR}
 	cd ${CMAKE_DIR} && ${MAKE} $@
@@ -29,19 +29,19 @@ ifdef ROM_FILE
   endif
 endif
 
-.PHONY: vvboy/run
-vvboy/run: vvboy
+.PHONY: VVBoy/run
+VVBoy/run: VVBoy
 	cd ${CMAKE_DIR} && ./$< ${RUN_ARGS}
 
 .PHONY: run
-run: vvboy/run
+run: VVBoy/run
 
-.PHONY: vvboy/debug
-vvboy/debug: vvboy
+.PHONY: VVBoy/debug
+VVBoy/debug: VVBoy
 	cd ${CMAKE_DIR} && lldb $< -- ${RUN_ARGS}
 
 .PHONY: debug
-debug: vvboy/debug
+debug: VVBoy/debug
 
 #CC_ANALYZER = /usr/local/Cellar/llvm35/3.5.1/share/clang-3.5/tools/scan-build/ccc-analyzer
 #
