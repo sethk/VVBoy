@@ -1,6 +1,6 @@
-#include "Types.hh"
-#include "OS.hh"
 #include "ROM.hh"
+#include "Memory.hh"
+#include "OS.hh"
 #include "ROM.Gen.hh"
 #include <cstdlib>
 #include <cstring>
@@ -84,9 +84,8 @@ rom_read(struct rom_file *file)
 		return false;
 	}
 
-	if (!mem_seg_mmap(MEM_SEG_ROM, file->rf_size, file->rf_handle))
+	if (!mem.Segments[Memory::SEG_ROM].Map(file->rf_size, file->rf_handle, os_perm_mask::READ | os_perm_mask::EXEC))
 		return false;
-	mem_segs[MEM_SEG_ROM].ms_perms = os_perm_mask::READ | os_perm_mask::EXEC;
 
 	// TODO: check ROM info
 
@@ -179,7 +178,7 @@ rom_read_isx(struct rom_file *file)
 		{
 			if (header.ich_addr < 0)
 				rom_size+= -header.ich_addr;
-			else if (MEM_ADDR2SEG(header.ich_addr) == MEM_SEG_ROM)
+			else if (MEM_ADDR2SEG(header.ich_addr) == Memory::SEG_ROM)
 			{
 				size_t loaded_size = MEM_ADDR2OFF(header.ich_addr) + header.ich_size;
 				rom_size = max_uint(rom_size, loaded_size);
@@ -199,16 +198,16 @@ rom_read_isx(struct rom_file *file)
 			break;
 	}
 
-	rom_size = mem_size_ceil(rom_size);
+	rom_size = Memory::SizeCeil(rom_size);
 	rom_size = max_uint(rom_size, ROM_MIN_SIZE);
-	if (!mem_seg_alloc(MEM_SEG_ROM, rom_size, os_perm_mask::READ | os_perm_mask::EXEC))
+	if (!mem.Segments[Memory::SEG_ROM].Allocate(rom_size, os_perm_mask::READ | os_perm_mask::EXEC))
 		return false;
 
 	cpu_inst halt_inst = {.ci_i = {.i_opcode = static_cast<cpu_opcode>(OP_TRAP)}};
 	u_int16_t pattern[2];
 	pattern[0] = halt_inst.ci_hwords[0];
 	pattern[1] = halt_inst.ci_hwords[1];
-	memset_pattern4(mem_segs[MEM_SEG_ROM].ms_ptr, pattern, rom_size);
+	mem.Segments[Memory::SEG_ROM].Fill(halt_inst.ci_word);
 
 	if (!rom_seek(file, 32, OS_SEEK_SET))
 		return false;
@@ -227,7 +226,7 @@ rom_read_isx(struct rom_file *file)
 			else
 				offset = MEM_ADDR2OFF(header.ich_addr);
 
-			if (!rom_read_buffer(file, mem_segs[MEM_SEG_ROM].ms_ptr + offset, header.ich_size, "ISX chunk"))
+			if (!rom_read_buffer(file, mem.Segments[Memory::SEG_ROM].GetData() + offset, header.ich_size, "ISX chunk"))
 				return false;
 		}
 		else if (header.ich_tag == ISX_TAG_DEBUG)
@@ -384,14 +383,14 @@ rom_add_symbol(const struct debug_symbol *sym)
 const void *
 rom_get_read_ptr(u_int32_t addr)
 {
-	u_int32_t offset = addr & mem_segs[MEM_SEG_ROM].ms_addrmask;
-	return mem_segs[MEM_SEG_ROM].ms_ptr + offset;
+	u_int32_t offset = addr & mem.Segments[Memory::SEG_ROM].GetAddrMask();
+	return mem.Segments[Memory::SEG_ROM].GetData() + offset;
 }
 
 void
 rom_unload(void)
 {
-	mem_seg_free(MEM_SEG_ROM);
+	mem.Segments[Memory::SEG_ROM].Free();
 	if (rom_symbol_fp)
 	{
 		fclose(rom_symbol_fp);

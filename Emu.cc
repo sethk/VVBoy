@@ -1,6 +1,7 @@
 #include "Types.hh"
 #include "Emu.Gen.hh"
 #include "OS.hh"
+#include "Memory.hh"
 
 #if INTERFACE
 	struct emu_stats_t
@@ -18,11 +19,13 @@ bool emu_trace = false;
 float emu_time_scale = 1.0f;
 struct emu_stats_t emu_stats;
 
+class Memory mem;
+
 bool
 emu_init(void)
 {
 	return (events_init() &&
-			mem_init() &&
+			mem.Initialize() &&
 			sram_init() &&
 			wram_init() &&
 			vip_init() &&
@@ -49,7 +52,7 @@ emu_fini(void)
 	vip_fini();
 	wram_fini();
 	sram_fini();
-	mem_fini();
+	mem.Finalize();
 	events_fini();
 }
 

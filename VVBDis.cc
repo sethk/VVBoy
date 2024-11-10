@@ -1,6 +1,7 @@
 #include "Types.hh"
 #include "OS.hh"
 #include "ROM.hh"
+#include "Memory.hh"
 #include "VVBDis.Gen.hh"
 #include <cstdlib>
 #ifdef __APPLE__
@@ -30,9 +31,9 @@ struct func
 static func *funcs = nullptr;
 
 static int verbose = 0;
-static const u_int32_t rom_addr = MEM_SEG2ADDR(MEM_SEG_ROM);
+static const u_int32_t rom_addr = MEM_SEG2ADDR(Memory::SEG_ROM);
 static u_int32_t rom_end;
-static u_int32_t text_begin = MEM_SEG2ADDR(MEM_SEG_ROM), text_end;
+static u_int32_t text_begin = MEM_SEG2ADDR(Memory::SEG_ROM), text_end;
 static const u_int32_t vect_begin = 0xfffffe00, vect_end = 0xfffffffe;
 
 void
@@ -517,13 +518,13 @@ main(int ac, char * const *av)
 		if (!rom_load(av[0]))
 			return 1;
 
-		rom_end = min_uint(rom_addr + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+		rom_end = min_uint(rom_addr + mem.Segments[Memory::SEG_ROM].GetSize() - 2, CPU_MAX_PC);
 		assert(rom_end > rom_addr);
 
 		text_end = debug_locate_symbol("text");
 		if (text_end == DEBUG_ADDR_NONE)
 		{
-			text_end = min_uint(text_begin + mem_segs[MEM_SEG_ROM].ms_size - 2, CPU_MAX_PC);
+			text_end = min_uint(text_begin + mem.Segments[Memory::SEG_ROM].GetSize() - 2, CPU_MAX_PC);
 			if (verbose > 0)
 				fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
 		}

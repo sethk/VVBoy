@@ -78,6 +78,9 @@ void os_debug_log(const char *msg);
 void os_debug_trap(void);
 void os_file_close(os_file_handle_t handle);
 void os_fini(void);
+size_t os_get_pagesize();
+void *os_pages_map(size_t size, os_perm_mask perms, void *addr_hint = nullptr);
+void os_pages_unmap(void *addr, size_t size);
 
 #ifdef __APPLE__
 #	include "OS_macOS.hh"

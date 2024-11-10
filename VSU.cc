@@ -1,6 +1,7 @@
 #include "Types.hh"
-#include "ROM.hh"
 #include "VSU.Gen.hh"
+#include "Memory.hh"
+#include "ROM.hh"
 #include <cassert>
 #include <cmath>
 
@@ -153,10 +154,10 @@ vsu_test(void)
 	ASSERT_SIZEOF(vsu_ram, 0x100);
 	ASSERT_SIZEOF(struct vsu_regs::vsu_sound_regs, 0x10);
 	ASSERT_SIZEOF(vsu_regs, 0x80);
-	mem_test_addr("S1INT", 0x01000400, 1, &(vsu_regs.vr_sounds[0].vsr_int));
-	mem_test_addr("S2INT", 0x01000440, 1, &(vsu_regs.vr_sounds[1].vsr_int));
-	mem_test_addr("S4FQH", 0x010004cc, 1, &(vsu_regs.vr_sounds[3].vsr_fqh));
-	mem_test_addr("SSTOP", 0x01000580, 1, &(vsu_regs.vr_stop));
+	mem.TestAddr("S1INT", 0x01000400, 1, &(vsu_regs.vr_sounds[0].vsr_int));
+	mem.TestAddr("S2INT", 0x01000440, 1, &(vsu_regs.vr_sounds[1].vsr_int));
+	mem.TestAddr("S4FQH", 0x010004cc, 1, &(vsu_regs.vr_sounds[3].vsr_fqh));
+	mem.TestAddr("SSTOP", 0x01000580, 1, &(vsu_regs.vr_stop));
 }
 
 void
@@ -560,7 +561,7 @@ vsu_frame_end(void)
 }
 
 bool
-vsu_mem_prepare(struct mem_request *request)
+vsu_mem_prepare(Memory::Request *request)
 {
 	if (request->mr_size != 1)
 	{
@@ -600,7 +601,7 @@ vsu_mem_prepare(struct mem_request *request)
 }
 
 void
-vsu_mem_write(const struct mem_request *request, const void *src)
+vsu_mem_write(const Memory::Request *request, const void *src)
 {
 	u_int8_t value = *(u_int8_t *)src;
 	*(u_int8_t *)request->mr_host = value;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Types.hh"
+
 enum isx_symbol_type : u_int8_t
 {
 	ISX_SYMBOL_CONST = 0,

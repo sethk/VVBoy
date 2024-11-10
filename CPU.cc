@@ -1,5 +1,6 @@
 #include "Types.hh"
 #include "CPU.Gen.hh"
+#include "Memory.hh"
 
 #if INTERFACE
 #   define CPU_MAX_PC (0xfffffffe)
@@ -10,6 +11,7 @@
 	union cpu_inst
 	{
 		u_int16_t ci_hwords[2];
+		u_int32_t ci_word;
 		struct
 		{
 			u_int16_t i_reg1 : 5;
@@ -311,12 +313,9 @@ cpu_inst_disp26(const union cpu_inst *inst)
 bool
 cpu_fetch(u_int32_t pc, union cpu_inst *inst)
 {
-	mem_segment dummy_segment;
-	(void)dummy_segment; // Hint for makeheaders
-
 	const union cpu_inst *rom_inst = (const union cpu_inst *)rom_get_read_ptr(pc);
 
-	if (mem_checks && MEM_ADDR2SEG(pc) != MEM_SEG_ROM)
+	if (mem.EnableChecks && MEM_ADDR2SEG(pc) != Memory::SEG_ROM)
 	{
 		debug_str_t addr_s;
 		if (!debug_runtime_errorf(NULL, "Reading instruction from non-ROM addr " DEBUG_ADDR_FMT,
@@ -615,7 +614,7 @@ cpu_orbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	u_int read_byte_size = (*bit_lengthp > 32) ? 4 : *bit_lengthp >> 3;
 	u_int32_t src_word;
 	u_int mem_wait;
-	if (!mem_read(*src_word_addrp, &src_word, read_byte_size, false, &mem_wait))
+	if (!mem.Read(*src_word_addrp, &src_word, read_byte_size, false, &mem_wait))
 		return false;
 	cpu_wait+= mem_wait;
 
@@ -631,12 +630,12 @@ cpu_orbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	}
 
 	u_int32_t dest_word;
-	if (!mem_read(*dest_word_addrp, &dest_word, read_byte_size, false, &mem_wait))
+	if (!mem.Read(*dest_word_addrp, &dest_word, read_byte_size, false, &mem_wait))
 		return false;
 
 	dest_word|= src_word;
 
-	if (!mem_write(*dest_word_addrp, &dest_word, read_byte_size, &mem_wait))
+	if (!mem.Write(*dest_word_addrp, &dest_word, read_byte_size, &mem_wait))
 		return false;
 	cpu_wait+= mem_wait;
 	(*src_word_addrp)+= read_byte_size;
@@ -695,7 +694,7 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 	u_int read_byte_size = (*bit_lengthp > 32) ? 4 : *bit_lengthp >> 3;
 	u_int32_t src_word;
 	u_int mem_wait;
-	if (!mem_read(*src_word_addrp, &src_word, read_byte_size, false, &mem_wait))
+	if (!mem.Read(*src_word_addrp, &src_word, read_byte_size, false, &mem_wait))
 		return false;
 	cpu_wait+= mem_wait;
 
@@ -710,7 +709,7 @@ cpu_movbsu(u_int32_t *src_word_addrp, u_int32_t *src_bit_offp,
 		return false;
 	}
 
-	if (!mem_write(*dest_word_addrp, &src_word, read_byte_size, &mem_wait))
+	if (!mem.Write(*dest_word_addrp, &src_word, read_byte_size, &mem_wait))
 		return false;
 	cpu_wait+= mem_wait;
 	(*src_word_addrp)+= read_byte_size;
@@ -815,7 +814,7 @@ cpu_exec(const union cpu_inst inst)
 				             debug_format_addr(cpu_state.cs_r[inst.ci_i.i_reg1].u, dest_addr_s));
 			}
 
-			if (mem_checks && MEM_ADDR2SEG(cpu_state.cs_r[inst.ci_i.i_reg1].u) != MEM_SEG_ROM)
+			if (mem.EnableChecks && MEM_ADDR2SEG(cpu_state.cs_r[inst.ci_i.i_reg1].u) != Memory::SEG_ROM)
 			{
 				debug_str_t addr_s;
 				if (!debug_runtime_errorf(NULL, "JMP to non-ROM addr " DEBUG_ADDR_FMT,
@@ -1194,7 +1193,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int8_t value;
 			u_int mem_wait;
-			if (!mem_read(addr, &value, sizeof(value), false, &mem_wait))
+			if (!mem.Read(addr, &value, sizeof(value), false, &mem_wait))
 				return false;
 			cpu_state.cs_r[inst.ci_vi.vi_reg2].u = cpu_extend8(value);
 			if (debug_watches)
@@ -1209,7 +1208,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int mem_wait;
-			const u_int16_t *mem_ptr = static_cast<const uint16_t *>(mem_get_read_ptr(addr, 2, &mem_wait));
+			const u_int16_t *mem_ptr = static_cast<const uint16_t *>(mem.GetReadPtr(addr, 2, &mem_wait));
 			if (!mem_ptr)
 				return false;
 			cpu_state.cs_r[inst.ci_vi.vi_reg2].u = cpu_extend16(*mem_ptr);
@@ -1225,7 +1224,7 @@ cpu_exec(const union cpu_inst inst)
 		{
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int mem_wait;
-			if (!mem_read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r), false, &mem_wait))
+			if (!mem.Read(addr, cpu_state.cs_r + inst.ci_vi.vi_reg2, sizeof(*cpu_state.cs_r), false, &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_read(cpu_state.cs_pc, addr, cpu_state.cs_r[inst.ci_vi.vi_reg2].u, 4);
@@ -1240,7 +1239,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int8_t *src = cpu_state.cs_r[inst.ci_vi.vi_reg2].u8s + 0;
 			u_int mem_wait;
-			if (!mem_write(addr, src, sizeof(*src), &mem_wait))
+			if (!mem.Write(addr, src, sizeof(*src), &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, *src, sizeof(*src));
@@ -1255,7 +1254,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int16_t *src = &(cpu_state.cs_r[inst.ci_vi.vi_reg2].u16);
 			u_int mem_wait;
-			if (!mem_write(addr, src, sizeof(*src), &mem_wait))
+			if (!mem.Write(addr, src, sizeof(*src), &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, *src, sizeof(*src));
@@ -1270,7 +1269,7 @@ cpu_exec(const union cpu_inst inst)
 			u_int32_t addr = cpu_state.cs_r[inst.ci_vi.vi_reg1].u + inst.ci_vi.vi_disp16;
 			u_int32_t *src = &(cpu_state.cs_r[inst.ci_vi.vi_reg2].u);
 			u_int mem_wait;
-			if (!mem_write(addr, src, sizeof(*src), &mem_wait))
+			if (!mem.Write(addr, src, sizeof(*src), &mem_wait))
 				return false;
 			if (debug_watches)
 				debug_watch_write(cpu_state.cs_pc, addr, *src, sizeof(*src));
@@ -1542,7 +1541,7 @@ cpu_assert_mem(u_int32_t addr, u_int32_t expected, u_int byte_size)
 	u_int32_t actual;
 	assert(byte_size <= sizeof(actual));
 	u_int mem_wait;
-	if (!mem_read(addr, &(actual), sizeof(actual), false, &mem_wait))
+	if (!mem.Read(addr, &(actual), sizeof(actual), false, &mem_wait))
 		main_fatal_error(OS_RUNERR_TYPE_EMULATION, "*** Test failure: cannot read memory at 0x%08x, size %u\n",
 				addr, actual);
 	if (os_bcmp(&actual, &expected, byte_size))
@@ -1718,11 +1717,11 @@ cpu_test_movbsu(const u_int8_t src_bytes[],
 {
 	u_int mem_wait;
 	for (u_int i = 0; i < num_src_bytes; ++i)
-		if (!mem_write(0x05000100 + i, &(src_bytes[i]), 1, &mem_wait))
+		if (!mem.Write(0x05000100 + i, &(src_bytes[i]), 1, &mem_wait))
 			main_fatal_error(OS_RUNERR_TYPE_EMULATION, "*** Memory write failed during test");
 
 	for (u_int i = 0; i < num_dest_bytes; ++i)
-		if (!mem_write(0x05000200 + i, &dest_fill, 1, &mem_wait))
+		if (!mem.Write(0x05000200 + i, &dest_fill, 1, &mem_wait))
 			main_fatal_error(OS_RUNERR_TYPE_EMULATION, "*** Memory write failed during test");
 
 	cpu_state.cs_r[30].u = 0x05000100 + src_word_off;

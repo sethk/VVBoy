@@ -1,4 +1,5 @@
 #include "Types.hh"
+#include "Memory.hh"
 #include "ROM.hh"
 #include "VIP.Gen.hh"
 #include <cassert>
@@ -291,8 +292,7 @@ vip_init(void)
 	events_set_desc(SCAN_EVENT_LDISP_START, "Display L:FB%u");
 	events_set_desc(SCAN_EVENT_RDISP_START, "Display R:FB%u");
 
-	mem_segs[MEM_SEG_VIP].ms_size = 0x80000;
-	mem_segs[MEM_SEG_VIP].ms_addrmask = 0x7ffff;
+	mem.Segments[Memory::SEG_VIP].SetLayout(0x80000, 0x7ffff);
 	os_bzero(&vip_regs, sizeof(vip_regs));
 	vip_regs.vr_dpstts.vd_scanrdy = 1;
 	vip_disp_index = 0;
@@ -1470,7 +1470,7 @@ vip_fini(void)
 }
 
 bool
-vip_mem_prepare(struct mem_request *request)
+vip_mem_prepare(Memory::Request *request)
 {
 	if ((request->mr_ops & os_perm_mask::READ) != os_perm_mask::NONE)
 		request->mr_wait = 8;
@@ -1610,17 +1610,17 @@ vip_test(void)
 	ASSERT_SIZEOF(struct vip_xpctrl, 2);
 	ASSERT_SIZEOF(vip_regs, 0x80);
 	ASSERT_SIZEOF(struct vip_world_att, 32);
-	mem_test_addr("WORLD_ATT:1", 0x3d820, 4, &(vip_dram.vd_world_atts[1]));
-	mem_test_addr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
-	mem_test_addr("PARAM_TBL[0x8800]", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
-	mem_test_addr("WORLD_ATTS", 0x3d800, 4, &(vip_dram.vd_world_atts));
-	mem_test_addr("OAM", 0x3e000, 8, &(vip_dram.vd_oam));
-	mem_test_addr("INTPND", 0x5f800, 2, &(vip_regs.vr_intpnd));
-	mem_test_addr("DPSTTS", 0x5f820, 2, &(vip_regs.vr_dpstts));
-	mem_test_addr("GPLT:3", 0x5f866, 2, &(vip_regs.vr_gplt[3]));
-	mem_test_addr("BKCOL", 0x5f870, 2, &(vip_regs.vr_bkcol));
-	mem_test_addr("CHR:0", 0x78000, 2, &(vip_vrm.vv_chr0));
-	mem_test_addr("CHR:3", 0x7e000, 2, &(vip_vrm.vv_chr3));
+	mem.TestAddr("WORLD_ATT:1", 0x3d820, 4, &(vip_dram.vd_world_atts[1]));
+	mem.TestAddr("BGSEG:2", 0x24000, 4, &(vip_dram.vd_shared.s_bgsegs[2]));
+	mem.TestAddr("PARAM_TBL[0x8800]", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
+	mem.TestAddr("WORLD_ATTS", 0x3d800, 4, &(vip_dram.vd_world_atts));
+	mem.TestAddr("OAM", 0x3e000, 8, &(vip_dram.vd_oam));
+	mem.TestAddr("INTPND", 0x5f800, 2, &(vip_regs.vr_intpnd));
+	mem.TestAddr("DPSTTS", 0x5f820, 2, &(vip_regs.vr_dpstts));
+	mem.TestAddr("GPLT:3", 0x5f866, 2, &(vip_regs.vr_gplt[3]));
+	mem.TestAddr("BKCOL", 0x5f870, 2, &(vip_regs.vr_bkcol));
+	mem.TestAddr("CHR:0", 0x78000, 2, &(vip_vrm.vv_chr0));
+	mem.TestAddr("CHR:3", 0x7e000, 2, &(vip_vrm.vv_chr3));
 
 	vip_test_clip(5, 5, 5, 5, true, 5, 0, 5);
 	vip_test_clip(5, 5, 4, 6, true, 5, 1, 5);

@@ -1,5 +1,6 @@
 #include "Types.hh"
 #include "OS.hh"
+#include "Memory.hh"
 #include "ROM.hh"
 #include "WRAM.Gen.hh"
 
@@ -8,7 +9,7 @@
 bool
 wram_init(void)
 {
-	return mem_seg_alloc(MEM_SEG_WRAM, WRAM_SIZE, os_perm_mask::READ | os_perm_mask::WRITE);
+	return mem.Segments[Memory::SEG_WRAM].Allocate(WRAM_SIZE, os_perm_mask::READ | os_perm_mask::WRITE);
 }
 
 void
@@ -21,5 +22,5 @@ wram_init_debug()
 void
 wram_fini(void)
 {
-	mem_seg_free(MEM_SEG_WRAM);
+	mem.Segments[Memory::SEG_WRAM].Free();
 }

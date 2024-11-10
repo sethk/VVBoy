@@ -123,7 +123,7 @@ else()
     set(TK_SOURCES TK_Null.cc)
 endif()
 
-set(COMMON_SOURCES BitSet.cc RingBuf.cc Emu.cc ROM.cc NVC.cc ImGUI.cc GL.cc Mem.cc SRAM.cc WRAM.cc CPU.cc VIP.cc VSU.cc VSUThread.cc Debug.cc Events.cc)
+set(COMMON_SOURCES BitSet.cc RingBuf.cc Emu.cc ROM.cc NVC.cc ImGUI.cc GL.cc Memory.cc SRAM.cc WRAM.cc CPU.cc VIP.cc VSU.cc VSUThread.cc Debug.cc Events.cc)
 set(COMMON_HEADERS Types.hh)
 #set(COMMON_SOURCES ${COMMON_SOURCES} VIP_Draw.cc)
 #set(COMMON_SOURCES ${COMMON_SOURCES} Vip_Draw_Slow.cc)
@@ -150,6 +150,8 @@ add_custom_target(GenHeaders
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         BYPRODUCTS ${GEN_HEADERS}
         DEPENDS makeheaders ${ALL_CXX_SOURCES})
+# Doesn't work: set_target_properties(GenHeaders PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${GEN_HEADERS}") # Deprecated name
+# Doesn't work: set_target_properties(GenHeaders PROPERTIES ADDITIONAL_CLEAN_FILES "${GEN_HEADERS}")
 add_dependencies(vvbdis GenHeaders)
 add_dependencies(VVBoy GenHeaders)
 

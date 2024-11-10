@@ -1,4 +1,5 @@
 #include "Types.hh"
+#include "Memory.hh"
 #include "Debug.Gen.hh"
 #include <new>
 
@@ -1228,7 +1229,7 @@ static bool
 debug_mem_read(u_int32_t addr, void *dest, u_int size)
 {
 	u_int mem_wait;
-	if (mem_read(addr, dest, size, false, &mem_wait))
+	if (mem.Read(addr, dest, size, false, &mem_wait))
 		return true;
 	else
 	{

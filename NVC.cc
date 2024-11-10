@@ -1,4 +1,5 @@
 #include "Types.hh"
+#include "Memory.hh"
 #include "ROM.hh"
 #include "NVC.Gen.hh"
 #include "OS.hh"
@@ -161,9 +162,9 @@ nvc_test(void)
 	debug_printf("Running NVC self-test\n");
 
 	ASSERT_SIZEOF(nvc_regs, 11);
-	mem_test_addr("nvc_sdlr", 0x02000010, 1, &(nvc_regs.nr_sdlr));
-	mem_test_addr("nvc_sdhr", 0x02000014, 1, &(nvc_regs.nr_sdhr));
-	mem_test_addr("nvc_tcr", 0x02000020, 1, &(nvc_regs.nr_tcr));
+	mem.TestAddr("nvc_sdlr", 0x02000010, 1, &(nvc_regs.nr_sdlr));
+	mem.TestAddr("nvc_sdhr", 0x02000014, 1, &(nvc_regs.nr_sdhr));
+	mem.TestAddr("nvc_tcr", 0x02000020, 1, &(nvc_regs.nr_tcr));
 }
 
 void
@@ -412,7 +413,7 @@ nvc_input_axis(tk_axis axis, float value)
 }
 
 bool
-nvc_mem_prepare(struct mem_request *request)
+nvc_mem_prepare(struct Memory::Request *request)
 {
 	if (request->mr_size != 1)
 	{
@@ -456,7 +457,7 @@ nvc_mem_prepare(struct mem_request *request)
 }
 
 void
-nvc_mem_write(const struct mem_request *request, const void *src)
+nvc_mem_write(const Memory::Request *request, const void *src)
 {
 	switch (request->mr_emu)
 	{
