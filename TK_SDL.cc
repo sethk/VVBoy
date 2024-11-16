@@ -73,11 +73,15 @@
 #include <SDL_syswm.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "vendor/cimgui_sdl_opengl3/imgui_impl_sdl_gl3.h"
+#include <memory>
 #include <cassert>
 
 #if !SDL_VERSION_ATLEAST(2, 0, 7)
 # warning Problems with game controller GUIDs on macOS with version 2.0.5
 #endif
+
+static constexpr
+#include "gamecontrollerdb.txt.h"
 
 #define VSYNC (true)
 
@@ -160,9 +164,14 @@ tk_init(void)
 
 	tk_audio_enabled = tk_init_audio();
 
-	if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") <= 0)
+	auto gamepad_db = std::unique_ptr<SDL_RWops, decltype(&SDL_FreeRW)>(
+			SDL_RWFromConstMem(gamecontrollerdb_txt, gamecontrollerdb_txt_len),
+			SDL_FreeRW
+		);
+
+	if (SDL_GameControllerAddMappingsFromRW(gamepad_db.get(), 0) <= 0)
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING,
-				"Could not load gamepad assignments database from gamecontrollerdb.txt",
+				"Could not load gamepad assignments database from gamecontrollerdb.txt data",
 				SDL_GetError(),
 				sdl_window);
 

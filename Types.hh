@@ -23,8 +23,8 @@ typedef uint64_t u_int64_t;
 #else
 # define UNUSED_ENUM __attribute__((unused))
 # define FLAG_ENUM __attribute__((clang::flag_enum))
-# define DISABLE_PADDING_WARNING
-# define ENABLE_PADDING_WARNING
+# define ENABLE_PADDING_WARNING _Pragma("clang diagnostic warning \"-Wpadded\"")
+# define DISABLE_PADDING_WARNING _Pragma("clang diagnostic ignored \"-Wpadded\"")
 #endif // _MSC_VER
 
 #define ASSERT_SIZEOF(t, s) do { \
@@ -39,8 +39,8 @@ typedef uint64_t u_int64_t;
 #define NARROW_CAST(type, value) static_cast<type>(value) // TODO: Limits check
 
 #ifndef NO_IMGUI_TYPES
-# define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-# include <cimgui/cimgui.h>
+#	define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#	include <cimgui/cimgui.h>
 #endif // !NO_IMGUI_TYPES
 
 inline static int min_int(int a, int b) { return (a < b) ? a : b; }

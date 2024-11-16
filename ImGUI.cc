@@ -7,6 +7,9 @@
 #   define IMVEC2(x, y) ((struct ImVec2){(x), (y)})
 #endif // INTERFACE
 
+static constexpr
+#include "Roboto-Medium.ttf.h"
+
 const struct ImVec2 IMVEC2_ZERO = {0, 0};
 
 bool imgui_shown = true;
@@ -19,11 +22,19 @@ struct ImFont *imgui_font_fixed;
 bool
 imgui_init(void)
 {
+	ASSERT_SIZEOF(ImFontConfig, 128);
+
 	imgui_context = igCreateContext(NULL);
 
 	struct ImGuiIO *io = igGetIO();
 	io->IniFilename = NULL;
-	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "Roboto-Medium.ttf", 16.0f, NULL, NULL);
+
+	struct ImFontConfig font_config;
+	ImFontConfig_DefaultConstructor(&font_config);
+	font_config.FontDataOwnedByAtlas = false;
+
+	ImFontAtlas_AddFontFromMemoryTTF(io->Fonts, const_cast<uint8_t *>(Roboto_Medium_ttf), Roboto_Medium_ttf_len, 16.0f, &font_config, NULL);
+
 	imgui_font_fixed = ImFontAtlas_AddFontDefault(io->Fonts, NULL);
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);

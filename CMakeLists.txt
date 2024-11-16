@@ -158,16 +158,21 @@ add_dependencies(VVBoy GenHeaders)
 ### Resource Files
 set(RESOURCE_FILES ${IMGUI_DIR}/imgui/misc/fonts/Roboto-Medium.ttf gamecontrollerdb.txt)
 add_custom_target(resources)
-foreach(_resource_file ${RESOURCE_FILES})
-	string(REGEX REPLACE "^.*[/]" "" _out_resource_file ${_resource_file})
-	add_custom_command(TARGET resources
-		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/${_resource_file} ${CMAKE_BINARY_DIR})
-	list(APPEND _out_resource_files ${_out_resource_file})
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
+foreach(_resource_path ${RESOURCE_FILES})
+	get_filename_component(_out_resource_name ${_resource_path} NAME)
+	string(CONCAT _out_resource_header ${CMAKE_BINARY_DIR}/include/${_out_resource_name} ".h")
+	add_custom_command(OUTPUT ${_out_resource_header}
+		MAIN_DEPENDENCY ${_resource_path}
+		COMMAND xxd -include -name ${_out_resource_name} ${CMAKE_SOURCE_DIR}/${_resource_path} ${_out_resource_header})
+	list(APPEND _out_resource_headers ${_out_resource_header})
 endforeach()
-set_target_properties(resources PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${_out_resource_files}") # Deprecated name
-set_target_properties(resources PROPERTIES ADDITIONAL_CLEAN_FILES "${_out_resource_files}")
+set_target_properties(resources PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${_out_resource_headers}") # Deprecated name
+set_target_properties(resources PROPERTIES ADDITIONAL_CLEAN_FILES "${_out_resource_headers}")
 add_dependencies(VVBoy resources)
-add_dependencies(vvbdis resources)
+target_include_directories(VVBoy PUBLIC ${CMAKE_BINARY_DIR}/include)
+#add_dependencies(vvbdis resources)
+target_include_directories(vvbdis PUBLIC ${CMAKE_BINARY_DIR}/include)
 
 ### CTags and CScope support
 include(vendor/tags.cmake)
