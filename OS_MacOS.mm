@@ -25,14 +25,39 @@ void
 os_choose_file(const char *desc, const char * const exts[], u_int num_exts, bool (*selected_fp)(const char *path))
 {
 	NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
 	NSOpenPanel *openPanel = [NSOpenPanel openPanel];
 	[openPanel setTitle:[NSString stringWithUTF8String:desc]];
 	[openPanel setCanChooseFiles:YES];
+
 	NSMutableArray *fileTypes = [NSMutableArray arrayWithCapacity:num_exts];
 	for (u_int i = 0; i < num_exts; ++i)
 		[fileTypes addObject:[NSString stringWithCString:exts[i] encoding:NSASCIIStringEncoding]];
 	[openPanel setAllowedFileTypes:fileTypes];
-	if ([openPanel runModal] == NSModalResponseOK)
+
+	os_win_handle_t main_win = tk_get_main_win();
+
+	__block NSModalResponse response;
+
+	if (main_win != OS_WIN_HANDLE_INVALID)
+	{
+		__block BOOL done = NO;
+		[openPanel beginSheetModalForWindow:main_win completionHandler:^(NSModalResponse returnCode)
+		{
+			response = returnCode;
+			done = YES;
+		}];
+
+		while (!done)
+		{
+			tk_pump_input();
+			usleep(100 * 1000);
+		}
+	}
+	else
+		response = [openPanel runModal];
+
+	if (response == NSModalResponseOK)
 	{
 		NSURL *url = [[openPanel URLs] objectAtIndex:0];
 		NSCAssert([url isFileURL], @"Selected URL is not a file URL");
