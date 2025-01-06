@@ -149,7 +149,8 @@ add_custom_target(GenHeaders
         COMMAND makeheaders -v ${MAKEHEADERS_ARGS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         BYPRODUCTS ${GEN_HEADERS}
-        DEPENDS makeheaders ${ALL_CXX_SOURCES})
+        DEPENDS makeheaders ${ALL_CXX_SOURCES}
+		COMMENT "Generating header files...")
 # Doesn't work: set_target_properties(GenHeaders PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${GEN_HEADERS}") # Deprecated name
 # Doesn't work: set_target_properties(GenHeaders PROPERTIES ADDITIONAL_CLEAN_FILES "${GEN_HEADERS}")
 add_dependencies(vvbdis GenHeaders)
@@ -157,21 +158,19 @@ add_dependencies(VVBoy GenHeaders)
 
 ### Resource Files
 set(RESOURCE_FILES ${IMGUI_DIR}/imgui/misc/fonts/Roboto-Medium.ttf gamecontrollerdb.txt)
-add_custom_target(resources)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
 foreach(_resource_path ${RESOURCE_FILES})
 	get_filename_component(_out_resource_name ${_resource_path} NAME)
 	string(CONCAT _out_resource_header ${CMAKE_BINARY_DIR}/include/${_out_resource_name} ".h")
 	add_custom_command(OUTPUT ${_out_resource_header}
 		MAIN_DEPENDENCY ${_resource_path}
-		COMMAND xxd -include -name ${_out_resource_name} ${CMAKE_SOURCE_DIR}/${_resource_path} ${_out_resource_header})
+		COMMAND xxd -include -name ${_out_resource_name} ${CMAKE_SOURCE_DIR}/${_resource_path} ${_out_resource_header}
+		COMMENT "Generating resource files...")
 	list(APPEND _out_resource_headers ${_out_resource_header})
 endforeach()
-set_target_properties(resources PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${_out_resource_headers}") # Deprecated name
-set_target_properties(resources PROPERTIES ADDITIONAL_CLEAN_FILES "${_out_resource_headers}")
-add_dependencies(VVBoy resources)
+add_custom_target(Resources DEPENDS ${_out_resource_headers})
+add_dependencies(VVBoy Resources)
 target_include_directories(VVBoy PUBLIC ${CMAKE_BINARY_DIR}/include)
-#add_dependencies(vvbdis resources)
 target_include_directories(vvbdis PUBLIC ${CMAKE_BINARY_DIR}/include)
 
 ### CTags and CScope support
