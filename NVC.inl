@@ -8,25 +8,25 @@ extern bool __printflike(2, 3) debug_runtime_errorf(bool *always_ignore_flagp, c
 
 template<bool CheckedMem>
 bool
-nvc_mem_prepare(struct Memory::Request<CheckedMem> *request)
+nvc_mem_prepare(struct Memory::Request<CheckedMem> &request)
 {
 	if constexpr (CheckedMem)
 	{
-		if (request->mr_size != 1)
+		if (request.mr_size != 1)
 		{
 			static bool ignore_size = false;
 			if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %u @ 0x%08x",
-									  request->mr_size, request->mr_emu))
+									  request.mr_size, request.mr_emu))
 				return false;
 		}
 	}
-	request->mr_size = 1;
+	request.mr_size = 1;
 
-	if (request->mr_emu <= 0x02000028)
+	if (request.mr_emu <= 0x02000028)
 	{
 		if constexpr (CheckedMem)
 		{
-			switch (request->mr_emu)
+			switch (request.mr_emu)
 			{
 				case 0x02000024:
 				case 0x02000028:
@@ -37,20 +37,20 @@ nvc_mem_prepare(struct Memory::Request<CheckedMem> *request)
 				case 0x02000008:
 				case 0x02000004:
 				case 0x02000000:
-					request->mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
+					request.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
 					break;
 				case 0x02000020:
-					request->mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
+					request.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
 					break;
 				default:
-					request->mr_perms = os_perm_mask::NONE;
+					request.mr_perms = os_perm_mask::NONE;
 			}
 		}
-		request->mr_host = (u_int8_t *) &nvc_regs + ((request->mr_emu & 0x3f) >> 2);
+		request.mr_host = (u_int8_t *) &nvc_regs + ((request.mr_emu & 0x3f) >> 2);
 	}
 	else
 	{
-		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", request->mr_emu);
+		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", request.mr_emu);
 		debug_stop();
 		return false;
 	}
@@ -60,9 +60,9 @@ nvc_mem_prepare(struct Memory::Request<CheckedMem> *request)
 
 template<bool CheckedMem>
 void
-nvc_mem_write(const Memory::Request<CheckedMem> *request, const void *src)
+nvc_mem_write(const Memory::Request<CheckedMem> &request, const void *src)
 {
-	switch (request->mr_emu)
+	switch (request.mr_emu)
 	{
 		case 0x02000020:
 		{
@@ -116,7 +116,7 @@ nvc_mem_write(const Memory::Request<CheckedMem> *request, const void *src)
 			break;
 
 		default:
-			*(u_int8_t *)request->mr_host = *(u_int8_t *)src;
+			*(u_int8_t *)request.mr_host = *(u_int8_t *)src;
 	}
 }
 

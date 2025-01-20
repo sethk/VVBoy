@@ -195,7 +195,7 @@ void
 Memory::TestAddrRO(const char *name, u_int32_t emu_addr, u_int size, void *expected) const
 {
 	Request<true> request(emu_addr, size, os_perm_mask::READ);
-	if (!const_cast<Memory *>(this)->Prepare(&request))
+	if (!const_cast<Memory *>(this)->Prepare(request))
 	{
 		BusError(emu_addr);
 		return;
@@ -214,7 +214,7 @@ void
 Memory::TestAddr(const char *name, u_int32_t emu_addr, u_int size, void *expected)
 {
 	Request<true> request(emu_addr, size, os_perm_mask::WRITE);
-	if (!const_cast<Memory *>(this)->Prepare(&request))
+	if (!const_cast<Memory *>(this)->Prepare(request))
 	{
 		BusError(emu_addr);
 		return;

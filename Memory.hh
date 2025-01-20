@@ -149,7 +149,7 @@ public:
 
 private:
 	template<bool IsChecked>
-	bool Prepare(Request<IsChecked> *request);
+	bool Prepare(Request<IsChecked> &request);
 	bool BusError(u_int32_t addr) const;
 
 public:

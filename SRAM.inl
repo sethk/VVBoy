@@ -5,10 +5,10 @@
 
 template<bool CheckedMem>
 bool
-sram_mem_prepare(Memory::Request<CheckedMem> *request)
+sram_mem_prepare(Memory::Request<CheckedMem> &request)
 {
-	u_int32_t offset = MEM_ADDR2OFF(request->mr_emu);
-	u_int32_t extent = offset + request->mr_size;
+	u_int32_t offset = MEM_ADDR2OFF(request.mr_emu);
+	u_int32_t extent = offset + request.mr_size;
 
 	if (extent > mem.Segments[Memory::SEG_SRAM].GetSize())
 	{
@@ -16,10 +16,10 @@ sram_mem_prepare(Memory::Request<CheckedMem> *request)
 			return false;
 	}
 
-	request->mr_host = mem.Segments[Memory::SEG_SRAM].GetData() + offset;
+	request.mr_host = mem.Segments[Memory::SEG_SRAM].GetData() + offset;
 
 	if constexpr (CheckedMem)
-		request->mr_perms = os_perm_mask::RDWR;
+		request.mr_perms = os_perm_mask::RDWR;
 
 	return true;
 }

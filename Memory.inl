@@ -4,14 +4,14 @@
 #include <algorithm>
 
 // TODO:
-template<bool CheckedMem> extern bool vip_mem_prepare(Memory::Request<CheckedMem> *request);
-template<bool CheckedMem> extern bool vsu_mem_prepare(Memory::Request<CheckedMem> *request);
-template<bool CheckedMem> extern bool nvc_mem_prepare(Memory::Request<CheckedMem> *request);
-template<bool CheckedMem> extern bool vip_mem_prepare(Memory::Request<CheckedMem> *request);
-template<bool CheckedMem> extern bool sram_mem_prepare(Memory::Request<CheckedMem> *request);
-template<bool CheckedMem> extern bool vsu_mem_prepare(Memory::Request<CheckedMem> *request);
-template<bool CheckedMem> void vsu_mem_write(const Memory::Request<CheckedMem> *request, const void *src);
-template<bool CheckedMem> void nvc_mem_write(const Memory::Request<CheckedMem> *request, const void *src);
+template<bool CheckedMem> extern bool vip_mem_prepare(Memory::Request<CheckedMem> &request);
+template<bool CheckedMem> extern bool vsu_mem_prepare(Memory::Request<CheckedMem> &request);
+template<bool CheckedMem> extern bool nvc_mem_prepare(Memory::Request<CheckedMem> &request);
+template<bool CheckedMem> extern bool vip_mem_prepare(Memory::Request<CheckedMem> &request);
+template<bool CheckedMem> extern bool sram_mem_prepare(Memory::Request<CheckedMem> &request);
+template<bool CheckedMem> extern bool vsu_mem_prepare(Memory::Request<CheckedMem> &request);
+template<bool CheckedMem> void vsu_mem_write(const Memory::Request<CheckedMem> &request, const void *src);
+template<bool CheckedMem> void nvc_mem_write(const Memory::Request<CheckedMem> &request, const void *src);
 
 typedef char debug_str_t[96];
 extern bool debug_trace_mem_read;
@@ -22,9 +22,9 @@ extern const char * debug_format_addr(u_int32_t addr, debug_str_t s);
 extern void __printflike(2, 3) debug_tracef(const char *tag, const char *fmt, ...);
 
 template<bool IsChecked>
-bool Memory::Prepare(Request<IsChecked> *request)
+bool Memory::Prepare(Request<IsChecked> &request)
 {
-	const SegDesc seg = MEM_ADDR2SEG(request->mr_emu);
+	const SegDesc seg = MEM_ADDR2SEG(request.mr_emu);
 
 	switch (seg)
 	{
@@ -34,20 +34,20 @@ bool Memory::Prepare(Request<IsChecked> *request)
 		case SEG_SRAM: return sram_mem_prepare(request);
 
 		default:
-			const u_int32_t offset = request->mr_emu & Segments[seg].GetAddrMask();
+			const u_int32_t offset = request.mr_emu & Segments[seg].GetAddrMask();
 
 			if constexpr (IsChecked)
 			{
-				const u_int32_t extent = offset + request->mr_size;
+				const u_int32_t extent = offset + request.mr_size;
 
 				if (extent > Segments[seg].GetSize())
 					return false;
 			}
 
-			request->mr_host = const_cast<u_int8_t *>(Segments[seg].GetData() + offset);
+			request.mr_host = const_cast<u_int8_t *>(Segments[seg].GetData() + offset);
 
 			if constexpr (IsChecked)
-				request->mr_perms = Segments[seg].GetPerms();
+				request.mr_perms = Segments[seg].GetPerms();
 
 			return true;
 	}
@@ -59,7 +59,7 @@ bool Memory::ReadString(u_int32_t addr, void *dest, u_int size, u_int *mem_waitp
 	assert(size > 0);
 	Request<IsChecked> request(addr, size, os_perm_mask::READ);
 
-	if (!const_cast<Memory *>(this)->Prepare(&request))
+	if (!const_cast<Memory *>(this)->Prepare(request))
 		return BusError(addr);
 
 	if (!request.CheckAccess())
@@ -110,7 +110,7 @@ bool Memory::Read(u_int32_t addr, T &dest, u_int *mem_waitp) const
 
 	Request<IsChecked> request(addr, size, os_perm_mask::READ);
 
-	if (!const_cast<Memory *>(this)->Prepare(&request))
+	if (!const_cast<Memory *>(this)->Prepare(request))
 		return BusError(addr);
 
 	if (!request.CheckAccess())
@@ -146,7 +146,7 @@ bool Memory::Write(u_int32_t addr, const T &src, u_int *mem_waitp)
 	static_assert(size > 0, "Zero-sized write");
 	Request<IsChecked> request(addr, size, os_perm_mask::WRITE);
 
-	if (!Prepare(&request))
+	if (!Prepare(request))
 	{
 		// TODO: SEGV
 		return BusError(addr);
@@ -166,9 +166,9 @@ bool Memory::Write(u_int32_t addr, const T &src, u_int *mem_waitp)
 
 	SegDesc seg = MEM_ADDR2SEG(addr);
 	if (seg == Memory::SEG_VSU)
-		vsu_mem_write<IsChecked>(&request, &src);
+		vsu_mem_write<IsChecked>(request, &src);
 	else if (seg == Memory::SEG_NVC)
-		nvc_mem_write<IsChecked>(&request, &src);
+		nvc_mem_write<IsChecked>(request, &src);
 	else
 		*static_cast<T *>(request.mr_host) = src;
 
@@ -182,7 +182,7 @@ bool Memory::WriteString(u_int32_t addr, const void *src, u_int size, u_int *mem
 	assert(size > 0);
 	Request<IsChecked> request(addr, size, os_perm_mask::WRITE);
 
-	if (!Prepare(&request))
+	if (!Prepare(request))
 	{
 		// TODO: SEGV
 		return BusError(addr);
@@ -211,9 +211,9 @@ bool Memory::WriteString(u_int32_t addr, const void *src, u_int size, u_int *mem
 
 	SegDesc seg = MEM_ADDR2SEG(addr);
 	if (seg == Memory::SEG_VSU)
-		vsu_mem_write(&request, src);
+		vsu_mem_write(request, src);
 	else if (seg == Memory::SEG_NVC)
-		nvc_mem_write(&request, src);
+		nvc_mem_write(request, src);
 	else switch (size)
 	{
         case 1:
