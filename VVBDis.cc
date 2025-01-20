@@ -461,153 +461,145 @@ usage(void)
 int
 main(int ac, char * const *av)
 {
-	try
-	{
-		extern int optind;
-		bool show_syms = false;
-		bool show_graph = false;
-		bool funcs_only = true;
-		debug_trace_file = stderr;
-		const char *disasm_name = NULL;
-		int status = 0;
+	extern int optind;
+	bool show_syms = false;
+	bool show_graph = false;
+	bool funcs_only = true;
+	debug_trace_file = stderr;
+	const char *disasm_name = NULL;
+	int status = 0;
 
-		int ch;
-		while ((ch = getopt(ac, av, "ab:d:gsv")) != -1)
-			switch (ch)
+	int ch;
+	while ((ch = getopt(ac, av, "ab:d:gsv")) != -1)
+		switch (ch)
+		{
+			default:
+				usage();
+
+			case 'a':
+				funcs_only = false;
+				break;
+
+			case 'b':
 			{
-				default:
-					usage();
-
-				case 'a':
-					funcs_only = false;
-					break;
-
-				case 'b':
+				char *endp;
+				text_begin = strtoul(optarg, &endp, 0);
+				if (*endp != '\0')
 				{
-					char *endp;
-					text_begin = strtoul(optarg, &endp, 0);
-					if (*endp != '\0')
-					{
-						fprintf(stderr, "Can't parse base address %s\n", optarg);
-						usage();
-					}
-					break;
+					fprintf(stderr, "Can't parse base address %s\n", optarg);
+					usage();
 				}
-
-				case 'd':
-					disasm_name = optarg;
-					break;
-
-				case 'g':
-					show_graph = true;
-					break;
-
-				case 's':
-					show_syms = true;
-					break;
-
-				case 'v':
-					++verbose;
-					break;
+				break;
 			}
-		ac-= optind;
-		av+= optind;
 
-		if (ac != 1)
-			usage();
+			case 'd':
+				disasm_name = optarg;
+				break;
 
-		emu_init_debug();
+			case 'g':
+				show_graph = true;
+				break;
 
-		if (!rom_load(av[0]))
-			return 1;
+			case 's':
+				show_syms = true;
+				break;
 
-		rom_end = min_uint(rom_addr + mem.Segments[Memory::SEG_ROM].GetSize() - 2, CPU_MAX_PC);
-		assert(rom_end > rom_addr);
-
-		text_end = debug_locate_symbol("text");
-		if (text_end == DEBUG_ADDR_NONE)
-		{
-			text_end = min_uint(text_begin + mem.Segments[Memory::SEG_ROM].GetSize() - 2, CPU_MAX_PC);
-			if (verbose > 0)
-				fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
+			case 'v':
+				++verbose;
+				break;
 		}
-		assert(text_end > text_begin);
+	ac-= optind;
+	av+= optind;
 
+	if (ac != 1)
+		usage();
+
+	emu_init_debug();
+
+	if (!rom_load(av[0]))
+		return 1;
+
+	rom_end = min_uint(rom_addr + mem.Segments[Memory::SEG_ROM].GetSize() - 2, CPU_MAX_PC);
+	assert(rom_end > rom_addr);
+
+	text_end = debug_locate_symbol("text");
+	if (text_end == DEBUG_ADDR_NONE)
+	{
+		text_end = min_uint(text_begin + mem.Segments[Memory::SEG_ROM].GetSize() - 2, CPU_MAX_PC);
 		if (verbose > 0)
-			fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, text_begin: 0x%08x, text_end: 0x%08x\n",
-					rom_addr, rom_end, text_begin, text_end);
+			fprintf(stderr, "No text symbol found, using 0x%08x\n", text_end);
+	}
+	assert(text_end > text_begin);
 
-		create_entry_func(0xfffffe00);
-		create_entry_func(0xfffffe10);
-		create_entry_func(0xfffffe20);
-		create_entry_func(0xfffffe30);
-		create_entry_func(0xfffffe40);
-		create_entry_func(0xffffff60);
-		create_entry_func(0xffffff80);
-		create_entry_func(0xffffff90);
-		create_entry_func(0xffffffa0);
-		create_entry_func(0xffffffb0);
-		create_entry_func(0xffffffc0);
-		create_entry_func(0xffffffd0);
-		create_entry_func(0xfffffff0);
+	if (verbose > 0)
+		fprintf(stderr, "rom_addr: 0x%08x, rom_end: 0x%08x, text_begin: 0x%08x, text_end: 0x%08x\n",
+				rom_addr, rom_end, text_begin, text_end);
 
-		scan_area(text_begin, text_end);
-		scan_area(vect_begin, vect_end);
+	create_entry_func(0xfffffe00);
+	create_entry_func(0xfffffe10);
+	create_entry_func(0xfffffe20);
+	create_entry_func(0xfffffe30);
+	create_entry_func(0xfffffe40);
+	create_entry_func(0xffffff60);
+	create_entry_func(0xffffff80);
+	create_entry_func(0xffffff90);
+	create_entry_func(0xffffffa0);
+	create_entry_func(0xffffffb0);
+	create_entry_func(0xffffffc0);
+	create_entry_func(0xffffffd0);
+	create_entry_func(0xfffffff0);
 
-		if (show_syms)
+	scan_area(text_begin, text_end);
+	scan_area(vect_begin, vect_end);
+
+	if (show_syms)
+	{
+		puts("Symbols:");
+		for (const struct debug_symbol *sym = debug_get_symbols(); sym; sym = sym->ds_next)
 		{
-			puts("Symbols:");
-			for (const struct debug_symbol *sym = debug_get_symbols(); sym; sym = sym->ds_next)
-			{
-				debug_str_t sym_s;
-				printf("\t%s\n", debug_format_symbol(sym, sym_s));
-			}
+			debug_str_t sym_s;
+			printf("\t%s\n", debug_format_symbol(sym, sym_s));
+		}
+	}
+
+	if (show_graph)
+	{
+		puts("digraph calls {");
+		puts("\trankdir=LR;");
+		for (struct func *func = funcs; func; func = func->f_next)
+			show_call_graph(func);
+		puts("}");
+	}
+	else if (disasm_name)
+	{
+		struct func *func = NULL;
+		for (func = funcs; func; func = func->f_next)
+		{
+			fprintf(stderr, "func %s\n", func->f_debug_sym->ds_name);
+			if (!strcmp(disasm_name, func->f_debug_sym->ds_name))
+				break;
 		}
 
-		if (show_graph)
-		{
-			puts("digraph calls {");
-			puts("\trankdir=LR;");
-			for (struct func *func = funcs; func; func = func->f_next)
-				show_call_graph(func);
-			puts("}");
-		}
-		else if (disasm_name)
-		{
-			struct func *func = NULL;
-			for (func = funcs; func; func = func->f_next)
-			{
-				fprintf(stderr, "func %s\n", func->f_debug_sym->ds_name);
-				if (!strcmp(disasm_name, func->f_debug_sym->ds_name))
-					break;
-			}
-
-			if (func)
-				disasm_func(func);
-			else
-			{
-				fprintf(stderr, "No function named %s found to disassemble\n", disasm_name);
-				status = 1;
-			}
-		}
-		else if (funcs_only)
-		{
-			for (struct func *func = funcs; func; func = func->f_next)
-				disasm_func(func);
-		}
+		if (func)
+			disasm_func(func);
 		else
 		{
-			disasm_area(text_begin, text_end);
-			disasm_area(vect_begin, vect_end);
+			fprintf(stderr, "No function named %s found to disassemble\n", disasm_name);
+			status = 1;
 		}
-
-		rom_unload();
-
-		return status;
 	}
-	catch (std::bad_alloc &alloc_err)
+	else if (funcs_only)
 	{
-		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocation failed: %s", alloc_err.what());
-		return 1;
+		for (struct func *func = funcs; func; func = func->f_next)
+			disasm_func(func);
 	}
+	else
+	{
+		disasm_area(text_begin, text_end);
+		disasm_area(vect_begin, vect_end);
+	}
+
+	rom_unload();
+
+	return status;
 }

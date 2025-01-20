@@ -10,11 +10,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
-	set(COMMON_C_FLAGS /W1 /GR- /EHsc) # /WX
+	set(COMMON_C_FLAGS /W1 /GR- /EHs-c-) # /WX
 else()
+	add_compile_options(-fno-rtti -fno-exceptions -fvisibility=hidden)
 	set(COMMON_C_FLAGS -Wall -Wextra -Wformat -Wshadow) # -Werror
 	#set(COMMON_C_FLAGS -Weverything) # -Werror
-	set(CMAKE_C_FLAGS_RELEASE -O3)
 	#set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -fno-inline -O0")
 	#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
 endif()
