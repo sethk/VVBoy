@@ -67,9 +67,6 @@ public:
 			os_perm_mask perms = os_perm_mask::RDWR,
 			u_int32_t mask = 0xffffffff
 		);
-
-		bool CheckAccess() const;
-		bool PermsError(bool *always_ignorep) const;
 	};
 
 	template<>
@@ -91,9 +88,6 @@ public:
 		os_perm_mask mr_ops;
 		void *mr_host;
 		u_int mr_wait;
-
-		bool CheckAccess() const { return true; }
-		bool PermsError(bool * /*always_ignorep*/) const { return true; }
 	};
 
 	template<>

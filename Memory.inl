@@ -62,8 +62,11 @@ bool Memory::ReadString(u_int32_t addr, void *dest, u_int size, u_int *mem_waitp
 	if (!const_cast<Memory *>(this)->Prepare(request))
 		return BusError(addr);
 
-	if (!request.CheckAccess())
-		return request.PermsError(nullptr);
+	if constexpr (IsChecked)
+	{
+		if (!request.CheckAccess())
+			return request.PermsError(nullptr);
+	}
 
 	if (debug_trace_mem_read)
 	{
@@ -113,8 +116,11 @@ bool Memory::Read(u_int32_t addr, T &dest, u_int *mem_waitp) const
 	if (!const_cast<Memory *>(this)->Prepare(request))
 		return BusError(addr);
 
-	if (!request.CheckAccess())
-		return request.PermsError(nullptr);
+	if constexpr (IsChecked)
+	{
+		if (!request.CheckAccess())
+			return request.PermsError(nullptr);
+	}
 
 	extern bool debug_trace_mem_read;
 
@@ -152,8 +158,11 @@ bool Memory::Write(u_int32_t addr, const T &src, u_int *mem_waitp)
 		return BusError(addr);
 	}
 
-	if (!request.CheckAccess())
-		return request.PermsError(&IgnoreWriteErrors);
+	if constexpr (IsChecked)
+	{
+		if (!request.CheckAccess())
+			return request.PermsError(&IgnoreWriteErrors);
+	}
 
 	if (debug_trace_mem_write)
 	{
@@ -188,8 +197,11 @@ bool Memory::WriteString(u_int32_t addr, const void *src, u_int size, u_int *mem
 		return BusError(addr);
 	}
 
-	if (!request.CheckAccess())
-		return request.PermsError(&IgnoreWriteErrors);
+	if constexpr (IsChecked)
+	{
+		if (!request.CheckAccess())
+			return request.PermsError(&IgnoreWriteErrors);
+	}
 
 	if (debug_trace_mem_write)
 	{
