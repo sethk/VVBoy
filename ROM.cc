@@ -2,6 +2,7 @@
 #include "Memory.hh"
 #include "OS.hh"
 #include "ROM.Gen.hh"
+#include "CPU.hh"
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -378,13 +379,6 @@ rom_add_symbol(const struct debug_symbol *sym)
 
 	if (rom_symbol_fp)
 		fprintf(rom_symbol_fp, "%08x %s\n", sym->ds_addr, sym->ds_name);
-}
-
-const void *
-rom_get_read_ptr(u_int32_t addr)
-{
-	u_int32_t offset = addr & mem.Segments[Memory::SEG_ROM].GetAddrMask();
-	return mem.Segments[Memory::SEG_ROM].GetData() + offset;
 }
 
 void

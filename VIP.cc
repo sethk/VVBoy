@@ -1,84 +1,13 @@
+#include "VIP.hh"
 #include "Types.hh"
+#include "Emu.hh"
+#include "NVC.hh"
+#include "CPU.hh"
 #include "Memory.hh"
 #include "ROM.hh"
 #include "VIP.Gen.hh"
 #include <cassert>
 #include <cmath>
-
-#if INTERFACE
-	struct vip_chr
-	{
-		u_int16_t vc_rows[8];
-	};
-
-	struct vip_bgsc
-	{
-		u_int16_t vb_chrno : 11;
-		u_int16_t vb_rfu1 : 1;
-		u_int16_t vb_bvflp : 1;
-		u_int16_t vb_bhflp : 1;
-		u_int16_t vb_gplts : 2;
-	};
-
-	struct vip_oam
-	{
-		int16_t vo_jx;
-		u_int16_t vo_jp : 14;
-		u_int16_t vo_jron : 1;
-		u_int16_t vo_jlon : 1;
-		int16_t vo_jy;
-		u_int16_t vo_jca : 11;
-		u_int16_t vo_rfu1 : 1;
-		u_int16_t vo_jvflp : 1;
-		u_int16_t vo_jhflp : 1;
-		u_int16_t vo_jplts : 2;
-	};
-
-	struct vip_world_att
-	{
-		u_int16_t vwa_bgmap_base : 4;
-		u_int16_t vwa_rfu1 : 2;
-		u_int16_t vwa_end : 1;
-		u_int16_t vwa_over : 1;
-		u_int16_t vwa_scy : 2;
-		u_int16_t vwa_scx : 2;
-		u_int16_t vwa_bgm : 2;
-		u_int16_t vwa_ron : 1;
-		u_int16_t vwa_lon : 1;
-		int16_t vwa_gx;
-		int16_t vwa_gp;
-		int16_t vwa_gy;
-		int16_t vwa_mx;
-		int16_t vwa_mp;
-		u_int16_t vwa_my;
-		u_int16_t vwa_w;
-		u_int16_t vwa_h;
-		u_int16_t vwa_param_base;
-		u_int16_t vwa_over_chrno;
-		u_int16_t vwa_max_scr_y;
-		u_int16_t vwa_first_obj;
-		u_int16_t vwa_last_obj;
-		u_int16_t vwa_reserved[2];
-	};
-
-	struct vip_ctc
-	{
-		u_int8_t vc_length;
-		u_int8_t vc_repeat;
-	};
-#endif // INTERFACE
-
-struct vip_vrm
-{
-	u_int8_t vv_left0[0x6000];
-	struct vip_chr vv_chr0[512];
-	u_int8_t vv_left1[0x6000];
-	struct vip_chr vv_chr1[512];
-	u_int8_t vv_right0[0x6000];
-	struct vip_chr vv_chr2[512];
-	u_int8_t vv_right1[0x6000];
-	struct vip_chr vv_chr3[512];
-};
 
 #define VIP_CHR_FIND(chrno) &(vip_vrm.vv_chr0[(((chrno) & 0x600) << 2) | (chrno) & 0x1ff])
 
@@ -234,9 +163,9 @@ bool vip_scan_accurate = false;
 u_int32_t vip_world_mask = ~0;
 u_int vip_xp_interval = 250;
 
-static struct vip_vrm vip_vrm;
-static struct vip_dram vip_dram;
-static struct vip_regs vip_regs;
+struct vip_vrm vip_vrm;
+struct vip_dram vip_dram;
+struct vip_regs vip_regs;
 static bool vip_worlds_open = false;
 static bool vip_bgseg_open = false;
 static bool vip_chr_open = false;
@@ -1469,103 +1398,6 @@ vip_fini(void)
 	// TODO
 }
 
-bool
-vip_mem_prepare(Memory::Request *request)
-{
-	if ((request->mr_ops & os_perm_mask::READ) != os_perm_mask::NONE)
-		request->mr_wait = 8;
-	else
-		request->mr_wait = 4;
-
-	static bool ignore_mirror = false;
-	if (request->mr_emu & 0xfff80000)
-	{
-		u_int32_t mirror = request->mr_emu & 0x7ffff;
-		if (!debug_runtime_errorf(&ignore_mirror, "Mirroring VIP address 0x%08x -> 0x%08x\n", request->mr_emu, mirror))
-			return false;
-		request->mr_emu = mirror;
-	}
-
-	if (request->mr_emu < 0x20000)
-		request->mr_host = (u_int8_t *)&vip_vrm + request->mr_emu;
-	else if (request->mr_emu < 0x40000)
-		request->mr_host = (u_int8_t *)&vip_dram + (request->mr_emu & 0x1ffff);
-	else if (request->mr_emu < 0x5f800)
-	{
-		static bool ignore_junk = false;
-		if (!debug_runtime_errorf(&ignore_junk, "Accessing VIP junk memory at 0x%08x", request->mr_emu))
-			return false;
-		assert(request->mr_size <= 4);
-		static u_int32_t junk;
-		request->mr_host = &junk;
-	}
-	else if (request->mr_emu < 0x60000)
-	{
-		if (request->mr_size & 1)
-		{
-			static bool always_ignore = false;
-			if (!debug_runtime_errorf(&always_ignore, "Invalid VIP access size %u", request->mr_size))
-				return false;
-		}
-		if (request->mr_emu & 1)
-		{
-			static bool always_ignore = false;
-			if (!debug_runtime_errorf(&always_ignore, "VIP address alignment error at 0x%08x", request->mr_emu))
-				return false;
-		}
-		u_int reg_num = (request->mr_emu & 0x7f) >> 1;
-		switch (reg_num)
-		{
-			case 0x00:
-			case 0x10:
-			case 0x18:
-			case 0x20:
-				request->mr_perms = os_perm_mask::READ;
-				break;
-			case 0x02:
-			case 0x11:
-			case 0x12:
-			case 0x13:
-			case 0x14:
-			case 0x15:
-			case 0x17:
-			case 0x21:
-			{
-				request->mr_perms = os_perm_mask::WRITE;
-				if ((request->mr_ops & os_perm_mask::READ) != os_perm_mask::NONE)
-				{
-					static bool ignore_read = false;
-					debug_str_t addr_s;
-					if (!debug_runtime_errorf(&ignore_read, "Trying to read write-only VIP register at %s",
-					                          debug_format_addr(request->mr_emu, addr_s)))
-						return false;
-					request->mr_perms|= os_perm_mask::READ;
-				}
-				break;
-			}
-		}
-
-#ifndef NDEBUG
-		u_int16_t *regp = (u_int16_t *)&vip_regs + reg_num;
-		assert(regp == (u_int16_t *)((u_int8_t *)&vip_regs + (request->mr_emu & 0x7e)));
-#endif // !NDEBUG
-
-		request->mr_host = (u_int8_t *)&vip_regs + (request->mr_emu & 0x7e);
-	}
-	else if (request->mr_emu >= 0x78000 && request->mr_emu < 0x7a000)
-		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr0) + (request->mr_emu - 0x78000);
-	else if (request->mr_emu >= 0x7a000 && request->mr_emu < 0x7c000)
-		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr1) + (request->mr_emu - 0x7a000);
-	else if (request->mr_emu >= 0x7c000 && request->mr_emu < 0x7e000)
-		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr2) + (request->mr_emu - 0x7c000);
-	else if (request->mr_emu >= 0x7e000 && request->mr_emu < 0x80000)
-		request->mr_host = (u_int8_t *)&(vip_vrm.vv_chr3) + (request->mr_emu - 0x7e000);
-	else
-		return false;
-
-	return true;
-}
-
 static void
 vip_test_clip(int scr_clip_y,
               u_int scr_clip_height,
@@ -1615,8 +1447,8 @@ vip_test(void)
 	mem.TestAddr("PARAM_TBL[0x8800]", 0x31000, 4, &(vip_dram.vd_shared.s_param_tbl[0x8800]));
 	mem.TestAddr("WORLD_ATTS", 0x3d800, 4, &(vip_dram.vd_world_atts));
 	mem.TestAddr("OAM", 0x3e000, 8, &(vip_dram.vd_oam));
-	mem.TestAddr("INTPND", 0x5f800, 2, &(vip_regs.vr_intpnd));
-	mem.TestAddr("DPSTTS", 0x5f820, 2, &(vip_regs.vr_dpstts));
+	mem.TestAddrRO("INTPND", 0x5f800, 2, &(vip_regs.vr_intpnd));
+	mem.TestAddrRO("DPSTTS", 0x5f820, 2, &(vip_regs.vr_dpstts));
 	mem.TestAddr("GPLT:3", 0x5f866, 2, &(vip_regs.vr_gplt[3]));
 	mem.TestAddr("BKCOL", 0x5f870, 2, &(vip_regs.vr_bkcol));
 	mem.TestAddr("CHR:0", 0x78000, 2, &(vip_vrm.vv_chr0));

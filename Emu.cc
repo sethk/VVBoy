@@ -1,18 +1,15 @@
+#include "Emu.hh"
 #include "Types.hh"
 #include "Emu.Gen.hh"
-#include "OS.hh"
 #include "Memory.hh"
-
-#if INTERFACE
-	struct emu_stats_t
-	{
-		u_int64_t ms_start_usec;
-		u_int ms_frames;
-		u_int ms_scans;
-		u_int ms_insts;
-		u_int ms_intrs;
-	};
-#endif // INTERFACE
+#include "OS.hh"
+#include "NVC.inl"
+#include "CPU.inl"
+#include "ROM.inl"
+#include "VSU.inl"
+#include "VIP.inl"
+#include "SRAM.inl"
+#include "Memory.inl"
 
 u_int32_t emu_usec;
 bool emu_trace = false;
@@ -111,8 +108,16 @@ emu_test(void)
 bool
 emu_step(void)
 {
-	if (!nvc_step())
-		return false;
+	if (mem.EnableChecks)
+	{
+		if (!nvc_step<true>())
+			return false;
+	}
+	else
+	{
+		if (!nvc_step<false>())
+			return false;
+	}
 
 	vip_step();
 	vsu_step();

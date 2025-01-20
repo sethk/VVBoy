@@ -1,5 +1,12 @@
 #include "Types.hh"
-#include "Memory.hh"
+#include "Emu.hh"
+#include "CPU.inl"
+#include "ROM.inl"
+#include "Memory.inl"
+#include "NVC.inl"
+#include "VSU.inl"
+#include "VIP.inl"
+#include "SRAM.inl"
 #include "Debug.Gen.hh"
 #include <new>
 
@@ -226,6 +233,7 @@ debug_format_binary(u_int n, u_int nbits, debug_str_t bin_s)
 	return bin_s;
 }
 
+// TODO: templated
 char *
 debug_format_hex(const u_int8_t *bytes, u_int byte_size, debug_str_t s)
 {
@@ -1225,15 +1233,16 @@ debug_usage(char ch)
 	assert(!"No help found for character");
 }
 
+template<typename T>
 static bool
-debug_mem_read(u_int32_t addr, void *dest, u_int size)
+debug_mem_read(u_int32_t addr, T &dest)
 {
 	u_int mem_wait;
-	if (mem.Read(addr, dest, size, false, &mem_wait))
+	if (mem.Read<true>(addr, dest, &mem_wait))
 		return true;
 	else
 	{
-		debug_printf("Could not read %u bytes from 0x%08x: Invalid address", size, addr);
+		debug_printf("Could not read %lu bytes from 0x%08x: Invalid address", sizeof(T), addr);
 		return false;
 	}
 }
@@ -1314,7 +1323,7 @@ bool
 debug_disasm_at(u_int32_t *addrp)
 {
 	union cpu_inst inst;
-	if (!cpu_fetch(*addrp, &inst))
+	if (!cpu_fetch<true>(*addrp, &inst))
 		return false;
 	debug_printf(" %s\n", debug_disasm(&inst, *addrp, NULL));
 
@@ -1385,7 +1394,7 @@ debug_step_over(void)
 {
 	assert(debug_mode == DEBUG_STOP);
 	union cpu_inst inst;
-	if (cpu_fetch(cpu_state.cs_pc, &inst))
+	if (cpu_fetch<true>(cpu_state.cs_pc, &inst))
 	{
 		debug_next_pc = cpu_next_pc(inst);
 		debug_continue();
@@ -1663,7 +1672,7 @@ debug_exec(const char *cmd)
 					if (format[0] == 'h' && strlen(format) <= 2)
 					{
 						u_int value;
-						if (debug_mem_read(addr, &value, int_size))
+						if (debug_mem_read(addr, value))
 							debug_printf(" 0x%0.*x\n", (int)int_size << 1, value);
 						addr+= int_size;
 					}
@@ -1675,7 +1684,7 @@ debug_exec(const char *cmd)
 					else if (format[0] == 'b' && strlen(format) <= 2)
 					{
 						u_int value;
-						if (debug_mem_read(addr, &value, int_size))
+						if (debug_mem_read(addr, value))
 						{
 							debug_str_t bin_s;
 							debug_printf(" %s\n", debug_format_binary(value, int_size << 3, bin_s));
@@ -1685,7 +1694,7 @@ debug_exec(const char *cmd)
 					else if (!strcmp(format, "a") || !strcmp(format, "addr"))
 					{
 						u_int32_t addr_value;
-						if (debug_mem_read(addr, &addr_value, sizeof(addr_value)))
+						if (debug_mem_read(addr, addr_value))
 							debug_printf(" %s\n", debug_format_addr(addr_value, addr_s));
 						addr+= sizeof(addr_value);
 					}
@@ -1695,7 +1704,7 @@ debug_exec(const char *cmd)
 						for (u_int rindex = 0; rindex < 8; ++rindex)
 						{
 							u_int16_t chr_row;
-							if (!debug_mem_read(addr, &(chr_row), sizeof(chr_row)))
+							if (!debug_mem_read(addr, chr_row))
 								break;
 							//static const char *shading = " ░▒▓";
 							static const char *shading = " -=#";
@@ -1711,7 +1720,7 @@ debug_exec(const char *cmd)
 					else if (!strcmp(format, "O"))
 					{
 						struct vip_oam oam;
-						if (!debug_mem_read(addr, &oam, sizeof(oam)))
+						if (!debug_mem_read(addr, oam))
 							break;
 						debug_str_t oam_str;
 						vip_format_oam(oam_str, &oam);
@@ -1721,7 +1730,7 @@ debug_exec(const char *cmd)
 					else if (!strcmp(format, "B"))
 					{
 						struct vip_bgsc bgsc;
-						if (!debug_mem_read(addr, &bgsc, sizeof(bgsc)))
+						if (!debug_mem_read(addr, bgsc))
 							break;
 						vip_print_bgsc(&bgsc);
 						addr+= sizeof(bgsc);
@@ -1729,7 +1738,7 @@ debug_exec(const char *cmd)
 					else if (!strcmp(format, "W"))
 					{
 						struct vip_world_att att;
-						if (!debug_mem_read(addr, &att, sizeof(att)))
+						if (!debug_mem_read(addr, att))
 							break;
 						char buf[1024];
 						vip_format_world_att(buf, sizeof(buf), &att);
@@ -1739,7 +1748,7 @@ debug_exec(const char *cmd)
 					else if (!strcmp(format, "T"))
 					{
 						struct vip_ctc ctc;
-						if (!debug_mem_read(addr, &ctc, sizeof(ctc)))
+						if (!debug_mem_read(addr, ctc))
 							break;
 						debug_printf("REPEAT: %hhu, LENGTH: %hhu\n", ctc.vc_repeat, ctc.vc_length);
 						addr+= sizeof(ctc);
@@ -1747,7 +1756,7 @@ debug_exec(const char *cmd)
 					else if (!strcmp(format, "P"))
 					{
 						u_int16_t plt;
-						if (!debug_mem_read(addr, &plt, sizeof(plt)))
+						if (!debug_mem_read(addr, plt))
 							break;
 						debug_str_t b01_s, b10_s, b11_s;
 						debug_printf("0b01 = %s, 0b10 = %s, 0b11 = %s\n",
@@ -1996,7 +2005,7 @@ static void
 debug_print_inst(void)
 {
 	union cpu_inst inst;
-	if (cpu_fetch(cpu_state.cs_pc, &inst))
+	if (cpu_fetch<true>(cpu_state.cs_pc, &inst))
 	{
 		debug_str_t addr_s;
 		debug_printf(DEBUG_ADDR_FMT ": %s\n",
@@ -2373,7 +2382,7 @@ debug_frame_end(void)
 			if (debug_mode == DEBUG_STOP)
 			{
 				union cpu_inst inst;
-				if (cpu_fetch(cpu_state.cs_pc, &inst))
+				if (cpu_fetch<true>(cpu_state.cs_pc, &inst))
 				{
 					debug_str_t addr_s;
 					igText(DEBUG_ADDR_FMT ": %s\n",
@@ -2424,6 +2433,10 @@ debug_emu_menu(void)
 		debug_step_over();
 	if (igMenuItem("Step into", "F11", false, debug_is_stopped()))
 		debug_step_into();
+
+	igSeparator();
+
+	igMenuItemPtr("Validate all memory operations", nullptr, &mem.EnableChecks, true);
 
 	igSeparator();
 

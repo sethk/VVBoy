@@ -1,7 +1,10 @@
 #include "Types.hh"
+#include "Emu.hh"
 #include "OS.hh"
 #include "ROM.hh"
 #include "Memory.hh"
+#include "CPU.hh"
+#include "CPU.inl"
 #include "VVBDis.Gen.hh"
 #include <cstdlib>
 #ifdef __APPLE__
@@ -190,7 +193,7 @@ show_call_graph(const struct func *func)
 static void
 fetch_inst(union cpu_inst *inst, u_int32_t pc)
 {
-	if (!cpu_fetch(pc, inst))
+	if (!cpu_fetch<true>(pc, inst))
 		main_fatal_error(OS_RUNERR_TYPE_EMULATION, "Could not fetch instruction at 0x%08x", pc);
 }
 

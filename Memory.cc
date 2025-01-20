@@ -1,14 +1,5 @@
 #include "Types.hh"
-#include "Memory.hh"
-
-// TODO:
-extern bool vip_mem_prepare(Memory::Request *request);
-extern bool vsu_mem_prepare(Memory::Request *request);
-extern bool nvc_mem_prepare(Memory::Request *request);
-extern bool sram_mem_prepare(Memory::Request *request);
-
-extern void vsu_mem_write(const Memory::Request *request, const void *src);
-extern void nvc_mem_write(const Memory::Request *request, const void *src);
+#include "Memory.inl"
 
 #include "Memory.Gen.hh"
 
@@ -170,30 +161,6 @@ Memory::SizeCeil(u_int32_t size)
 	return ++size;
 }
 
-bool
-Memory::Prepare(Request *request)
-{
-	SegDesc seg = MEM_ADDR2SEG(request->mr_emu);
-	if (seg == SEG_VIP)
-		return vip_mem_prepare(request);
-	else if (seg == SEG_VSU)
-		return vsu_mem_prepare(request);
-	else if (seg == SEG_NVC)
-		return nvc_mem_prepare(request);
-	else if (seg == SEG_SRAM)
-		return sram_mem_prepare(request);
-	else if (Segments[seg].GetSize())
-	{
-		u_int32_t offset = request->mr_emu & Segments[seg].GetAddrMask();
-
-		request->mr_host = const_cast<u_int8_t *>(Segments[seg].GetData() + offset);
-		request->mr_perms = Segments[seg].GetPerms();
-		return true;
-	}
-	else
-		return false;
-}
-
 /*
 void *
 Memory::Emu2Host(u_int32_t addr, u_int size)
@@ -205,8 +172,7 @@ Memory::Emu2Host(u_int32_t addr, u_int size)
 }
 */
 
-bool
-Memory::Request::PermsError(bool *always_ignorep) const
+bool Memory::Request<true>::PermsError(bool *always_ignorep) const
 {
 	debug_str_t addr_s, ops_s, perms_s;
 	debug_str_t msg;
@@ -225,226 +191,42 @@ Memory::BusError(u_int32_t addr) const
 	return debug_fatal_errorf("Bus error at 0x%08x", addr);
 }
 
-const void *
-Memory::GetReadPtr(u_int32_t addr, u_int size, u_int *mem_waitp) const
-{
-	SegDesc seg = MEM_ADDR2SEG(addr);
-	switch (seg)
-	{
-		case SEG_VIP:
-		{
-			Request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::READ};
-			if (!vip_mem_prepare(&request))
-				return NULL;
-			*mem_waitp = request.mr_wait;
-			return request.mr_host;
-		}
-		case SEG_VSU:
-		{
-			Request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::READ};
-			if (!vsu_mem_prepare(&request))
-				return NULL;
-			*mem_waitp = request.mr_wait;
-			return request.mr_host;
-		}
-		case SEG_NVC:
-		{
-			Request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::READ};
-			if (!nvc_mem_prepare(&request))
-				return NULL;
-			*mem_waitp = request.mr_wait;
-			return request.mr_host;
-		}
-		case SEG_SRAM:
-		{
-			Request request = {.mr_emu = addr, .mr_size = size, .mr_ops = os_perm_mask::READ};
-			if (!sram_mem_prepare(&request))
-				return nullptr;
-			*mem_waitp = request.mr_wait;
-			return request.mr_host;
-		}
-		default:
-		{
-			if (!Segments[seg].GetSize())
-			{
-				BusError(addr);
-				return NULL;
-			}
-
-			u_int32_t offset = addr & Segments[seg].GetAddrMask();
-
-			if (EnableChecks && (Segments[seg].GetPerms() & os_perm_mask::READ) == os_perm_mask::NONE)
-			{
-				Request request =
-				{
-					.mr_emu = addr,
-					.mr_ops = os_perm_mask::READ,
-					.mr_perms = Segments[seg].GetPerms()
-				};
-				request.PermsError(NULL);
-				return NULL;
-			}
-
-			*mem_waitp = 2;
-			return Segments[seg].GetData() + offset;
-		}
-	}
-}
-
-bool
-Memory::Read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp) const
-{
-	assert(size > 0);
-	struct Request request =
-	{
-		.mr_emu = addr,
-		.mr_size = size,
-		.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE,
-		.mr_mask = 0xffffffff,
-		.mr_wait = 2
-	};
-	request.mr_ops = os_perm_mask::READ;
-	if (is_exec)
-		request.mr_ops|= os_perm_mask::EXEC;
-
-	if (!const_cast<Memory *>(this)->Prepare(&request))
-		return BusError(addr);
-
-	if ((request.mr_perms & request.mr_ops) != request.mr_ops)
-		return request.PermsError(NULL);
-
-	if (debug_trace_mem_read && !is_exec)
-	{
-		debug_str_t addr_s;
-		debug_str_t hex_s;
-		debug_tracef("mem.read", "%s <- [" DEBUG_ADDR_FMT "]",
-		             debug_format_hex(static_cast<u_int8_t *>(request.mr_host), size, hex_s),
-		             debug_format_addr(addr, addr_s));
-	}
-
-	switch (size)
-	{
-		case 1:
-			*(u_int8_t *)dest = *(u_int8_t *)request.mr_host;
-			break;
-		case 2:
-			*(u_int16_t *)dest = *(u_int16_t *)request.mr_host;
-			break;
-		case 4:
-			*(u_int32_t *)dest = *(u_int32_t *)request.mr_host;
-			break;
-		default:
-			os_bcopy(request.mr_host, dest, size);
-	}
-
-	*mem_waitp = request.mr_wait;
-	return true;
-}
-
-void *
-Memory::GetWritePtr(u_int32_t addr, u_int size, u_int32_t *maskp)
-{
-	assert(size > 0);
-	Memory::Request request =
-	{
-		.mr_emu = addr,
-		.mr_size = size,
-		.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE | os_perm_mask::EXEC,
-		.mr_ops = os_perm_mask::WRITE,
-		.mr_mask = 0xffffffff,
-		.mr_wait = 2
-	};
-
-	if (!Prepare(&request))
-	{
-		// TODO: SEGV
-		BusError(addr);
-		return NULL;
-	}
-
-	*maskp = request.mr_mask;
-	return request.mr_host;
-}
-
-bool
-Memory::Write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp)
-{
-	assert(size > 0);
-	Memory::Request request =
-	{
-		.mr_emu = addr,
-		.mr_size = size,
-		.mr_perms = os_perm_mask::READ | os_perm_mask::WRITE | os_perm_mask::EXEC,
-		.mr_ops = os_perm_mask::WRITE,
-		.mr_mask = 0xffffffff,
-		.mr_wait = 2
-	};
-
-	if (!Prepare(&request))
-	{
-		// TODO: SEGV
-		return BusError(addr);
-	}
-
-	if ((request.mr_perms & os_perm_mask::WRITE) == os_perm_mask::NONE)
-	{
-		static bool ignore_writes = false;
-		return request.PermsError(&ignore_writes);
-	}
-
-	if (debug_trace_mem_write)
-	{
-		debug_str_t addr_s;
-		debug_str_t hex_s;
-		debug_tracef("mem.write", "[" DEBUG_ADDR_FMT "] <- %s",
-		             debug_format_addr(addr, addr_s), debug_format_hex(static_cast<const u_int8_t *>(src), size, hex_s));
-	}
-
-	SegDesc seg = MEM_ADDR2SEG(addr);
-	if (seg == Memory::SEG_VSU)
-		vsu_mem_write(&request, src);
-	else if (seg == Memory::SEG_NVC)
-		nvc_mem_write(&request, src);
-	else switch (size)
-	{
-		case 1:
-			*(u_int8_t *)request.mr_host =
-					(*(u_int8_t *)request.mr_host & ~request.mr_mask) | (*(u_int8_t *)src & request.mr_mask);
-			break;
-		case 2:
-			*(u_int16_t *)request.mr_host =
-					(*(u_int16_t *)request.mr_host & ~request.mr_mask) | (*(u_int16_t *)src & request.mr_mask);
-			break;
-		case 4:
-			*(u_int32_t *)request.mr_host =
-					(*(u_int32_t *)request.mr_host & ~request.mr_mask) | (*(u_int32_t *)src & request.mr_mask);
-			break;
-		default:
-			os_bcopy(src, request.mr_host, size);
-	}
-
-	*mem_waitp = request.mr_wait;
-	return true;
-}
-
 void
 Memory::TestAddrRO(const char *name, u_int32_t emu_addr, u_int size, void *expected) const
 {
-	u_int mem_wait;
-	const void *addr = GetReadPtr(emu_addr, size, &mem_wait);
-	if (addr != expected)
-		debug_fatal_errorf("mem_get_read_ptr(%s@0x%08x) is %p but should be %p (offset %ld)",
-				name, emu_addr, addr, expected, (intptr_t)expected - (intptr_t)addr);
+	Request<true> request(emu_addr, size, os_perm_mask::READ);
+	if (!const_cast<Memory *>(this)->Prepare(&request))
+	{
+		BusError(emu_addr);
+		return;
+	}
+
+	if (request.mr_host != expected)
+		debug_fatal_errorf("TestAddrRO(%s, 0x%08x, %u) is %p but should be %p (offset %ld)",
+				name, emu_addr, size, request.mr_host, expected, (intptr_t)expected - (intptr_t)request.mr_host);
+
+	if (!request.CheckAccess())
+		debug_fatal_errorf("TestAddrRO(%s, 0x%08x, %u) should allow read access but does not",
+				name, emu_addr, size);
 }
 
 void
 Memory::TestAddr(const char *name, u_int32_t emu_addr, u_int size, void *expected)
 {
-	TestAddrRO(name, emu_addr, size, expected);
+	Request<true> request(emu_addr, size, os_perm_mask::WRITE);
+	if (!const_cast<Memory *>(this)->Prepare(&request))
+	{
+		BusError(emu_addr);
+		return;
+	}
 
-	u_int32_t mask;
-	void *addr = GetWritePtr(emu_addr, size, &mask);
-	if (addr != expected)
-		debug_fatal_errorf("mem_get_write_ptr(%s@0x%08x) is %p but should be %p (offset %ld)",
-				name, emu_addr, addr, expected, (intptr_t)expected - (intptr_t)addr);
+	if (request.mr_host != expected)
+		debug_fatal_errorf("TestAddr(%s, 0x%08x, %u) is %p but should be %p (offset %ld)",
+				name, emu_addr, size, request.mr_host, expected, (intptr_t)expected - (intptr_t)request.mr_host);
+
+	if (!request.CheckAccess())
+		debug_fatal_errorf("TestAddr(%s, 0x%08x, %u) should allow write access but does not",
+				name, emu_addr, size);
+
+	TestAddrRO(name, emu_addr, size, expected);
 }

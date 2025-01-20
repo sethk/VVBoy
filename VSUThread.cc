@@ -1,5 +1,6 @@
 #include "Types.hh"
 #include "VSUThread.Gen.hh"
+#include "Events.hh"
 #include <cassert>
 
 #if INTERFACE

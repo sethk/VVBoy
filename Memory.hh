@@ -3,6 +3,8 @@
 #include "Types.hh"
 #include "OS.hh"
 
+#include <type_traits>
+
 class Memory
 {
 public:
@@ -23,7 +25,7 @@ public:
 	{
 		u_int ms_size;
 		os_mmap_handle_t ms_handle;
-		u_int8_t *ms_ptr;
+		u_int8_t *ms_ptr; // TODO: std::byte
 		u_int32_t ms_addrmask;
 		os_perm_mask ms_perms;
 		bool ms_is_mmap;
@@ -54,15 +56,67 @@ public:
 		static bool ValidSize(u_int size);
 	};
 
+	template<bool IsChecked>
 	struct Request
 	{
+		Request(
+			u_int32_t emu_addr,
+			u_int size,
+			os_perm_mask /*ops*/,
+			u_int wait = 2,
+			os_perm_mask perms = os_perm_mask::RDWR,
+			u_int32_t mask = 0xffffffff
+		);
+
+		bool CheckAccess() const;
+		bool PermsError(bool *always_ignorep) const;
+	};
+
+	template<>
+	struct Request<false>
+	{
+		Request(
+			u_int32_t emu_addr,
+			u_int size,
+			os_perm_mask ops,
+			u_int wait = 2,
+			os_perm_mask /*perms*/ = os_perm_mask::RDWR,
+			u_int32_t /*mask*/ = 0xffffffff
+		)
+			: mr_emu(emu_addr), mr_size(size), mr_ops(ops), mr_wait(wait)
+		{ }
+
 		u_int32_t mr_emu;
 		u_int mr_size;
 		os_perm_mask mr_ops;
 		void *mr_host;
-		os_perm_mask mr_perms;
-		u_int32_t mr_mask;
 		u_int mr_wait;
+
+		bool CheckAccess() const { return true; }
+		bool PermsError(bool * /*always_ignorep*/) const { return true; }
+	};
+
+	template<>
+	struct Request<true> : Request<false>
+	{
+		Request(
+			u_int32_t emu_addr,
+			u_int size,
+			os_perm_mask ops,
+			u_int wait = 2,
+			os_perm_mask perms = os_perm_mask::RDWR,
+			u_int32_t mask = 0xffffffff
+		)
+			: Request<false>(emu_addr, size, ops, wait, perms, mask)
+			, mr_perms(perms)
+		{ }
+
+		os_perm_mask mr_perms;
+
+		bool CheckAccess() const
+		{
+			return ((mr_perms & mr_ops) == mr_ops);
+		}
 
 		bool PermsError(bool *always_ignorep) const;
 	};
@@ -73,19 +127,29 @@ public:
 	bool Initialize();
 	void Finalize();
 
-	bool Read(u_int32_t addr, void *dest, u_int size, bool is_exec, u_int *mem_waitp) const;
-	bool Write(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp);
+	template<bool IsChecked, typename T,
+			typename = typename std::enable_if<!std::is_pointer<T>::value>::type>
+	bool Read(u_int32_t addr, T &dest, u_int *mem_waitp) const;
 
-	const void *GetReadPtr(u_int32_t addr, u_int size, u_int *mem_waitp) const;
-	void *GetWritePtr(u_int32_t addr, u_int size, u_int32_t *maskp);
+	template<bool IsChecked>
+	bool ReadString(u_int32_t addr, void *dest, u_int size, u_int *mem_waitp) const;
+
+	template<bool IsChecked, typename T,
+			typename = typename std::enable_if<!std::is_pointer<T>::value>::type>
+	bool Write(u_int32_t addr, const T &src, u_int *mem_waitp);
+
+	template<bool IsChecked>
+	bool WriteString(u_int32_t addr, const void *src, u_int size, u_int *mem_waitp);
 
 	void TestAddr(const char *name, u_int32_t emu_addr, u_int size, void *expected);
 	void TestAddrRO(const char *name, u_int32_t emu_addr, u_int size, void *expected) const;
+	void TestAddrWO(const char *name, u_int32_t emu_addr, u_int size, void *expected) const;
 
 	static u_int32_t SizeCeil(u_int32_t size);
 
 private:
-	bool Prepare(Request *request);
+	template<bool IsChecked>
+	bool Prepare(Request<IsChecked> *request);
 	bool BusError(u_int32_t addr) const;
 
 public:
@@ -96,6 +160,7 @@ public:
 
 	Segment Segments[SegDesc::NUM_SEGS];
 	bool EnableChecks = false;
+	bool IgnoreWriteErrors = false;
 };
 
 constexpr u_int32_t MaxSegSize = 0x01000000;
@@ -105,3 +170,4 @@ constexpr u_int32_t MaxAddrMask = MaxSegSize - 1;
 #define MEM_ADDR2OFF(a) ((a) & MaxAddrMask)
 #define MEM_SEG2ADDR(s) ((s) << 24)
 
+extern class Memory mem;

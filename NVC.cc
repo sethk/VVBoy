@@ -1,54 +1,8 @@
-#include "Types.hh"
+#include "NVC.hh"
 #include "Memory.hh"
 #include "ROM.hh"
 #include "NVC.Gen.hh"
 #include "OS.hh"
-
-#if INTERFACE
-	//_Alignas(4)
-	struct nvc_regs
-	{
-		u_int8_t nr_ccr;
-		u_int8_t nr_ccsr;
-		u_int8_t nr_cdtr;
-		u_int8_t nr_cdrr;
-		u_int8_t nr_sdlr;
-		u_int8_t nr_sdhr;
-		u_int8_t nr_tlr;
-		u_int8_t nr_thr;
-		struct nvc_tcr
-		{
-			u_int8_t t_enb : 1,
-					 t_z_stat : 1,
-					 t_z_stat_clr : 1,
-					 t_z_int : 1,
-					 t_clk_sel : 1;
-		} nr_tcr;
-		u_int8_t nr_wcr;
-		struct
-		{
-			u_int8_t s_abt_dis : 1,
-					 s_si_stat : 1,
-					 s_hw_si : 1,
-					 s_rfu1 : 1,
-					 s_soft_ck : 1,
-					 s_para_si : 1,
-					 s_rfu2 : 1,
-					 s_k_int_inh : 1;
-		} nr_scr;
-		//u_int8_t nr_padding[50];
-	};
-
-	enum nvc_intlevel
-	{
-		NVC_INTKEY = 0,
-		NVC_INTTIM = 1,
-		NVC_INTCRO = 2,
-		NVC_INTCOM = 3,
-		NVC_INTVIP = 4,
-		NVC_NUM_INTLEVEL
-	};
-#endif // INTERFACE
 
 enum nvc_key
 {
@@ -72,14 +26,8 @@ enum nvc_key
 };
 
 struct nvc_regs nvc_regs;
+struct nvc_timer nvc_timer;
 
-static struct
-{
-	u_int16_t nt_preset;
-	u_int16_t nt_next_count;
-	u_int nt_next_tick;
-	u_int nt_tick_frac;
-} nvc_timer;
 u_int nvc_cycles_per_usec = 20;
 static u_int16_t nvc_keys;
 const char * const nvc_intnames[static_cast<nvc_intlevel>(NVC_NUM_INTLEVEL)] =
@@ -90,14 +38,6 @@ const char * const nvc_intnames[static_cast<nvc_intlevel>(NVC_NUM_INTLEVEL)] =
 				[NVC_INTCOM] = "COM",
 				[NVC_INTVIP] = "VIP",
 		};
-
-enum nvc_event
-{
-	NVC_EVENT_TIMER_SET = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(0),
-	NVC_EVENT_TIMER_EXPIRED = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(1),
-	NVC_EVENT_KEY_DOWN = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(2),
-	NVC_EVENT_KEY_UP = EVENT_SUBSYS_BITS(EVENT_SUBSYS_NVC) | EVENT_WHICH_BITS(3)
-};
 
 bool
 nvc_init(void)
@@ -203,7 +143,7 @@ nvc_frame_begin(void)
 #endif // 0
 }
 
-static void
+void
 nvc_timer_set(u_int16_t next_count)
 {
 	u_int tick_usec;
@@ -246,42 +186,11 @@ nvc_format_timer(debug_str_t s)
 	return s;
 }
 
-static void
+void
 nvc_trace_timer(const char *desc)
 {
 	debug_str_t timer_s;
 	debug_tracef("nvc.tim", "%s - %s", desc, nvc_format_timer(timer_s));
-}
-
-bool
-nvc_step(void)
-{
-	if (nvc_regs.nr_tcr.t_enb && emu_usec == nvc_timer.nt_next_tick)
-	{
-		nvc_regs.nr_tlr = nvc_timer.nt_next_count & 0xff;
-		nvc_regs.nr_thr = nvc_timer.nt_next_count >> 8;
-
-		if (nvc_timer.nt_next_count > 0)
-			nvc_timer_set(nvc_timer.nt_next_count - 1);
-		else
-		{
-			nvc_regs.nr_tcr.t_z_stat = 1;
-			nvc_timer_set(nvc_timer.nt_preset);
-
-			if (debug_trace_nvc_tim)
-				nvc_trace_timer("Timer expired");
-			if (nvc_regs.nr_tcr.t_z_int)
-				cpu_intr(NVC_INTTIM);
-
-			events_fire(NVC_EVENT_TIMER_EXPIRED, 0, 0);
-		}
-	}
-
-	for (u_int x = 0; x < nvc_cycles_per_usec; ++x)
-		if (!cpu_step())
-			return false;
-
-	return true;
 }
 
 static void
@@ -412,107 +321,3 @@ nvc_input_axis(tk_axis axis, float value)
 	}
 }
 
-bool
-nvc_mem_prepare(struct Memory::Request *request)
-{
-	if (request->mr_size != 1)
-	{
-		static bool ignore_size = false;
-		if (!debug_runtime_errorf(&ignore_size, "Invalid NVC access size %u @ 0x%08x",
-		                          request->mr_size, request->mr_emu))
-			return false;
-		request->mr_size = 1;
-	}
-	if (request->mr_emu <= 0x02000028)
-	{
-		switch (request->mr_emu)
-		{
-			case 0x02000024:
-			case 0x02000028:
-			case 0x0200001c:
-			case 0x02000018:
-			case 0x02000014:
-			case 0x02000010:
-			case 0x02000008:
-			case 0x02000004:
-			case 0x02000000:
-				request->mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
-				break;
-			case 0x02000020:
-				request->mr_perms = os_perm_mask::READ | os_perm_mask::WRITE;
-				break;
-			default:
-				request->mr_perms = os_perm_mask::NONE;
-		}
-		request->mr_host = (u_int8_t *) &nvc_regs + ((request->mr_emu & 0x3f) >> 2);
-	}
-	else
-	{
-		debug_runtime_errorf(NULL, "NVC bus error at 0x%08x", request->mr_emu);
-		debug_stop();
-		return false;
-	}
-
-	return true;
-}
-
-void
-nvc_mem_write(const Memory::Request *request, const void *src)
-{
-	switch (request->mr_emu)
-	{
-		case 0x02000020:
-		{
-			const struct nvc_regs::nvc_tcr *new_tcr = (struct nvc_regs::nvc_tcr *)src;
-
-			nvc_regs.nr_tcr.t_z_int = new_tcr->t_z_int;
-
-			if (nvc_regs.nr_tcr.t_clk_sel != new_tcr->t_clk_sel)
-			{
-				if (nvc_regs.nr_tcr.t_enb)
-				{
-					static bool ignore_sel = false;
-					debug_runtime_errorf(&ignore_sel, "T-Clk-Sel changed while timer enabled");
-				}
-				nvc_regs.nr_tcr.t_clk_sel = new_tcr->t_clk_sel;
-			}
-
-			if (!nvc_regs.nr_tcr.t_enb && new_tcr->t_enb)
-			{
-				nvc_regs.nr_tcr.t_enb = 1;
-				nvc_timer_set(nvc_timer.nt_preset);
-
-				if (debug_trace_nvc_tim)
-					nvc_trace_timer("Timer enabled");
-			}
-			else if (nvc_regs.nr_tcr.t_enb && !new_tcr->t_enb)
-			{
-				nvc_regs.nr_tcr.t_enb = 0;
-
-				if (debug_trace_nvc_tim)
-					nvc_trace_timer("Timer disabled");
-			}
-
-			if (nvc_regs.nr_tcr.t_z_stat && new_tcr->t_z_stat_clr)
-			{
-				nvc_regs.nr_tcr.t_z_stat = 0;
-				if (debug_trace_nvc_tim)
-					nvc_trace_timer("Cleared timer zero status");
-			}
-			break;
-		}
-		case 0x0200001c:
-			nvc_timer.nt_preset = (nvc_timer.nt_preset & 0xff) | *(u_int8_t *)src << 8;
-			if (debug_trace_nvc_tim)
-				nvc_trace_timer("Set timer high");
-			break;
-		case 0x02000018:
-			nvc_timer.nt_preset = (nvc_timer.nt_preset & 0xff00) | *(u_int8_t *)src;
-			if (debug_trace_nvc_tim)
-				nvc_trace_timer("Set timer low");
-			break;
-
-		default:
-			*(u_int8_t *)request->mr_host = *(u_int8_t *)src;
-	}
-}

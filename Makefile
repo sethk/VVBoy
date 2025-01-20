@@ -31,6 +31,7 @@ endif
 
 .PHONY: VVBoy/run
 VVBoy/run: VVBoy
+	@echo Use make run ROM_FILE=...
 	cd ${CMAKE_DIR} && ./$< ${RUN_ARGS}
 
 .PHONY: run

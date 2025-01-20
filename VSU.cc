@@ -1,7 +1,9 @@
-#include "Types.hh"
+#include "VSU.hh"
+#include "OS.hh"
 #include "VSU.Gen.hh"
 #include "Memory.hh"
 #include "ROM.hh"
+#include "Events.hh"
 #include <cassert>
 #include <cmath>
 
@@ -11,78 +13,6 @@ enum vsu_event
 	VSU_EVENT_OVERFLOW = EVENT_SUBSYS_BITS(EVENT_SUBSYS_VSU) | EVENT_WHICH_BITS(3)
 };
 
-struct vsu_ram
-{
-	u_int8_t vr_waves[5][32];
-	u_int8_t vr_snd5mod[32];
-	u_int8_t vr_rfu[64];
-};
-
-struct vsu_regs
-{
-	//_Alignas(4)?
-	struct vsu_sound_regs
-	{
-		struct
-		{
-			u_int8_t vi_data : 5;
-			u_int8_t vi_mode : 1;
-			u_int8_t vi_rfu1 : 1;
-			u_int8_t vi_start : 1;
-		} vsr_int;				// 00
-		struct
-		{
-			u_int8_t vl_rlevel : 4;
-			u_int8_t vl_llevel : 4;
-		} vsr_lrv;				// 04
-		u_int8_t vsr_fql;		// 08
-		struct
-		{
-			u_int8_t vf_fqh : 3;
-			u_int8_t vf_rfu1 : 5;
-		} vsr_fqh;				// 0C
-		struct
-		{
-			u_int8_t ve_step : 3;
-			u_int8_t ve_ud : 1;
-			u_int8_t ve_init : 4;
-		} vsr_ev0;				// 10
-		struct
-		{
-			u_int8_t ve_on : 1;
-			u_int8_t ve_rs : 1;
-			u_int8_t ve_rfu1 : 2;
-			u_int8_t ve_modswp : 1;
-			u_int8_t ve_short : 1;
-			u_int8_t ve_ed : 1;
-			u_int8_t ve_rfu2 : 1;
-		} vsr_ev1;				// 14
-		union
-		{
-			struct
-			{
-				u_int8_t vr_addr : 4;
-				u_int8_t vr_rfu1 : 4;
-			} vsr_ram;
-		};						// 18
-		struct
-		{
-			u_int8_t vs_shifts : 3;
-			u_int8_t vs_ud : 1;
-			u_int8_t vs_time : 3;
-			u_int8_t vs_clk : 1;
-		} vsr_swp;				// 1C
-		u_int32_t vs_rfu[2];	// 20
-	} vr_sounds[6];
-	struct
-	{
-		u_int8_t vs_stop : 1;
-		u_int8_t vs_rfu1 : 7;
-	} vr_stop;					// 180
-	u_int8_t vr_rfu1[7];
-	u_int32_t vr_rfu2[6];
-};
-
 static bool vsu_muted_by_user = false;
 static bool vsu_muted_by_engine = false;
 static u_int vsu_mutes = 0;
@@ -90,8 +20,8 @@ static u_int vsu_mutes = 0;
 bool vsu_sounds_open = false;
 bool vsu_buffers_open = false;
 
-static struct vsu_ram vsu_ram;
-static struct vsu_regs vsu_regs;
+struct vsu_ram vsu_ram;
+struct vsu_regs vsu_regs;
 
 const u_int32_t vsu_sample_rate = 41700;
 static const u_int32_t clock_freq = 5000000;
@@ -232,7 +162,7 @@ vsu_set_muted_by_engine(bool muted)
 		vsu_mutes_decr();
 }
 
-static void
+void
 vsu_sound_start(u_int sound)
 {
 	const struct vsu_regs::vsu_sound_regs *vsr = vsu_regs.vr_sounds + sound;
@@ -256,7 +186,7 @@ vsu_sound_start(u_int sound)
 	state->vs_env_count = 0;
 }
 
-static void
+void
 vsu_sound_stop(u_int sound)
 {
 	if (vsu_states[sound].vs_started)
@@ -557,75 +487,6 @@ vsu_frame_end(void)
 			}
 		}
 		igEnd();
-	}
-}
-
-bool
-vsu_mem_prepare(Memory::Request *request)
-{
-	if (request->mr_size != 1)
-	{
-		static bool ignore_size = false;
-		if (!debug_runtime_errorf(&ignore_size, "Invalid VSU access size %u @ 0x%08x\n",
-		                          request->mr_size, request->mr_emu))
-			return false;
-		request->mr_size = 1;
-	}
-
-	// TODO: More granularity on perms
-	if (request->mr_emu < 0x01000400)
-	{
-		if (request->mr_emu >= 0x01000300)
-		{
-			u_int32_t mirror = request->mr_emu & 0x010003ff;
-			static bool always_ignore = false;
-			if (!debug_runtime_errorf(&always_ignore, "Mirroring VSU RAM at 0x%08x -> 0x%x", request->mr_emu, mirror))
-				return false;
-			request->mr_emu = mirror;
-		}
-
-		request->mr_host = (u_int8_t *) &vsu_ram + ((request->mr_emu >> 2) & 0xff);
-	}
-	else if (request->mr_emu < 0x01000600)
-		request->mr_host = (u_int8_t *)&vsu_regs + ((request->mr_emu >> 2) & 0x7f);
-	else
-	{
-		if (!debug_runtime_errorf(NULL, "VSU bus error at 0x%08x\n", request->mr_emu))
-			return false;
-
-		static u_int32_t dummy;
-		request->mr_host = &dummy;
-	}
-
-	return true;
-}
-
-void
-vsu_mem_write(const Memory::Request *request, const void *src)
-{
-	u_int8_t value = *(u_int8_t *)src;
-	*(u_int8_t *)request->mr_host = value;
-	if ((request->mr_emu & 0b10000111111) == 0b10000000000)
-	{
-		u_int sound = (request->mr_emu >> 6) & 0b111;
-		if (sound == 6)
-		{
-			// SSTOP
-			if (value & 1)
-			{
-				for (u_int i = 0; i < 6; ++i)
-					vsu_sound_stop(i);
-			}
-		}
-		else
-		{
-			assert(sound < 6);
-			// SxINT
-			if (value & 0x80)
-				vsu_sound_start(sound);
-			else
-				vsu_sound_stop(sound);
-		}
 	}
 }
 
