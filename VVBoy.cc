@@ -193,14 +193,14 @@ main(int ac, char * const *av)
 	#endif // !WIN32
 	}
 
+	if (!main_init())
+		return 1;
+
 	if (ac == 1)
 	{
 		if (!main_load_rom(av[0]))
 			return 1;
 	}
-
-	if (!main_init())
-		return 1;
 
 	main_update_caption(NULL);
 
