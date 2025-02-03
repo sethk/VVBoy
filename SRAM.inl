@@ -1,7 +1,7 @@
 #pragma once
 
-//#include "Memory.hh"
-#include "Emu.hh"
+//#include "SRAM.hh"
+#include "Memory.hh"
 
 template<bool CheckedMem>
 bool

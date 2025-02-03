@@ -1,17 +1,13 @@
+#pragma once
+
 #include "Memory.hh"
+#include "VIP_Memory.inl"
+#include "NVC_Memory.inl"
+#include "VSU_Memory.inl"
+#include "SRAM.inl"
 
 #include <cassert>
 #include <algorithm>
-
-// TODO:
-template<bool CheckedMem> extern bool vip_mem_prepare(Memory::Request<CheckedMem> &request);
-template<bool CheckedMem> extern bool vsu_mem_prepare(Memory::Request<CheckedMem> &request);
-template<bool CheckedMem> extern bool nvc_mem_prepare(Memory::Request<CheckedMem> &request);
-template<bool CheckedMem> extern bool vip_mem_prepare(Memory::Request<CheckedMem> &request);
-template<bool CheckedMem> extern bool sram_mem_prepare(Memory::Request<CheckedMem> &request);
-template<bool CheckedMem> extern bool vsu_mem_prepare(Memory::Request<CheckedMem> &request);
-template<bool CheckedMem> void vsu_mem_write(const Memory::Request<CheckedMem> &request, const void *src);
-template<bool CheckedMem> void nvc_mem_write(const Memory::Request<CheckedMem> &request, const void *src);
 
 typedef char debug_str_t[96];
 extern bool debug_trace_mem_read;

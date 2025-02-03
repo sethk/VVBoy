@@ -1,7 +1,9 @@
-#include "Emu.hh"
+#pragma once
+
 #include "CPU.hh"
-#include "Memory.hh"
-#include "ROM.hh"
+#include "Emu.hh"
+#include "Memory.inl"
+#include "ROM.inl"
 
 #include <cassert>
 #include <cfloat>

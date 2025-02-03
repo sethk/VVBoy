@@ -3,9 +3,9 @@
 #include "OS.hh"
 #include "ROM.hh"
 #include "Memory.hh"
-#include "CPU.hh"
 #include "CPU.inl"
 #include "VVBDis.Gen.hh"
+
 #include <cstdlib>
 #ifdef __APPLE__
 # include <unistd.h> // getopt()

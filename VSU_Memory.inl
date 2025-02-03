@@ -1,7 +1,16 @@
+#pragma once
+
 #include "VSU.hh"
+#include "Memory.hh"
+
+#include <cassert>
 
 extern vsu_ram vsu_ram;
 extern vsu_regs vsu_regs;
+
+extern bool debug_runtime_error(bool allow_ignore, bool *always_ignore_flagp, const char *msg);
+extern bool __printflike(2, 3) debug_runtime_errorf(bool *always_ignore_flagp, const char *fmt, ...);
+extern bool __printflike(1, 2) debug_fatal_errorf(const char *fmt, ...);
 
 extern void vsu_sound_start(u_int sound);
 extern void vsu_sound_stop(u_int sound);

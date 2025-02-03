@@ -1,6 +1,5 @@
 #include "Types.hh"
 #include "Memory.inl"
-
 #include "Memory.Gen.hh"
 
 #include <cstdlib>

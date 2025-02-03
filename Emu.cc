@@ -4,12 +4,6 @@
 #include "Memory.hh"
 #include "OS.hh"
 #include "NVC.inl"
-#include "CPU.inl"
-#include "ROM.inl"
-#include "VSU.inl"
-#include "VIP.inl"
-#include "SRAM.inl"
-#include "Memory.inl"
 
 u_int32_t emu_usec;
 bool emu_trace = false;

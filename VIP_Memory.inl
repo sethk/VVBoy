@@ -1,4 +1,7 @@
+#pragma once
+
 #include "VIP.hh"
+#include "Memory.hh"
 
 #include <cassert>
 
@@ -7,6 +10,7 @@ extern struct vip_dram vip_dram;
 extern struct vip_regs vip_regs;
 typedef char debug_str_t[96];
 extern const char *debug_format_addr(u_int32_t addr, debug_str_t s);
+extern bool __printflike(2, 3) debug_runtime_errorf(bool *always_ignore_flagp, const char *fmt, ...);
 
 template<bool CheckedMem>
 bool

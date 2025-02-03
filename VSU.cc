@@ -1,9 +1,9 @@
-#include "VSU.hh"
+#include "VSU_Memory.inl"
 #include "OS.hh"
 #include "VSU.Gen.hh"
-#include "Memory.hh"
 #include "ROM.hh"
 #include "Events.hh"
+
 #include <cassert>
 #include <cmath>
 

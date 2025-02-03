@@ -1,4 +1,4 @@
-#include "Memory.hh"
+#include "SRAM.inl"
 #include "SRAM.Gen.hh"
 
 bool

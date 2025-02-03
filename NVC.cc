@@ -1,4 +1,5 @@
-#include "NVC.hh"
+#include "NVC.inl"
+#include "NVC_Memory.inl"
 #include "Memory.hh"
 #include "ROM.hh"
 #include "NVC.Gen.hh"

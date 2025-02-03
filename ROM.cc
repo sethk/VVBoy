@@ -1,5 +1,4 @@
-#include "ROM.hh"
-#include "Memory.hh"
+#include "ROM.inl"
 #include "OS.hh"
 #include "ROM.Gen.hh"
 #include "CPU.hh"

@@ -1,3 +1,5 @@
+#pragma once
+
 #include "ROM.hh"
 #include "Memory.hh"
 

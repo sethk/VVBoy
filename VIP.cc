@@ -1,10 +1,7 @@
-#include "VIP.hh"
-#include "Types.hh"
+#include "VIP_Memory.inl"
 #include "Emu.hh"
 #include "NVC.hh"
 #include "CPU.hh"
-#include "Memory.hh"
-#include "ROM.hh"
 #include "VIP.Gen.hh"
 #include <cassert>
 #include <cmath>

@@ -1,14 +1,10 @@
 #include "Types.hh"
 #include "Emu.hh"
-#include "CPU.inl"
-#include "ROM.inl"
-#include "Memory.inl"
-#include "NVC.inl"
-#include "VSU.inl"
-#include "VIP.inl"
-#include "SRAM.inl"
+#include "CPU.hh"
 #include "Debug.Gen.hh"
-#include <new>
+#include "VIP.hh"
+#include "Memory.inl"
+#include "CPU.inl"
 
 #if INTERFACE
 #	include "Types.hh"
@@ -422,7 +418,7 @@ debug_add_symbol(struct debug_symbol *debug_sym)
 struct debug_symbol *
 debug_create_symbol(const char *name, u_int32_t addr, bool is_system)
 {
-	struct debug_symbol *debug_sym = new(std::nothrow) debug_symbol;
+	struct debug_symbol *debug_sym = new debug_symbol;
 	if (!debug_sym)
 		main_fatal_error(OS_RUNERR_TYPE_OSERR, "Could not allocate debug symbol");
 
@@ -1940,7 +1936,7 @@ debug_exec(const char *cmd)
 						debug_printf("No watch found for 0x%08x\n", addr);
 					else
 					{
-						watch = new(std::nothrow) debug_watch;
+						watch = new debug_watch;
 						if (!watch)
 							main_fatal_error(OS_RUNERR_TYPE_OSERR, "Allocate debug watch");
 						watch->dw_addr = addr;

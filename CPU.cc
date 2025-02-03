@@ -1,9 +1,5 @@
 #include "CPU.hh"
-#include "Types.hh"
-#include "Emu.hh"
-#include "NVC.hh"
 #include "CPU.Gen.hh"
-#include "Memory.inl"
 #include "CPU.inl"
 
 struct cpu_state cpu_state;
